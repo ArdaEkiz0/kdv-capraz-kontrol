@@ -1,0 +1,353 @@
+import os
+from datetime import date, datetime
+
+from utils import fatura_no_temizle, tarih_parse, tutar_parse, vkn_temizle
+
+KOLON_SINONIMLERI = {
+    "belge_no": [
+        "BELGE NO", "BELGE NUMARASI", "BELGE", "FATURA NO", "FATURA NUMARASI",
+        "FATURA", "EVRAK NO", "IRSALIYE NO",
+    ],
+    "tarih": [
+        "TARIH", "BELGE TARIHI", "FATURA TARIHI", "DUZENLENME TARIHI",
+        "DUZENLEME TARIHI", "ISLEM TARIHI", "EVRAK TARIHI", "TARIH",
+    ],
+    "vkn": [
+        "VKN", "VERGI KIMLIK NO", "VERGI NO", "TC KIMLIK NO", "TCKN",
+        "KIMLIK NO", "T.C. KIMLIK NO",
+    ],
+    "matrah": [
+        "MATRAH", "KDV MATRAHI", "MAL HIZMET TUTARI", "MAL HIZMET BEDELI",
+        "KDV HARIC TUTAR", "TUTAR", "BEDEL", "ARACILIK HIZMETI",
+    ],
+    "kdv": [
+        "KDV TUTARI", "HESAPLANAN KDV", "KDV", "VERGI TUTARI", "KDV TOPLAMI",
+    ],
+    "toplam": [
+        "GENEL TOPLAM", "FATURA TOPLAMI", "TOPLAM TUTAR", "TOPLAM",
+        "ODENECEK TUTAR", "ODENEN TUTAR", "GENEL TOPLAM",
+    ],
+    "oran": ["KDV ORANI", "ORAN", "KDV ORANI %", "ORAN %"],
+    "unvan": [
+        "UNVAN", "FIRMA UNVANI", "FIRMA", "TEDARIKCI", "SATICI",
+        "ALICI UNVANI", "CARI", "CARİ", "MUSTERI",
+    ],
+}
+
+
+def _norm_baslik(deger):
+    if deger is None:
+        return ""
+    metin = str(deger).upper()
+    tr = {"İ": "I", "Ğ": "G", "Ü": "U", "Ş": "S", "Ö": "O", "Ç": "C", "I": "I"}
+    for k, v in tr.items():
+        metin = metin.replace(k, v)
+    parcalar = []
+    for c in metin:
+        if c.isalnum():
+            parcalar.append(c)
+        else:
+            parcalar.append(" ")
+    return " ".join("".join(parcalar).split())
+
+
+def _kolon_bul(basliklar, alan):
+    for i, h in enumerate(basliklar):
+        n = _norm_baslik(h)
+        if not n or len(n) < 2:
+            continue
+        for sinonim in KOLON_SINONIMLERI[alan]:
+            s = _norm_baslik(sinonim)
+            if s in n or n in s:
+                return i
+    return None
+
+
+def excel_satirlar(dosya_yolu):
+    if dosya_yolu.lower().endswith(".xls"):
+        import xlrd
+        wb = xlrd.open_workbook(dosya_yolu)
+        ws = wb.sheet_by_index(0)
+        satirlar = [list(ws.row_values(i)) for i in range(ws.nrows)]
+        wb.release_resources()
+        return satirlar
+    import openpyxl
+    wb = openpyxl.load_workbook(dosya_yolu, data_only=True)
+    ws = wb.active
+    satirlar = []
+    for satir in ws.iter_rows(values_only=True):
+        satirlar.append(list(satir))
+    wb.close()
+    return satirlar
+
+
+def _excel_seri_tarih(deger):
+    try:
+        from datetime import timedelta
+        sayi = float(deger)
+    except Exception:
+        return None
+    if not (20000 <= sayi <= 80000):
+        return None
+    try:
+        from datetime import datetime
+        return (datetime(1899, 12, 30) + timedelta(days=sayi)).strftime("%Y-%m-%d")
+    except Exception:
+        return None
+
+
+def _huc_re(deger):
+    if deger is None:
+        return None
+    if isinstance(deger, (datetime, date)):
+        return deger.strftime("%Y-%m-%d")
+    return deger
+
+
+def _huc_tutar(deger):
+    if deger is None:
+        return None
+    if isinstance(deger, (int, float)):
+        return tutar_parse(str(deger))
+    return tutar_parse(deger)
+
+
+def _baslik_satiri_bul(satirlar):
+    for i, satir in enumerate(satirlar):
+        eşleşme = 0
+        for alan in ("belge_no", "vkn", "matrah", "kdv", "tarih"):
+            if _kolon_bul(satir, alan) is not None:
+                eşleşme += 1
+        if eşleşme >= 2:
+            return i
+    return None
+
+
+def _satir_veri(satir, kolonlar, kayit, harita):
+    for alan, (hedef_alan, tur) in harita.items():
+        idx = kolonlar.get(alan)
+        if idx is None or idx >= len(satir):
+            continue
+        deger = satir[idx]
+        if deger is None:
+            continue
+        if tur == "tarih":
+            t = _huc_re(deger)
+            if isinstance(t, str):
+                kayit[hedef_alan] = tarih_parse(t)
+            elif isinstance(deger, (int, float)):
+                kayit[hedef_alan] = _excel_seri_tarih(deger)
+        elif tur == "tutar":
+            kayit[hedef_alan] = _huc_tutar(deger)
+        elif tur == "vkn":
+            kayit[hedef_alan] = vkn_temizle(deger)
+        elif tur == "belge":
+            kayit[hedef_alan] = fatura_no_temizle(deger)
+        else:
+            kayit[hedef_alan] = str(deger).strip()
+
+
+def _toplam_satiri_mi(satir, kolonlar):
+    for deger in satir:
+        if deger is None:
+            continue
+        n = _norm_baslik(deger)
+        if n in ("TOPLAM", "GENEL TOPLAM", "ARA TOPLAM", "GENELTOPLAM"):
+            return True
+    return False
+
+
+def _kolon_haritasi(satirlar, baslik_i):
+    baslik = satirlar[baslik_i]
+    kolonlar = {}
+    for alan in KOLON_SINONIMLERI:
+        idx = _kolon_bul(baslik, alan)
+        if idx is not None:
+            kolonlar[alan] = idx
+    return kolonlar
+
+
+def fatura_excel_parse(dosya_yolu):
+    satirlar = excel_satirlar(dosya_yolu)
+    baslik_i = _baslik_satiri_bul(satirlar)
+    sonuc = []
+    if baslik_i is None:
+        return [{
+            "dosya": dosya_yolu, "tip": "excel", "satir": 1,
+            "belge_no": None, "tarih": None, "satici_vkn": None, "alici_vkn": None,
+            "matrah": None, "kdv": None, "toplam": None, "oranlar": [], "notlar": [],
+            "unvan": None,
+        }]
+    kolonlar = _kolon_haritasi(satirlar, baslik_i)
+    for i in range(baslik_i + 1, len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        if _toplam_satiri_mi(satir, kolonlar):
+            continue
+        kayit = {
+            "dosya": dosya_yolu, "tip": "excel", "satir": i + 1,
+            "belge_no": None, "tarih": None, "satici_vkn": None, "alici_vkn": None,
+            "matrah": None, "kdv": None, "toplam": None, "oranlar": [], "notlar": [],
+            "unvan": None, "oran": None,
+        }
+        _satir_veri(satir, kolonlar, kayit, {
+            "belge_no": ("belge_no", "belge"), "tarih": ("tarih", "tarih"),
+            "vkn": ("satici_vkn", "vkn"), "matrah": ("matrah", "tutar"),
+            "kdv": ("kdv", "tutar"), "toplam": ("toplam", "tutar"),
+            "oran": ("oran", "tutar"), "unvan": ("unvan", "metin"),
+        })
+        if not kayit["belge_no"] and not kayit["satici_vkn"] and kayit["matrah"] is None:
+            continue
+        oran_deger = kayit["oran"]
+        if oran_deger is not None:
+            try:
+                kayit["oranlar"] = [int(oran_deger)]
+            except (TypeError, ValueError):
+                o = tutar_parse(oran_deger)
+                if o is not None:
+                    kayit["oranlar"] = [int(o)]
+        if kayit["matrah"] is None or kayit["kdv"] is None:
+            kayit["notlar"].append("Matrah/KDV bulunamadı, manuel kontrol edin")
+        elif kayit["toplam"] is not None and abs(kayit["matrah"] + kayit["kdv"] - kayit["toplam"]) > 0.02:
+            kayit["notlar"].append("Matrah+KDV ≠ Toplam")
+        sonuc.append(kayit)
+    if not sonuc:
+        sonuc.append({
+            "dosya": dosya_yolu, "tip": "excel", "satir": 1,
+            "belge_no": None, "tarih": None, "satici_vkn": None, "alici_vkn": None,
+            "matrah": None, "kdv": None, "toplam": None, "oranlar": [],
+            "notlar": ["Excel'de veri satırı bulunamadı (başlık satırı tanınamadı)"], "unvan": None,
+        })
+    return sonuc
+
+
+def cetvel_excel_parse(dosya_yolu):
+    satirlar = excel_satirlar(dosya_yolu)
+    baslik_i = _baslik_satiri_bul(satirlar)
+    sonuc = {"dosya": dosya_yolu, "kayitlar": [], "notlar": []}
+    if baslik_i is None:
+        sonuc["notlar"].append("Excel başlık satırı tanınamadı (VKN/Fatura No/Matrah/KDV sütunları aranıyor)")
+        return sonuc
+    kolonlar = _kolon_haritasi(satirlar, baslik_i)
+    for i in range(baslik_i + 1, len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        if _toplam_satiri_mi(satir, kolonlar):
+            continue
+        kayit = {
+            "vkn": None, "belge_no": None, "tarih": None,
+            "matrah": None, "kdv": None, "unvan": None, "notlar": [],
+        }
+        _satir_veri(satir, kolonlar, kayit, {
+            "belge_no": ("belge_no", "belge"), "tarih": ("tarih", "tarih"),
+            "vkn": ("vkn", "vkn"), "matrah": ("matrah", "tutar"),
+            "kdv": ("kdv", "tutar"), "unvan": ("unvan", "metin"),
+        })
+        if not kayit["vkn"] and not kayit["belge_no"] and kayit["matrah"] is None:
+            continue
+        if kayit["vkn"] is None:
+            kayit["notlar"].append("VKN bulunamadı")
+        sonuc["kayitlar"].append(kayit)
+    if not sonuc["kayitlar"]:
+        sonuc["notlar"].append("Excel'de veri satırı bulunamadı")
+    return sonuc
+
+
+def _muavin_baslik_indexleri(satirlar):
+    for i, satir in enumerate(satirlar):
+        normlar = [_norm_baslik(c) for c in satir]
+        if "TARIH" in normlar and "ACIKLAMA" in normlar and ("BORC" in normlar or "BORC" in normlar):
+            if "FIS NO" in normlar or "TUP" in normlar:
+                return i, {
+                    "tarih": normlar.index("TARIH"),
+                    "aciklama": normlar.index("ACIKLAMA"),
+                    "borc": normlar.index("BORC"),
+                    "alacak": normlar.index("ALACAK") if "ALACAK" in normlar else None,
+                }
+    return None, None
+
+
+def muavin_excel_parse(dosya_yolu):
+    satirlar = excel_satirlar(dosya_yolu)
+    sonuc = {"dosya": dosya_yolu, "kayitlar": [], "notlar": []}
+    baslik_i, kolonlar = _muavin_baslik_indexleri(satirlar)
+    if baslik_i is None:
+        sonuc["notlar"].append("Muavin formu tanınamadı (TARİH/TÜP/FİŞ NO/AÇIKLAMA/BORÇ sütunları aranıyor)")
+        return sonuc
+    aktif_hesap = ""
+    import re as _re
+    for i, satir in enumerate(satirlar):
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        ilk_ham = str(satir[0]).strip() if satir and satir[0] is not None else ""
+        if _re.match(r"^\d{3}\.\d{1,2}\.\d{1,3}", ilk_ham):
+            aktif_hesap = ilk_ham
+            continue
+        if i < baslik_i:
+            continue
+        if not ("KDV" in aktif_hesap.upper() or "INDIRILECEK" in aktif_hesap.upper() or "HESAPLANAN" in aktif_hesap.upper()):
+            continue
+        if "TARIH" in [_norm_baslik(c) for c in satir] and "ACIKLAMA" in [_norm_baslik(c) for c in satir]:
+            continue
+        a_idx = kolonlar["aciklama"]
+        if a_idx is None or a_idx >= len(satir):
+            continue
+        aciklama = satir[a_idx]
+        if aciklama is None:
+            continue
+        aciklama = str(aciklama).strip()
+        if not aciklama or not aciklama[0].isdigit():
+            continue
+        if "Yekun" in aciklama or "TOPLAM" in _norm_baslik(aciklama):
+            continue
+        import re as _re2
+        m = _re2.search(r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})\s*-\s*([A-Za-z0-9]+)", aciklama)
+        if not m:
+            continue
+        gun, ay, yil = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if ay < 1 or ay > 12 or gun < 1 or gun > 31:
+            continue
+        tarih = f"{yil:04d}-{ay:02d}-{gun:02d}"
+        belge = fatura_no_temizle(m.group(4))
+        kalan = aciklama[m.end():].strip(" -")
+        borc = tutar_parse(satir[kolonlar["borc"]]) if kolonlar["borc"] is not None and kolonlar["borc"] < len(satir) else None
+        alacak = tutar_parse(satir[kolonlar["alacak"]]) if kolonlar["alacak"] is not None and kolonlar["alacak"] < len(satir) else None
+        kdv = borc if borc else alacak
+        kayit = {
+            "vkn": "", "belge_no": belge, "tarih": tarih,
+            "matrah": None, "kdv": kdv, "unvan": kalan[:80],
+            "notlar": [f"Hesap: {aktif_hesap}"] if aktif_hesap else [],
+        }
+        sonuc["kayitlar"].append(kayit)
+    sonuc["kayitlar"] = _muavin_birlestir(sonuc["kayitlar"])
+    if not sonuc["kayitlar"]:
+        sonuc["notlar"].append("Muavin'de fatura satırı bulunamadı (Tarih-Belge No-Açıklama formatı aranıyor)")
+    else:
+        sonuc["notlar"].append("Muavin formu olarak okundu")
+    return sonuc
+
+
+def _muavin_birlestir(kayitlar):
+    from decimal import Decimal
+    gruplar = {}
+    for k in kayitlar:
+        anahtar = k["belge_no"]
+        if anahtar in gruplar:
+            g = gruplar[anahtar]
+            g["kdv"] = (g["kdv"] or Decimal("0")) + (k["kdv"] or Decimal("0"))
+            for n in k["notlar"]:
+                if n not in g["notlar"]:
+                    g["notlar"].append(n)
+        else:
+            g = dict(k)
+            g["notlar"] = list(k["notlar"])
+            g["kdv"] = k["kdv"]
+            gruplar[anahtar] = g
+    sonuc = []
+    for g in gruplar.values():
+        if g["kdv"] is not None:
+            g["kdv"] = g["kdv"].quantize(Decimal("0.01"))
+        sonuc.append(g)
+    return sonuc
