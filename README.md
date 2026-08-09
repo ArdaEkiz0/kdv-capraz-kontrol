@@ -1,5 +1,8 @@
 \# 📊 KDV Çapraz Kontrol Programı
 
+![Program Ekran Görüntüsü](screenshot.png)
+
+
 
 
 Bu program e-Fatura, PDF ve Excel faturalarınızı KDV kontrol cetveli ile karşılaştırır. 
