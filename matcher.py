@@ -30,7 +30,7 @@ def tutarlar_uyumlu(f, c):
         f_deger = f.get(alan)
         c_deger = c.get(alan)
         if f_deger is not None and c_deger is not None:
-            if alan == "kdv" and (f.get("tip") or "").upper() == "IADE":
+            if alan == "kdv" and (f.get("fatura_tipi") or f.get("tip") or "").upper() == "IADE":
                 f_deger = abs(f_deger)
             if abs(f_deger - c_deger) > TOLERANS:
                 return False
@@ -92,7 +92,7 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
         f_unvan = f.get("satici_unvan") if f else (c.get("unvan") if c else "")
         f_toplam = f.get("toplam") if f else None
         f_oranlar = f.get("oranlar") if f else []
-        f_tip = f.get("tip") if f else ""
+        f_tip = f.get("fatura_tipi") if f else ""
         f_ok = f.get("oran_kontrol") if f else ""
         sonuc_satirlari.append({
             "durum": durum,
@@ -207,56 +207,57 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
     iade_faturalar = gruplar["iade"]
 
     # Normal faturaları normal kontrol
-    sonuc, ozet = capraz_kontrol(normal_faturalar, cetvel_kayitlari)
+    if normal_faturalar:
+        sonuc, ozet = capraz_kontrol(normal_faturalar, cetvel_kayitlari)
+    else:
+        sonuc = []
+        ozet = {
+            "fatura_adet": 0, "cetvel_adet": len(cetvel_kayitlari),
+            "eslesen": 0, "tutar_farki": 0, "vkn_farki": 0,
+            "cetvelde_yok": 0, "faturada_yok": 0, "mukerrer": 0,
+            "parse_sorunu": 0, "fark_toplami": 0,
+        }
 
     # İade faturaları ayrı kontrol (muavin 191 hesabında aranmalı)
     if iade_faturalar:
         iade_eksikler = []
-        eslesen_belge_nolar = {
-            r.get("belge_no") for r in sonuc
-            if r.get("belge_no") and r["durum"] == DURUM_OK
+        durum_cevir = {
+            DURUM_OK: "İADE EŞLEŞTİ",
+            DURUM_CETVELDE_YOK: "İADE MUAVİNDE YOK",
+            DURUM_TUTAR_FARKI: "İADE MATRAH FARKI",
+            DURUM_VKN_FARKI: "İADE VKN FARKI",
+            DURUM_MUKERRER: "İADE MÜKERRER",
         }
+        iade_sonuc, _ = capraz_kontrol(iade_faturalar, cetvel_kayitlari)
+        for r in iade_sonuc:
+            r["durum"] = durum_cevir.get(r["durum"], r["durum"])
+            if r["kdv"] is not None:
+                r["kdv"] = abs(r["kdv"])
+            if r["matrah"] is not None:
+                r["matrah"] = abs(r["matrah"])
+            r["kaynak"] = "Fatura (İade)"
+            if r["durum"] == "İADE MUAVİNDE YOK":
+                iade_eksikler.append(r["belge_no"] or "")
+        sonuc.extend(iade_sonuc)
 
-        for f in iade_faturalar:
-            belge = f.get("belge_no")
-            if belge and belge in eslesen_belge_nolar:
-                # Muavinde var, eşleşti sayılır
-                sonuc.append({
-                    "durum": "İADE EŞLEŞTİ",
-                    "belge_no": belge,
-                    "vkn": f.get("satici_vkn"),
-                    "tarih": f.get("tarih"),
-                    "matrah": f.get("matrah"),
-                    "kdv": abs(f["kdv"]) if f.get("kdv") is not None else None,
-                    "toplam": f.get("toplam"),
-                    "oranlar": f.get("oranlar") or [],
-                    "tip": f.get("tip") or "",
-                    "unvan": f.get("satici_unvan") or "",
-                    "kaynak": "Fatura (İade)",
-                    "detay": "İade faturası muavinde eşleşti (191 hesabı)",
-                })
-            else:
-                iade_eksikler.append(f)
-                sonuc.append({
-                    "durum": "İADE MUAVİNDE YOK",
-                    "belge_no": belge or "",
-                    "vkn": f.get("satici_vkn"),
-                    "tarih": f.get("tarih"),
-                    "matrah": f.get("matrah"),
-                    "kdv": abs(f["kdv"]) if f.get("kdv") is not None else None,
-                    "toplam": f.get("toplam"),
-                    "oranlar": f.get("oranlar") or [],
-                    "tip": f.get("tip") or "",
-                    "unvan": f.get("satici_unvan") or "",
-                    "kaynak": "Fatura (İade)",
-                    "detay": "İade faturası - muavin 191 hesabında aranmalı",
-                })
+        # Normal kontrolde "FATURALARDA YOK" çıkmış, iade ile eşleşen muavin satırlarını kaldır
+        eslesen_iade_belge = {r["belge_no"] for r in iade_sonuc if r["durum"] == "İADE EŞLEŞTİ"}
+        if eslesen_iade_belge:
+            onceki_sayı = len(sonuc)
+            sonuc = [
+                r for r in sonuc
+                if not (r["durum"] == DURUM_FATURADA_YOK and r["belge_no"] in eslesen_iade_belge)
+            ]
+            cikan = onceki_sayı - len(sonuc)
+            ozet["faturada_yok"] = max(0, ozet.get("faturada_yok", 0) - cikan)
 
         # Özete iade bilgisi ekle
         iade_ozet = iade_ozet_hesapla(iade_faturalar)
         ozet["iade_adet"] = iade_ozet["iade_adet"]
         ozet["iade_kdv_toplam"] = float(iade_ozet["toplam_iade_kdv"])
         ozet["iade_matrah_toplam"] = float(iade_ozet["toplam_iade_matrah"])
+        ozet["iade_muavinde_yok"] = len(iade_eksikler)
+        ozet["fatura_adet"] = ozet.get("fatura_adet", 0) + len(iade_faturalar)
 
     return sonuc, ozet
 

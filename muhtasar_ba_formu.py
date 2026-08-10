@@ -140,7 +140,8 @@ def ba_formu_olustur(
         ws2.column_dimensions[chr(64 + j)].width = w
 
     # ----- 3) İADE FATURALARI -----
-    iadeler = [f for f in faturalar if (f.get("tip") or "").upper() in {"IADE", "CREDIT_NOTE"}]
+    iadeler = [f for f in faturalar
+               if (f.get("fatura_tipi") or f.get("tip") or "").upper() in {"IADE", "CREDIT_NOTE", "CREDITNOTE"}]
     if iadeler:
         ws3 = wb.create_sheet("İade Faturaları")
         basliklar3 = ["Tarih", "Belge No", "VKN", "Ünvan", "Matrah", "KDV"]

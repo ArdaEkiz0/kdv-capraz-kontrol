@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 
 from openpyxl import Workbook
+from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -345,6 +346,7 @@ def rapor_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol,
             f.get("satici_unvan") or "",
             f.get("satici_vkn") or "",
             f.get("alici_vkn") or "",
+            f.get("fatura_tipi") or "",
             _tutar(f.get("matrah")),
             _tutar(f.get("kdv")),
             _tutar(f.get("toplam")),
@@ -352,10 +354,10 @@ def rapor_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol,
             " / ".join(f["notlar"]) if f.get("notlar") else "",
         ])
     tablo_yaz(
-        ws7, ["Dosya", "Sayfa/Satır", "Belge No", "Tarih", "Satıcı Ünvanı", "Satıcı VKN", "Alıcı VKN", "Matrah", "KDV", "Toplam", "Oranlar", "Notlar"],
+        ws7, ["Dosya", "Sayfa/Satır", "Belge No", "Tarih", "Satıcı Ünvanı", "Satıcı VKN", "Alıcı VKN", "Tip", "Matrah", "KDV", "Toplam", "Oranlar", "Notlar"],
         satirlar,
-        genislikler=[30, 10, 22, 12, 30, 14, 14, 14, 14, 14, 10, 50],
-        sayi_kolonlari={8, 9, 10},
+        genislikler=[30, 10, 22, 12, 30, 14, 14, 14, 14, 14, 14, 10, 50],
+        sayi_kolonlari={9, 10, 11},
     )
 
     # ---------- 8) Kontrol Cetveli (muavin) ----------
@@ -377,8 +379,135 @@ def rapor_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol,
         genislikler=[14, 22, 12, 14, 14, 40, 40],
         sayi_kolonlari={4, 5},
     )
-    oran_kontrol_sayfasi_ekle(wb, sonuc_satirlari, faturalar)
 
+    # ---------- 9) KDV Dağılımı ----------
+    ws9 = wb.create_sheet("KDVDagilimi")
+    muavin_dagilim = kdv_dagilim_muavin(cetvel_kayitlari)
+    fatura_dagilim = kdv_dagilim_fatura(faturalar)
+
+    def _dagilim_tablosu(sayfa, basla, baslik, basliklar, satirlar, genislikler, sayi_kolonlari):
+        sayfa.cell(row=basla, column=1, value=baslik).font = Font(bold=True, size=12)
+        basla += 1
+        for j, b in enumerate(basliklar, start=1):
+            hucre = sayfa.cell(row=basla, column=j, value=b)
+            hucre.font = BASLIK_FONT
+            hucre.fill = BASLIK_DOLGU
+            hucre.alignment = Alignment(horizontal="center", vertical="center")
+            hucre.border = INCE_KENAR
+        for i, satir in enumerate(satirlar, start=basla + 1):
+            for j, deger in enumerate(satir, start=1):
+                hucre = sayfa.cell(row=i, column=j, value=deger)
+                hucre.border = INCE_KENAR
+                if j in sayi_kolonlari:
+                    hucre.number_format = "#,##0.00"
+                    hucre.alignment = Alignment(horizontal="right")
+                if isinstance(deger, str) and deger == "TOPLAM":
+                    hucre.font = Font(bold=True)
+                    hucre.fill = TOPLAM_DOLGU
+        for j, g in enumerate(genislikler, start=1):
+            sayfa.column_dimensions[get_column_letter(j)].width = g
+        return basla + len(satirlar) + 2
+
+    # Muavin 191 dağılımı
+    satirlar = []
+    toplam_muavin = 0
+    for hesap, g in sorted(muavin_dagilim.items(), key=lambda x: -x[1]["kdv"]):
+        satirlar.append([hesap, g["adet"], g["kdv"]])
+        toplam_muavin += g["kdv"]
+    if satirlar:
+        satirlar.append(["TOPLAM", sum(x[1] for x in satirlar), toplam_muavin])
+    satir = _dagilim_tablosu(
+        ws9, 1, "MUAVİN 191 HESAP KDV DAĞILIMI",
+        ["Hesap", "Kayıt Adedi", "KDV Toplamı"], satirlar,
+        [40, 12, 16], {2, 3},
+    )
+
+    # XML/PDF fatura KDV dağılımı
+    satirlar = []
+    toplam_fatura = 0
+    for oran, g in sorted(fatura_dagilim.items(), key=lambda x: x[0] if isinstance(x[0], int) else 999):
+        oran_ad = f"%{oran}%" if isinstance(oran, int) else (oran or "Bilinmiyor")
+        satirlar.append([oran_ad, g["adet"], g["matrah"], g["kdv"]])
+        toplam_fatura += g["kdv"]
+    if satirlar:
+        satirlar.append(["TOPLAM", sum(x[1] for x in satirlar), sum(x[2] for x in satirlar), toplam_fatura])
+    _dagilim_tablosu(
+        ws9, satir, "XML/PDF FATURA KDV DAĞILIMI",
+        ["Oran", "Fatura Adedi", "Matrah Toplamı", "KDV Toplamı"], satirlar,
+        [40, 14, 16, 16], {2, 3, 4},
+    )
+
+    # ---------- 10) Ba Formu ----------
+    ws10 = wb.create_sheet("BaFormu")
+    satirlar = []
+    for s in ba_formu(faturalar):
+        satirlar.append([
+            s["vkn"] or "", s["unvan"] or "", s["adet"], s["matrah"], s["kdv"],
+        ])
+    toplam_kdv = sum(x[4] for x in satirlar)
+    toplam_matrah = sum(x[3] for x in satirlar)
+    if satirlar:
+        satirlar.append(["", "TOPLAM", sum(x[2] for x in satirlar), toplam_matrah, toplam_kdv])
+    tablo_yaz(
+        ws10, ["VKN", "Satıcı Ünvanı", "Fatura Adedi", "Matrah Toplamı", "KDV Toplamı"],
+        satirlar,
+        genislikler=[14, 40, 14, 16, 16],
+        sayi_kolonlari={3, 4, 5},
+    )
+    if satirlar:
+        for j in range(1, 6):
+            ws10.cell(row=len(satirlar) + 1, column=j).fill = TOPLAM_DOLGU
+
+    # ---------- 11) Grafik ----------
+    ws11 = wb.create_sheet("Grafik")
+    durum_satirlar = [["Durum", "Adet"]]
+    for d in DURUM_ADLARI:
+        durum_satirlar.append([DURUM_ADLARI[d], toplamlar[d]["adet"]])
+    for i, satir in enumerate(durum_satirlar, start=1):
+        for j, deger in enumerate(satir, start=1):
+            hucre = ws11.cell(row=i, column=j, value=deger)
+            if i == 1:
+                hucre.font = BASLIK_FONT
+                hucre.fill = BASLIK_DOLGU
+    grafik1 = BarChart()
+    grafik1.type = "col"
+    grafik1.title = "Kontrol Sonuçları Dağılımı"
+    veri1 = Reference(ws11, min_col=2, min_row=1, max_row=len(durum_satirlar))
+    kategoriler1 = Reference(ws11, min_col=1, min_row=2, max_row=len(durum_satirlar))
+    grafik1.add_data(veri1, titles_from_data=True)
+    grafik1.set_categories(kategoriler1)
+    grafik1.width = 24
+    grafik1.height = 12
+    ws11.add_chart(grafik1, "E2")
+
+    eksik_satici_g = {}
+    for r in sonuc_satirlari:
+        if r["durum"] == DURUM_CETVELDE_YOK and r["kdv"] is not None and r["kdv"]:
+            anahtar = (r["vkn"], r["unvan"])
+            g = eksik_satici_g.setdefault(anahtar, {"adet": 0, "kdv": 0})
+            g["adet"] += 1
+            g["kdv"] += r["kdv"]
+    top_8 = sorted(eksik_satici_g.items(), key=lambda x: -x[1]["kdv"])[:8]
+    if top_8:
+        grafik_basla = 1
+        ws11.cell(row=grafik_basla, column=4, value="Satıcı").font = BASLIK_FONT
+        ws11.cell(row=grafik_basla, column=4).fill = BASLIK_DOLGU
+        ws11.cell(row=grafik_basla, column=5, value="Eksik KDV").font = BASLIK_FONT
+        ws11.cell(row=grafik_basla, column=5).fill = BASLIK_DOLGU
+        for i, ((vkn, unvan), g) in enumerate(top_8, start=2):
+            ad = (unvan or vkn or "Bilinmeyen")[:45]
+            ws11.cell(row=grafik_basla + i - 1, column=4, value=ad)
+            ws11.cell(row=grafik_basla + i - 1, column=5, value=g["kdv"]).number_format = "#,##0.00"
+        grafik2 = BarChart()
+        grafik2.type = "bar"
+        grafik2.title = "Muavinde Olmayan KDV - İlk 8 Satıcı"
+        veri2 = Reference(ws11, min_col=5, min_row=1, max_row=len(top_8) + 1)
+        kategoriler2 = Reference(ws11, min_col=4, min_row=2, max_row=len(top_8) + 1)
+        grafik2.add_data(veri2, titles_from_data=True)
+        grafik2.set_categories(kategoriler2)
+        grafik2.width = 24
+        grafik2.height = 12
+        ws11.add_chart(grafik2, "E20")
 
     wb.save(hedef_yol)
     return hedef_yol

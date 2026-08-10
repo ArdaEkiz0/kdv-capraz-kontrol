@@ -7,6 +7,7 @@ from fpdf.fonts import FontFace
 from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_MUKERRER,
                      DURUM_OK, DURUM_PARSE_SORUNU, DURUM_TUTAR_FARKI,
                      DURUM_VKN_FARKI)
+from ozetler import ba_formu, kdv_dagilim_fatura, kdv_dagilim_muavin
 from utils import tl_format
 
 FONT_DIZINI = r"C:\Windows\Fonts"
@@ -88,7 +89,7 @@ def _satir_kdv_tl(r):
     return tl_format(r["kdv"]) if r.get("kdv") is not None else ""
 
 
-def rapor_pdf_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol):
+def rapor_pdf_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol, gecmis_bilgi=None):
     normal_yol, kalin_yol = _font_bul()
     pdf = KdvRaporPDF(orientation="P", unit="mm", format="A4")
     pdf.set_left_margin(12)
@@ -229,6 +230,33 @@ def rapor_pdf_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_
         pdf.set_font("tr", "", 9)
         pdf.cell(0, 6, "Yok", new_x="LMARGIN", new_y="NEXT")
 
+    # Son kontrole göre değişim
+    if gecmis_bilgi:
+        pdf.ln(4)
+        pdf.set_font("tr", "B", 11)
+        pdf.cell(0, 7, "SON KONTROLE GÖRE DEĞİŞİM", new_x="LMARGIN", new_y="NEXT")
+        degisim_satirlari = []
+        if gecmis_bilgi.get("kapanan"):
+            degisim_satirlari.append([
+                "Bu ay muavine eklenen belgeler (çözüldü)", f"{len(gecmis_bilgi['kapanan'])} adet", YESIL,
+            ])
+        if gecmis_bilgi.get("yeni"):
+            degisim_satirlari.append([
+                "Bu ay yeni ortaya çıkan eksikler", f"{len(gecmis_bilgi['yeni'])} adet", KIRMIZI,
+            ])
+        if gecmis_bilgi.get("onceki_eslesen") is not None:
+            degisim_satirlari.append(["Önceki eşleşen adedi", gecmis_bilgi["onceki_eslesen"], None])
+        if gecmis_bilgi.get("zaman"):
+            degisim_satirlari.append(["Önceki kontrol zamanı", gecmis_bilgi["zaman"], None])
+        if degisim_satirlari:
+            f_tablo(
+                ["Açıklama", "Değer"],
+                [[a, v] for a, v, _ in degisim_satirlari],
+                [80, 30],
+                renkler={1: {i: r for i, (_, _, r) in enumerate(degisim_satirlari) if r}},
+                yazi_boyutu=9,
+            )
+
     # ---------- Sayfa 2+: Eksik Faturalar ----------
     eksik = [r for r in sonuc_satirlari if r["durum"] == DURUM_CETVELDE_YOK]
     if eksik:
@@ -237,21 +265,22 @@ def rapor_pdf_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_
         satirlar = []
         for r in sorted(eksik, key=lambda x: (str(x.get("tarih") or ""), str(x["belge_no"]))):
             satirlar.append([
-                r.get("tarih") or "", r["belge_no"] or "", r["vkn"] or "", r["unvan"] or "",
+                r.get("tarih") or "", r["belge_no"] or "", r.get("tip") or "",
+                r["vkn"] or "", r["unvan"] or "",
                 tl_format(r.get("matrah")), tl_format(r.get("kdv")),
                 tl_format(r.get("toplam")),
                 ", ".join(f"%{o}%" for o in r.get("oranlar") or []),
             ])
         toplam_matrah = sum((r["matrah"] or 0) for r in eksik)
         toplam_kdv = sum((r["kdv"] or 0) for r in eksik)
-        satirlar.append(["", "TOPLAM", "", "", tl_format(toplam_matrah), tl_format(toplam_kdv), "", ""])
+        satirlar.append(["", "TOPLAM", "", "", "", tl_format(toplam_matrah), tl_format(toplam_kdv), "", ""])
         f_tablo(
-            ["Tarih", "Belge No", "VKN", "Satıcı Ünvanı", "Matrah", "KDV", "Toplam", "Oran"],
+            ["Tarih", "Belge No", "Tip", "VKN", "Satıcı Ünvanı", "Matrah", "KDV", "Toplam", "Oran"],
             satirlar,
-            [20, 36, 24, 55, 24, 24, 24, 18],
+            [18, 34, 22, 22, 50, 22, 22, 22, 16],
             yazi_boyutu=7.5,
             toplam_satir_idx=len(satirlar) - 1,
-            sola_kolonlar={3},
+            sola_kolonlar={4},
         )
 
     # ---------- Sayfa 3+: Sonuçlar ----------
@@ -263,17 +292,18 @@ def rapor_pdf_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_
         satirlar.append([
             DURUM_ADLARI.get(r["durum"], r["durum"]),
             r["belge_no"] or "", r["vkn"] or "", r["unvan"] or "",
-            r["tarih"] or "",
+            r["tarih"] or "", r.get("tip") or "",
             tl_format(r.get("matrah")), tl_format(r.get("kdv")),
             ", ".join(f"%{o}%" for o in r.get("oranlar") or []),
+            r.get("oran_kontrol") or "",
         ])
         satir_renkleri[i] = DURUM_RENK.get(r["durum"])
     f_tablo(
-        ["Durum", "Belge No", "VKN", "Satıcı/Ünvan", "Tarih", "Matrah", "KDV", "Oran"],
+        ["Durum", "Belge No", "VKN", "Satıcı/Ünvan", "Tarih", "Tip", "Matrah", "KDV", "Oran", "Oran Kontrol"],
         satirlar,
-        [24, 34, 22, 55, 18, 22, 22, 16],
+        [22, 32, 20, 50, 16, 20, 20, 20, 15, 15],
         renkler={"_satir": satir_renkleri},
-        yazi_boyutu=7.5,
+        yazi_boyutu=7,
         sola_kolonlar={3},
     )
 
@@ -356,6 +386,78 @@ def rapor_pdf_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_
         [24, 55, 16, 14, 18, 22, 22, 22],
         renkler={"_satir": satir_renkleri},
         yazi_boyutu=7.5,
+        sola_kolonlar={1},
+    )
+
+    # ---------- Sayfa 7+: KDV Dağılımı ----------
+    yeni_sayfa(manzara=True)
+    pdf.baslik_koy("KDV DAĞILIMI")
+
+    pdf.set_font("tr", "B", 10.5)
+    pdf.cell(0, 7, "MUAVİN 191 HESAP KDV DAĞILIMI", new_x="LMARGIN", new_y="NEXT")
+    muavin_dagilim = kdv_dagilim_muavin(cetvel_kayitlari)
+    satirlar = []
+    toplam = 0
+    for hesap, g in sorted(muavin_dagilim.items(), key=lambda x: -x[1]["kdv"]):
+        satirlar.append([hesap, g["adet"], tl_format(g["kdv"])])
+        toplam += g["kdv"]
+    if satirlar:
+        satirlar.append(["TOPLAM", sum(x[1] for x in satirlar), tl_format(toplam)])
+    f_tablo(
+        ["Hesap", "Kayıt Adedi", "KDV Toplamı (TL)"],
+        satirlar,
+        [80, 30, 45],
+        yazi_boyutu=8.5,
+        toplam_satir_idx=len(satirlar) - 1,
+        sola_kolonlar={0},
+    )
+    pdf.ln(5)
+
+    pdf.set_font("tr", "B", 10.5)
+    pdf.cell(0, 7, "XML/PDF FATURA KDV DAĞILIMI", new_x="LMARGIN", new_y="NEXT")
+    fatura_dagilim = kdv_dagilim_fatura(faturalar)
+    satirlar = []
+    toplam = 0
+    toplam_matrah = 0
+    for oran, g in sorted(fatura_dagilim.items(), key=lambda x: x[0] if isinstance(x[0], int) else 999):
+        oran_ad = f"%{oran}%" if isinstance(oran, int) else (oran or "Bilinmiyor")
+        satirlar.append([oran_ad, g["adet"], tl_format(g["matrah"]), tl_format(g["kdv"])])
+        toplam += g["kdv"]
+        toplam_matrah += g["matrah"]
+    if satirlar:
+        satirlar.append(["TOPLAM", sum(x[1] for x in satirlar), tl_format(toplam_matrah), tl_format(toplam)])
+    f_tablo(
+        ["Oran", "Fatura Adedi", "Matrah Toplamı (TL)", "KDV Toplamı (TL)"],
+        satirlar,
+        [40, 25, 35, 35],
+        yazi_boyutu=8.5,
+        toplam_satir_idx=len(satirlar) - 1,
+        sola_kolonlar={0},
+    )
+
+    # ---------- Sayfa 8+: Ba Formu ----------
+    yeni_sayfa(manzara=True)
+    pdf.baslik_koy("BA FORMU (MAL/HİZMET ALIŞ BİLDİRİMİ)")
+    satirlar = []
+    toplam_adet = 0
+    toplam_matrah = 0
+    toplam_kdv = 0
+    for s in ba_formu(faturalar):
+        satirlar.append([
+            s["vkn"] or "", s["unvan"] or "", s["adet"],
+            tl_format(s["matrah"]), tl_format(s["kdv"]),
+        ])
+        toplam_adet += s["adet"]
+        toplam_matrah += s["matrah"]
+        toplam_kdv += s["kdv"]
+    if satirlar:
+        satirlar.append(["", "TOPLAM", toplam_adet, tl_format(toplam_matrah), tl_format(toplam_kdv)])
+    f_tablo(
+        ["VKN", "Satıcı Ünvanı", "Fatura Adedi", "Matrah Toplamı (TL)", "KDV Toplamı (TL)"],
+        satirlar,
+        [30, 70, 22, 32, 32],
+        yazi_boyutu=8.5,
+        toplam_satir_idx=len(satirlar) - 1,
         sola_kolonlar={1},
     )
 

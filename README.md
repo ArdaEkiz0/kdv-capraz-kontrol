@@ -197,6 +197,26 @@ Tabloda göreceksiniz:
 
 \- 📅 \*\*Aylık Trend\*\*: Eski kontrollerinizle karşılaştırma yapabilirsiniz
 
+\- 🔄 \*\*Otomatik Güncelleme\*\*: Program açılışta GitHub'daki yeni sürümü kontrol eder. Yeni sürüm çıkınca \*\*"Güncelleme" butonu\*\* sürüm numarasını gösterir. Tıklayın, sürüm notlarını görün, \*\*"İndir & Kur"\*\* deyin — program kendini günceller ve yeniden başlar.
+
+
+
+\---
+
+
+
+\## 🔄 Güncellemeler
+
+
+
+\- Program her açılışta GitHub'daki son sürümü otomatik kontrol eder
+
+\- Yeni sürüm varsa üstteki \*\*"🔄 Güncelleme (vX.X.X)"\*\* butonu görünür
+
+\- Butona tıklayın → sürüm notlarını okuyun → \*\*"İndir & Kur"\*\* → uygulama otomatik yeniden başlar
+
+\- Sürüm kontrolü internet gerektirir; internet yoksa kontrol sessizce geçilir
+
 
 
 \---

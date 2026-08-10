@@ -14,7 +14,7 @@ IADE_TIPLERI = {"IADE", "CREDIT_NOTE", "CREDITNOTE", "TEVKIFATIADE"}
 
 def iade_mi(fatura: Dict) -> bool:
     """Fatura iade mi?"""
-    tip = (fatura.get("tip") or "").upper().replace(" ", "")
+    tip = (fatura.get("fatura_tipi") or fatura.get("tip") or "").upper().replace(" ", "")
     if tip in IADE_TIPLERI:
         return True
     matrah = fatura.get("matrah")

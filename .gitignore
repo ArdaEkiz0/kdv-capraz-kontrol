@@ -69,3 +69,6 @@ gecmis.json
 *.db
 .kdv_kontrol/
 
+# Test çıktıları
+test_rapor.*
+

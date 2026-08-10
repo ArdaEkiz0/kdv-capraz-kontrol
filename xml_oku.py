@@ -188,7 +188,7 @@ def _icerikleri_oku(ham_veri):
         "kdv": kdv,
         "toplam": toplam,
         "oranlar": oranlar,
-        "tip": tip,
+        "fatura_tipi": tip,
         "vergi_detay": vergi_detay,
         "oran_kontrol": oran_kontrol,
         "notlar": notlar,

@@ -72,5 +72,5 @@ def eksik_belgeler(sonuc_satirlari):
     """Muavinde kaydi olmayan fatura belge numaralari (gecmis karsilastirmasi icin)."""
     return sorted({
         r["belge_no"] for r in sonuc_satirlari
-        if r["durum"] == "CETVELDE YOK" and r.get("belge_no")
+        if r["durum"] in ("CETVELDE YOK", "İADE MUAVİNDE YOK") and r.get("belge_no")
     })

@@ -89,6 +89,39 @@ if __name__ == "__main__":
     xml_dosya_parse = fatura_dosya_parse_fn(os.path.join(TEST_KLASORU, "fatura_1.xml"))
     kontrol("xml dosya yonlendirme", len(xml_dosya_parse) == 1 and xml_dosya_parse[0]["belge_no"] == "GFE202400000001")
 
+    print("\n== XML TİP / VERGİ DETAYI / ORAN KONTROL ==")
+    kontrol("xml 1 tip satis", xml_faturalar[0]["fatura_tipi"] == "SATIS", f"-> {xml_faturalar[0]['fatura_tipi']}")
+    kontrol("xml 1 vergi detayi var", len(xml_faturalar[0]["vergi_detay"]) >= 1, f"-> {len(xml_faturalar[0]['vergi_detay'])}")
+    ilk_detay = xml_faturalar[0]["vergi_detay"][0]
+    kontrol("xml 1 detay oran", ilk_detay["oran"] == 20, f"-> {ilk_detay.get('oran')}")
+    kontrol("xml 1 detay matrah", ilk_detay["matrah"] == 1000, f"-> {ilk_detay.get('matrah')}")
+    kontrol("xml 1 detay kdv", ilk_detay["kdv"] == 200, f"-> {ilk_detay.get('kdv')}")
+    kontrol("xml 1 oran kontrol ok", xml_faturalar[0]["oran_kontrol"] == "OK", f"-> {xml_faturalar[0]['oran_kontrol']}")
+    kontrol("xml 1 oran notu yok", not any("Matrah×Oran" in n for n in xml_faturalar[0]["notlar"]))
+    kontrol("xml 3 oran kontrol", xml_faturalar[2]["oran_kontrol"] in ("OK", ""), f"-> {xml_faturalar[2]['oran_kontrol']}")
+
+    print("\n== İADE FATURA EŞLEŞMESİ ==")
+    from decimal import Decimal
+    iade_f = [{
+        "belge_no": "IADE202400000001", "tarih": "2024-02-10",
+        "satici_vkn": "12345678901", "satici_unvan": "Test Satıcı",
+        "matrah": Decimal("-1000.00"), "kdv": Decimal("-200.00"),
+        "toplam": Decimal("-1200.00"), "oranlar": [20], "fatura_tipi": "IADE",
+        "oran_kontrol": "OK", "notlar": [], "dosya": "iade.xml", "tip": "xml",
+    }]
+    iade_c = [{
+        "belge_no": "IADE202400000001", "tarih": "2024-02-10",
+        "vkn": "12345678901", "unvan": "Test Satıcı",
+        "matrah": None, "kdv": Decimal("200.00"), "notlar": [],
+    }]
+    from matcher import capraz_kontrol_iade_destekli
+    i_sonuc, i_ozet = capraz_kontrol_iade_destekli(iade_f, iade_c)
+    kontrol("iade eslesen durum", i_sonuc[0]["durum"] == "İADE EŞLEŞTİ", f"-> {i_sonuc[0]['durum']}")
+    kontrol("iade kdv abs", i_sonuc[0]["kdv"] == 200, f"-> {i_sonuc[0]['kdv']}")
+    kontrol("iade tip tasindi", i_sonuc[0]["tip"] == "IADE", f"-> {i_sonuc[0]['tip']}")
+    kontrol("iade oran kontrol", i_sonuc[0]["oran_kontrol"] == "OK", f"-> {i_sonuc[0]['oran_kontrol']}")
+    kontrol("iade ozet", i_ozet["iade_adet"] == 1 and i_ozet["fatura_adet"] == 1, f"-> {i_ozet}")
+
     print("\n== FATURA PARSE ==")
     faturalar = []
     for d in fatura_dosyalari:
@@ -142,11 +175,62 @@ if __name__ == "__main__":
     kontrol("karisik eslesen 4", k_ozet["eslesen"] == 4, f"-> {k_ozet['eslesen']}")
     kontrol("karisik tutar farki 2", k_ozet["tutar_farki"] == 2, f"-> {k_ozet['tutar_farki']}")
 
+    print("\n== ÖZETLER (KDV DAĞILIMI / BA FORMU / EKSİK BELGELER) ==")
+    from ozetler import ba_formu, eksik_belgeler, kdv_dagilim_fatura, kdv_dagilim_muavin
+    fatura_dag = kdv_dagilim_fatura(xml_faturalar)
+    kontrol("fatura dagilim %20 var", 20 in fatura_dag, f"-> {fatura_dag.get(20)}")
+    kontrol("fatura dagilim %20 adet", fatura_dag[20]["adet"] == 3 and fatura_dag[20]["kdv"] == 860,
+            f"-> {fatura_dag.get(20)}")
+    kontrol("fatura dagilim %10 var", 10 in fatura_dag, f"-> {fatura_dag.get(10)}")
+    muavin_dag = kdv_dagilim_muavin(cetvel_sonuc["kayitlar"])
+    kontrol("muavin dagilim kayitli", sum(g["adet"] for g in muavin_dag.values()) == len(cetvel_sonuc["kayitlar"]),
+            f"-> {len(cetvel_sonuc['kayitlar'])}")
+    ba = ba_formu(xml_faturalar)
+    kontrol("ba formu saticilar", len(ba) >= 3, f"-> {len(ba)}")
+    kontrol("ba formu adet toplami", sum(s["adet"] for s in ba) == len(xml_faturalar))
+    eksikler = eksik_belgeler(sonuclar)
+    kontrol("eksik belgeler", eksikler == ["GFE202400000004"], f"-> {eksikler}")
+
+    print("\n== GEÇMİŞ KARŞILAŞTIRMA (config) ==")
+    import config
+    import tempfile
+    config.GECMIS_YOLU = os.path.join(tempfile.gettempdir(), "kdv_test_gecmis.json")
+    if os.path.exists(config.GECMIS_YOLU):
+        os.remove(config.GECMIS_YOLU)
+    kontrol("gecmis bos", config.gecmis_karsilastir(eksikler) is None)
+    config.gecmis_ekle(ozet, ["GFE202400000005", "GFE202400000006"])
+    gecmis = config.gecmis_karsilastir(["GFE202400000005"])
+    kontrol("gecmis kapanan", gecmis is not None and gecmis["kapanan"] == ["GFE202400000006"], f"-> {gecmis}")
+    kontrol("gecmis yeni yok", gecmis["yeni"] == [])
+    gecmis2 = config.gecmis_karsilastir(["GFE202400000005", "GFE202400000007"])
+    kontrol("gecmis yeni", gecmis2["yeni"] == ["GFE202400000007"], f"-> {gecmis2['yeni']}")
+    os.remove(config.GECMIS_YOLU)
+
     print("\n== EXCEL RAPORU ==")
     from report import rapor_olustur
     hedef = os.path.join(YOL, "test_rapor.xlsx")
-    rapor_olustur(sonuclar, ozet, faturalar, cetvel_sonuc["kayitlar"], hedef)
+    gecmis_bilgi = {"kapanan": [], "yeni": ["GFE202400000006"], "onceki_eslesen": 1, "zaman": "01.01.2024 10:00"}
+    rapor_olustur(sonuclar, ozet, faturalar, cetvel_sonuc["kayitlar"], hedef, gecmis_bilgi=gecmis_bilgi)
     kontrol("excel olusturuldu", os.path.exists(hedef) and os.path.getsize(hedef) > 0)
+    from openpyxl import load_workbook
+    wb = load_workbook(hedef)
+    kontrol("excel yeni sayfalar", {"KDVDagilimi", "BaFormu", "Grafik"} <= set(wb.sheetnames), f"-> {wb.sheetnames}")
+    kontrol("sonuclar tip kolonu", wb["Sonuclar"].cell(row=1, column=6).value == "Tip")
+    kontrol("eksik fatura tip kolonu", wb["EksikFaturalar"].cell(row=1, column=3).value == "Tip")
+    kontrol("ozet gecmis satiri", any("SON KONTROLE" in str(c.value) for c in wb["Ozet"]["A"]),
+            "-> ozet degisim bolumu")
+
+    print("\n== PDF RAPORU ==")
+    from report_pdf import rapor_pdf_olustur
+    hedef_pdf = os.path.join(YOL, "test_rapor.pdf")
+    rapor_pdf_olustur(sonuclar, ozet, faturalar, cetvel_sonuc["kayitlar"], hedef_pdf, gecmis_bilgi=gecmis_bilgi)
+    kontrol("pdf olusturuldu", os.path.exists(hedef_pdf) and os.path.getsize(hedef_pdf) > 0)
+    from pypdf import PdfReader
+    pdf_metin = "\n".join((sayfa.extract_text() or "") for sayfa in PdfReader(hedef_pdf).pages)
+    kontrol("pdf sonuclar tip", "Tip" in pdf_metin)
+    kontrol("pdf kdv dagilim", "KDV DAĞILIMI" in pdf_metin.replace("İ", "I").upper())
+    kontrol("pdf ba formu", "BA FORMU" in pdf_metin.replace("İ", "I").upper())
+    kontrol("pdf gecmis degisim", "DEĞİŞİM" in pdf_metin)
 
     print("\nSONUÇ:", "TÜM TESTLER TAMAM" if BASARILI else "HATALAR VAR")
     sys.exit(0 if BASARILI else 1)

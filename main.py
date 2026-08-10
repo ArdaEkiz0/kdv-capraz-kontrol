@@ -5,6 +5,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from ayarlar import ayarlar_al
 from cetvel import cetvel_parse
+from config import gecmis_ekle, gecmis_karsilastir
 from dashboard import DashboardFrame
 from db import db_al
 from dosya import cetvel_dosya_parse, fatura_dosya_parse
@@ -12,6 +13,7 @@ from efatura import efatura_parse
 from email_gonder import mail_icerigi_olustur, outlook_ile_gonder, smtp_ile_gonder
 from fatura_detay_pencere import FaturaDetayPencere
 from filtre_dialog import GelismisFiltreDialog, filtre_uygula
+from guncelleme import guncelleme_kontrol, guncellemeyi_kur, uygulamayi_yeniden_baslat
 from iade_ayristirici import iade_ayristirici_ozet
 from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_MUKERRER,
                      DURUM_OK, DURUM_PARSE_SORUNU, DURUM_TUTAR_FARKI,
@@ -19,9 +21,12 @@ from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_MUKERRER,
                      capraz_kontrol_iade_destekli)
 from muavin_coklu import cetvel_klasor_dialog
 from muhtasar_ba_formu import ba_formu_olustur
+from ozetler import eksik_belgeler
 from report import rapor_olustur
 from report_pdf import rapor_pdf_olustur
+from surum import SURUM
 from utils import tl_format
+from veri_incele import VeriIncelePenceresi
 
 DESTEKLENEN_DOSYALAR = [("Desteklenen Dosyalar", "*.pdf *.xlsx *.xlsm *.xls *.xml"),
                         ("PDF Dosyaları", "*.pdf"),
@@ -38,10 +43,10 @@ DURUM_RENKLER = {
     DURUM_PARSE_SORUNU: "#FFC7CE",
 }
 
-KOLONLAR = ("durum", "belge_no", "vkn", "tarih", "matrah", "kdv", "kaynak", "detay")
+KOLONLAR = ("durum", "belge_no", "vkn", "tarih", "tip", "matrah", "kdv", "kaynak", "detay")
 BASLIKLAR = {
     "durum": "Durum", "belge_no": "Belge No", "vkn": "VKN", "tarih": "Tarih",
-    "matrah": "Matrah", "kdv": "KDV", "kaynak": "Kaynak", "detay": "Detay",
+    "tip": "Tip", "matrah": "Matrah", "kdv": "KDV", "kaynak": "Kaynak", "detay": "Detay",
 }
 
 
@@ -60,6 +65,7 @@ class KdvKontrolApp:
         self.cetvel_kayitlari = []
         self.filtre = "Tumu"
         self.aktif_filtre = None
+        self.gecmis_bilgi = None
 
         try:
             self.db = db_al()
@@ -77,6 +83,7 @@ class KdvKontrolApp:
             self.ayarlar = None
             print(f"Ayarlar yüklenemedi: {hata}")
 
+        self._son_dosyalari_geri_yukle()
         self._arayuz_kur()
 
     def _arayuz_kur(self):
@@ -95,6 +102,7 @@ class KdvKontrolApp:
         ttk.Button(ust, text="Fatura Klasörü Seç", command=self.fatura_klasoru_sec).pack(side="left", padx=(0, 6))
         ttk.Button(ust, text="Kontrol Cetveli Seç", command=self.cetvel_sec).pack(side="left", padx=(0, 6))
         ttk.Button(ust, text="Kontrolü Başlat", command=self.kontrol_baslat).pack(side="left", padx=(0, 6))
+        ttk.Button(ust, text="🔧 Veriyi İncele & Düzelt", command=self.veri_incele_ac).pack(side="left", padx=(0, 6))
         ttk.Button(ust, text="📊 Dashboard", command=self.dashboard_goster).pack(side="left", padx=(0, 6))
         ttk.Button(ust, text="🔎 Gelişmiş Filtre", command=self.gelismis_filtre_ac).pack(side="left", padx=(0, 6))
         ttk.Button(ust, text="📂 Klasör Cetvel", command=self.cetvel_klasor_ac).pack(side="left", padx=(0, 6))
@@ -102,6 +110,8 @@ class KdvKontrolApp:
         ttk.Button(ust, text="PDF Raporunu Kaydet", command=self.rapor_pdf_kaydet).pack(side="left", padx=(0, 6))
         ttk.Button(ust, text="📊 Ba/Bs Formu", command=self.muhtasar_kaydet).pack(side="left", padx=(0, 6))
         ttk.Button(ust, text="📧 Mail Gönder", command=self.mail_gonder_ac).pack(side="left", padx=(0, 6))
+        self.guncelleme_butonu = ttk.Button(ust, text="🔄 Güncelleme", command=self.guncelleme_kontrol_ac)
+        self.guncelleme_butonu.pack(side="left", padx=(0, 6))
         ttk.Button(ust, text="ℹ️ Hakkında", command=self.hakkinda_pencere_ac).pack(side="left", padx=(0, 6))
 
         self.dosya_etiketi = ttk.Label(ust, text="Fatura: (seçilmedi) | Cetvel: (seçilmedi)")
@@ -113,6 +123,12 @@ class KdvKontrolApp:
         for metin, deger in [("Tümü", "Tumu"), ("Sorunlu", "Sorunlu"), ("Eşleşen", "Eslenen")]:
             ttk.Radiobutton(filtre, text=metin, value=deger, variable=self.filtre_degisken,
                             command=self._filtre_uygula).pack(side="left", padx=(0, 10))
+        ttk.Label(filtre, text="Dönem:").pack(side="left", padx=(8, 3))
+        self.ay_degisken = tk.StringVar(value="Tumu")
+        self.ay_combobox = ttk.Combobox(
+            filtre, textvariable=self.ay_degisken, values=["Tumu"], width=10, state="readonly")
+        self.ay_combobox.pack(side="left")
+        self.ay_combobox.bind("<<ComboboxSelected>>", lambda e: self._kontrol_hesapla())
 
         tablo_kapsayici = ttk.Frame(self.kok, padding=(8, 6))
         tablo_kapsayici.pack(fill="both", expand=True)
@@ -121,7 +137,7 @@ class KdvKontrolApp:
         for kolon in KOLONLAR:
             self.tablo.heading(kolon, text=BASLIKLAR[kolon])
             genislik = {"durum": 110, "belge_no": 180, "vkn": 110, "tarih": 90,
-                        "matrah": 90, "kdv": 90, "kaynak": 60, "detay": 420}[kolon]
+                        "tip": 90, "matrah": 90, "kdv": 90, "kaynak": 60, "detay": 420}[kolon]
             self.tablo.column(kolon, width=genislik, anchor="w" if kolon in ("detay", "belge_no") else "center")
 
         self.tablo.bind("<Double-1>", self._satir_detay_goster)
@@ -146,11 +162,147 @@ class KdvKontrolApp:
         self.log.pack(side="left", fill="x", expand=True)
         log_kaydirma.pack(side="right", fill="y")
 
+        self.guncelleme_bilgisi = None
+        self.kok.after(1500, self._otomatik_guncelleme_kontrol)
+
     def _log_yaz(self, metin):
         self.log.configure(state="normal")
         self.log.insert("end", metin + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
+
+    # ---------- Güncelleme ----------
+    def _otomatik_guncelleme_kontrol(self):
+        self._guncelleme_kontrol_arka_planda(otomatik=True)
+
+    def _guncelleme_kontrol_arka_planda(self, otomatik=False):
+        if getattr(self, "guncelleme_kontrol_ediyor", False):
+            return
+        self.guncelleme_kontrol_ediyor = True
+        sonuc_kutusu = {}
+
+        def is_parcasi():
+            try:
+                sonuc_kutusu["bilgi"] = guncelleme_kontrol()
+            except Exception:
+                sonuc_kutusu["bilgi"] = None
+
+        def bitince():
+            self.guncelleme_kontrol_ediyor = False
+            bilgi = sonuc_kutusu.get("bilgi")
+            self.guncelleme_bilgisi = bilgi
+            if bilgi:
+                self.guncelleme_butonu.configure(text=f"🔄 Güncelleme (v{bilgi['surum']})")
+                self._log_yaz(f"Yeni sürüm mevcut: v{bilgi['surum']} — Güncelleme butonuna basın.")
+                if not otomatik:
+                    self.guncelleme_penceresi_ac(bilgi)
+            elif not otomatik:
+                messagebox.showinfo("Güncelleme", f"Güncel sürüm kullanıyorsunuz: v{SURUM}")
+                self._log_yaz("Güncelleme kontrolü: güncel sürüm kullanılıyor.")
+
+        import threading
+        t = threading.Thread(target=is_parcasi, daemon=True)
+        t.start()
+        self._thread_izle(t, bitince)
+
+    def _thread_izle(self, thread, bitince):
+        if thread.is_alive():
+            self.kok.after(200, self._thread_izle, thread, bitince)
+        else:
+            bitince()
+
+    def guncelleme_kontrol_ac(self):
+        self._guncelleme_kontrol_arka_planda()
+
+    def guncelleme_penceresi_ac(self, bilgi):
+        pencere = tk.Toplevel(self.kok)
+        pencere.title("Yeni Sürüm Mevcut")
+        pencere.geometry("560x480")
+        pencere.resizable(False, False)
+        pencere.transient(self.kok)
+
+        ana = ttk.Frame(pencere, padding=14)
+        ana.pack(fill="both", expand=True)
+
+        ttk.Label(
+            ana,
+            text=f"⬇️ Yeni Sürüm: v{bilgi['surum']}",
+            font=("Segoe UI", 14, "bold"),
+            foreground="#4472C4",
+        ).pack(anchor="w", pady=(0, 4))
+        ttk.Label(
+            ana,
+            text=f"Mevcut sürüm: v{SURUM}  →  Yeni sürüm: v{bilgi['surum']}",
+        ).pack(anchor="w", pady=(0, 8))
+
+        notlar = bilgi.get("notlar") or "Sürüm notları bulunamadı."
+        metin_kapsayici = ttk.LabelFrame(ana, text="📝 Sürüm Notları", padding=8)
+        metin_kapsayici.pack(fill="both", expand=True, pady=(0, 8))
+        not_metni = tk.Text(metin_kapsayici, wrap="word", height=12)
+        not_kaydirma = ttk.Scrollbar(metin_kapsayici, orient="vertical", command=not_metni.yview)
+        not_metni.configure(yscrollcommand=not_kaydirma.set)
+        not_metni.pack(side="left", fill="both", expand=True)
+        not_kaydirma.pack(side="right", fill="y")
+        not_metni.insert("1.0", notlar)
+        not_metni.configure(state="disabled")
+
+        self.guncelleme_durum = ttk.Label(ana, text="", foreground="#666666")
+        self.guncelleme_durum.pack(anchor="w", pady=(0, 6))
+
+        butonlar = ttk.Frame(ana)
+        butonlar.pack(fill="x")
+        ttk.Button(butonlar, text="⬇️ İndir & Kur", command=lambda: self._guncelleme_kur(bilgi)).pack(side="left")
+        ttk.Button(butonlar, text="Kapat", command=pencere.destroy).pack(side="left", padx=(6, 0))
+
+    def _guncelleme_kur(self, bilgi):
+        import threading
+        self.guncelleme_durum.configure(text="Güncelleme indiriliyor...")
+        proje_yolu = os.path.dirname(os.path.abspath(__file__))
+
+        def kur():
+            try:
+                sonuc = guncellemeyi_kur(
+                    bilgi["indirme_url"], proje_yolu,
+                    ilerleme_callback=lambda m: self.kok.after(0, lambda: self.guncelleme_durum.configure(text=m)),
+                )
+                self.kok.after(0, lambda: self._guncelleme_kur_bitti(sonuc))
+            except Exception as hata:
+                self.kok.after(0, lambda: self.guncelleme_durum.configure(
+                    text=f"Kurulum başarısız: {hata}", foreground="#B00000"))
+
+        threading.Thread(target=kur, daemon=True).start()
+
+    def _guncelleme_kur_bitti(self, sonuc):
+        if not sonuc["kopyalanan"]:
+            self.guncelleme_durum.configure(text="Kurulacak dosya bulunamadı.", foreground="#B00000")
+            return
+        self.guncelleme_durum.configure(
+            text=f"Kurulum tamamlandı ({sonuc['kopyalanan']} dosya). Uygulama yeniden başlatılıyor...",
+            foreground="#006100")
+        self._log_yaz(f"Güncelleme kuruldu: {sonuc['kopyalanan']} dosya kopyalandı.")
+        self.kok.update_idletasks()
+        self.kok.after(1200, uygulamayi_yeniden_baslat)
+
+    def _son_dosyalari_geri_yukle(self):
+        if self.ayarlar:
+            mevcut = [p for p in self.son_faturalar if os.path.exists(p)]
+            if mevcut:
+                self.fatura_dosyalari = mevcut
+            mevcut = [p for p in self.son_cetveller if os.path.exists(p)]
+            if mevcut:
+                self.cetvel_dosyalari = mevcut
+
+    def veri_incele_ac(self):
+        if not self.faturalar and not self.cetvel_kayitlari:
+            messagebox.showwarning("Uyarı", "Önce kontrol çalıştırın.")
+            return
+        VeriIncelePenceresi(
+            self.kok,
+            self.faturalar,
+            self.cetvel_kayitlari,
+            yeniden_kontrol_callback=self._kontrol_hesapla,
+            log_callback=self._log_yaz,
+        )
 
     def fatura_sec(self):
         dosyalar = filedialog.askopenfilenames(
@@ -224,18 +376,70 @@ class KdvKontrolApp:
                 if c["notlar"]:
                     self._log_yaz(f"[Cetvel] {os.path.basename(dosya)}: {'; '.join(c['notlar'])}")
 
-            self.sonuc_satirlari, self.ozet = capraz_kontrol_iade_destekli(
-                self.faturalar, self.cetvel_kayitlari
-            )
-            self.aktif_filtre = None
-            self._filtre_uygula()
-            self._ozet_guncelle()
+            self._donem_listesini_doldur()
+            self._kontrol_hesapla()
             self._parse_sorunlarini_bildir()
             self._db_kaydet()
             self._log_yaz(f"Kontrol tamamlandı: {len(self.faturalar)} fatura, {len(self.cetvel_kayitlari)} cetvel satırı, "
                           f"{len(self.sonuc_satirlari)} sonuç satırı.")
             if self.ozet.get("iade_adet", 0):
                 self._log_yaz(f"İade faturası: {self.ozet['iade_adet']} adet, toplam KDV: {tl_format(self.ozet.get('iade_kdv_toplam'))} TL")
+        finally:
+            self.kok.configure(cursor="")
+
+    def _donem_listesini_doldur(self):
+        donemler = set()
+        for f in self.faturalar:
+            if f.get("tarih"):
+                donemler.add(f["tarih"][:7])
+        for c in self.cetvel_kayitlari:
+            if c.get("tarih"):
+                donemler.add(c["tarih"][:7])
+        degerler = ["Tumu"] + sorted(donemler, reverse=True)
+        self.ay_combobox.configure(values=degerler)
+        son_donem = self.ayarlar.al("son_donem", "") if self.ayarlar else ""
+        if son_donem in degerler:
+            self.ay_degisken.set(son_donem)
+        else:
+            self.ay_degisken.set("Tumu")
+
+    def _kontrol_hesapla(self):
+        if not self.faturalar and not self.cetvel_kayitlari:
+            return
+        self.kok.configure(cursor="watch")
+        self.kok.update_idletasks()
+        try:
+            faturalar = self.faturalar
+            cetvel_kayitlari = self.cetvel_kayitlari
+            ay = self.ay_degisken.get()
+            if ay != "Tumu":
+                faturalar = [f for f in faturalar if (f.get("tarih") or "")[:7] == ay]
+                cetvel_kayitlari = [c for c in cetvel_kayitlari if (c.get("tarih") or "")[:7] == ay]
+                if self.ayarlar:
+                    self.ayarlar.kaydet("son_donem", ay)
+
+            self.sonuc_satirlari, self.ozet = capraz_kontrol_iade_destekli(
+                faturalar, cetvel_kayitlari
+            )
+            self.aktif_filtre = None
+            self._filtre_uygula()
+            self._ozet_guncelle()
+
+            if ay == "Tumu":
+                eksik = eksik_belgeler(self.sonuc_satirlari)
+                self.gecmis_bilgi = gecmis_karsilastir(eksik)
+                gecmis_ekle(self.ozet, eksik)
+                if self.gecmis_bilgi:
+                    bilgi = self.gecmis_bilgi
+                    mesajlar = []
+                    if bilgi.get("kapanan"):
+                        mesajlar.append(f"Yeni eşleşen/çözülen: {len(bilgi['kapanan'])} belge")
+                    if bilgi.get("yeni"):
+                        mesajlar.append(f"Yeni eksik: {len(bilgi['yeni'])} belge")
+                    if mesajlar:
+                        self._log_yaz(f"[Geçmiş] {bilgi.get('zaman')} kontrolüne göre: {' | '.join(mesajlar)}")
+            else:
+                self.gecmis_bilgi = None
         finally:
             self.kok.configure(cursor="")
 
@@ -306,6 +510,10 @@ class KdvKontrolApp:
         iade_metin = ""
         if o.get("iade_adet", 0):
             iade_metin = f"  |  İade: {o['iade_adet']}"
+        if self.gecmis_bilgi and self.gecmis_bilgi.get("yeni"):
+            iade_metin += f"  |  Yeni eksik: {len(self.gecmis_bilgi['yeni'])}"
+        if self.gecmis_bilgi and self.gecmis_bilgi.get("kapanan"):
+            iade_metin += f"  |  Çözüldü: {len(self.gecmis_bilgi['kapanan'])}"
         self.ozet_etiketi.configure(
             text=metin + iade_metin,
             foreground="#B00000" if o["cetvelde_yok"] + o["faturada_yok"] + o["tutar_farki"] else "#006100",
@@ -333,6 +541,7 @@ class KdvKontrolApp:
                 satir["belge_no"] or "",
                 satir["vkn"] or "",
                 satir["tarih"] or "",
+                satir.get("tip") or "",
                 tl_format(satir["matrah"]),
                 tl_format(satir["kdv"]),
                 satir["kaynak"] or "",
@@ -429,11 +638,11 @@ class KdvKontrolApp:
                 tmp_xlsx = os.path.join(tempfile.gettempdir(), f"KDV_Rapor_{ts}.xlsx")
                 tmp_pdf = os.path.join(tempfile.gettempdir(), f"KDV_Rapor_{ts}.pdf")
                 rapor_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
-                              self.cetvel_kayitlari, tmp_xlsx)
+                              self.cetvel_kayitlari, tmp_xlsx, gecmis_bilgi=self.gecmis_bilgi)
                 ekler.append(tmp_xlsx)
                 try:
                     rapor_pdf_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
-                                      self.cetvel_kayitlari, tmp_pdf)
+                                      self.cetvel_kayitlari, tmp_pdf, gecmis_bilgi=self.gecmis_bilgi)
                     ekler.append(tmp_pdf)
                 except Exception:
                     pass
@@ -507,7 +716,7 @@ class KdvKontrolApp:
         ayrac.pack(fill="x", pady=10)
 
         bilgi = [
-            ("Sürüm", "2.0"),
+            ("Sürüm", SURUM),
             ("Geliştirici", "Arda M. Ekiz"),
             ("Tarih", "2026"),
             ("Lisans", "MIT (Kişisel Kullanım)"),
@@ -570,7 +779,8 @@ class KdvKontrolApp:
         try:
             if self.ayarlar:
                 self.ayarlar.kaydet("son_rapor_klasor", os.path.dirname(hedef))
-            rapor_olustur(self.sonuc_satirlari, self.ozet, self.faturalar, self.cetvel_kayitlari, hedef)
+            rapor_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
+                          self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
             messagebox.showinfo("Başarılı", f"Rapor kaydedildi:\n{hedef}")
             self._log_yaz(f"Excel raporu kaydedildi: {hedef}")
         except Exception as hata:
@@ -589,7 +799,8 @@ class KdvKontrolApp:
         try:
             if self.ayarlar:
                 self.ayarlar.kaydet("son_rapor_klasor", os.path.dirname(hedef))
-            rapor_pdf_olustur(self.sonuc_satirlari, self.ozet, self.faturalar, self.cetvel_kayitlari, hedef)
+            rapor_pdf_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
+                              self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
             messagebox.showinfo("Başarılı", f"PDF raporu kaydedildi:\n{hedef}")
             self._log_yaz(f"PDF raporu kaydedildi: {hedef}")
             if messagebox.askyesno("Aç", "PDF dosyası şimdi açılsın mı?"):
