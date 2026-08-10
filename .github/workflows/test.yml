@@ -23,6 +23,11 @@ jobs:
       - name: Tesseract OCR kur (taranmis PDF testi icin)
         run: choco install tesseract --yes --no-progress
 
+      - name: Turkce OCR dil verisi kur
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/tesseract-ocr/tessdata_fast/raw/main/tur.traineddata" -OutFile "C:\Program Files\Tesseract-OCR\tessdata\tur.traineddata"
+
       - name: Testleri calistir
         shell: pwsh
         env:
