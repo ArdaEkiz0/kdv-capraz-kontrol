@@ -1,0 +1,30 @@
+name: Testler
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Kutuphaneleri kur
+        run: |
+          python -m pip install --upgrade pip
+          pip install pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2 pypdf
+
+      - name: Tesseract OCR kur (taranmis PDF testi icin)
+        run: choco install tesseract --yes --no-progress
+
+      - name: Testleri calistir
+        shell: pwsh
+        run: |
+          $env:Path += ";C:\Program Files\Tesseract-OCR"
+          python test_akisi.py

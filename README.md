@@ -1,6 +1,7 @@
 # 📊 KDV Çapraz Kontrol Programı
 
 ![Program Ekran Görüntüsü](screenshot.png)
+![Testler](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/actions/workflows/test.yml/badge.svg)
 
 Bu program e-Fatura, PDF ve Excel faturalarınızı KDV kontrol cetveli ile karşılaştırır.
 
