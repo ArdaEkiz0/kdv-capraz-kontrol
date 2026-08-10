@@ -25,6 +25,8 @@ jobs:
 
       - name: Testleri calistir
         shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           $env:Path += ";C:\Program Files\Tesseract-OCR"
           python test_akisi.py
