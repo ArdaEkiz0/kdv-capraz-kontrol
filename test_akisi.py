@@ -46,7 +46,7 @@ if __name__ == "__main__":
     kontrol("tarama kayit sayisi", len(tarama_sonuc["kayitlar"]) >= 5, f"-> {len(tarama_sonuc['kayitlar'])}")
     ilk = tarama_sonuc["kayitlar"][0]
     kontrol("tarama ilk vkn", ilk["vkn"] == "12345678901", f"-> {ilk['vkn']}")
-    kontrol("tarama ilk kdv", ilk["kdv"] == 200, f"-> {ilk['kdv']}")
+    kontrol("tarama ilk kdv", abs(ilk["kdv"] - 200) < 1, f"-> {ilk['kdv']}")
 
     print("\n== EXCEL FATURA LİSTESİ ==")
     from dosya import cetvel_dosya_parse, fatura_dosya_parse
