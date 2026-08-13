@@ -46,7 +46,7 @@ if __name__ == "__main__":
     kontrol("tarama kayit sayisi", len(tarama_sonuc["kayitlar"]) >= 5, f"-> {len(tarama_sonuc['kayitlar'])}")
     ilk = tarama_sonuc["kayitlar"][0]
     kontrol("tarama ilk vkn", ilk["vkn"] == "12345678901", f"-> {ilk['vkn']}")
-    kontrol("tarama ilk kdv", abs(ilk["kdv"] - 200) < 1, f"-> {ilk['kdv']}")
+    kontrol("tarama ilk kdv", ilk["kdv"] == 200, f"-> {ilk['kdv']}")
 
     print("\n== EXCEL FATURA LİSTESİ ==")
     from dosya import cetvel_dosya_parse, fatura_dosya_parse
@@ -99,6 +99,28 @@ if __name__ == "__main__":
     kontrol("xml 1 oran kontrol ok", xml_faturalar[0]["oran_kontrol"] == "OK", f"-> {xml_faturalar[0]['oran_kontrol']}")
     kontrol("xml 1 oran notu yok", not any("Matrah×Oran" in n for n in xml_faturalar[0]["notlar"]))
     kontrol("xml 3 oran kontrol", xml_faturalar[2]["oran_kontrol"] in ("OK", ""), f"-> {xml_faturalar[2]['oran_kontrol']}")
+
+    print("\n== XML ORAN FARKI (NameError regresyon) ==")
+    import re as _re
+    import tempfile as _tmp
+    bozuk_xml = open(os.path.join(TEST_KLASORU, "fatura_1.xml"), "rb").read().decode("utf-8")
+    bozuk_xml = _re.sub(
+        r"(<cbc:TaxAmount[^>]*>)200\.00(</cbc:TaxAmount>)",
+        lambda m: m.group(1) + "250.00" + m.group(2),
+        bozuk_xml,
+    )
+    bozuk_yol = os.path.join(_tmp.gettempdir(), "kdv_bozuk_oran.xml")
+    with open(bozuk_yol, "w", encoding="utf-8") as f:
+        f.write(bozuk_xml)
+    try:
+        bozuk_sonuc = fatura_xml_parse(bozuk_yol)
+        b_f = bozuk_sonuc[0]
+        kontrol("xml oran farki kdv 250", b_f["kdv"] == 250, f"-> {b_f['kdv']}")
+        kontrol("xml oran kontrol FARK", b_f["oran_kontrol"] == "FARK", f"-> {b_f['oran_kontrol']}")
+        kontrol("xml oran fark notu", any("Matrah×Oran" in n for n in b_f["notlar"]), f"-> {b_f['notlar']}")
+    finally:
+        if os.path.exists(bozuk_yol):
+            os.remove(bozuk_yol)
 
     print("\n== İADE FATURA EŞLEŞMESİ ==")
     from decimal import Decimal
@@ -164,6 +186,89 @@ if __name__ == "__main__":
     kontrol("cetvelde yok 1", ozet["cetvelde_yok"] == 1, f"-> {ozet['cetvelde_yok']}")
     kontrol("faturada yok 1", ozet["faturada_yok"] == 1, f"-> {ozet['faturada_yok']}")
     kontrol("mukerrer 1", ozet["mukerrer"] == 1, f"-> {ozet['mukerrer']}")
+
+    print("\n== İADE DURUMLU EXCEL RAPORU (StopIteration regresyon) ==")
+    import tempfile as _tmp2
+    from report import rapor_olustur as _rapor_olustur
+    iade_rap_satirlar = sonuclar + i_sonuc
+    iade_rap_ozet = dict(ozet)
+    iade_rap_ozet["fatura_adet"] = iade_rap_ozet.get("fatura_adet", 0) + 1
+    iade_rap_yol = os.path.join(_tmp2.gettempdir(), "kdv_iade_rapor.xlsx")
+    try:
+        _rapor_olustur(iade_rap_satirlar, iade_rap_ozet, faturalar + iade_f,
+                       cetvel_sonuc["kayitlar"] + iade_c, iade_rap_yol)
+        kontrol("iade excel raporu olustu", os.path.exists(iade_rap_yol) and os.path.getsize(iade_rap_yol) > 0)
+    finally:
+        if os.path.exists(iade_rap_yol):
+            os.remove(iade_rap_yol)
+
+    print("\n== MAHSUP FİŞİ (fiş listesi PDF) ==")
+    fis_faturalar = fatura_dosya_parse(os.path.join(TEST_KLASORU, "fis_listesi_ornek.pdf"))
+    for f in fis_faturalar:
+        print(f"  belge={f['belge_no']} tarih={f['tarih']} tip={f['fatura_tipi']} unvan={f['satici_unvan']!r} "
+              f"matrah={tl_format(f['matrah'])} kdv={tl_format(f['kdv'])} toplam={tl_format(f['toplam'])} oran={f['oranlar']}")
+    kontrol("fis 3 kayit", len(fis_faturalar) == 3, f"-> {len(fis_faturalar)}")
+    z = next(f for f in fis_faturalar if f["belge_no"] == "Z2127")
+    kontrol("fis Z tip", z["fatura_tipi"] == "Z RAPORU", f"-> {z['fatura_tipi']}")
+    kontrol("fis Z kdv", z["kdv"] == Decimal("267.71"), f"-> {z['kdv']}")
+    kontrol("fis Z matrah", z["matrah"] == Decimal("15133.50"), f"-> {z['matrah']}")
+    kontrol("fis Z oranlar", z["oranlar"] == [1, 20], f"-> {z['oranlar']}")
+    kontrol("fis Z tarih", z["tarih"] == "2026-07-02", f"-> {z['tarih']}")
+    kontrol("fis Z vkn bos", z["satici_vkn"] == "", f"-> {z['satici_vkn']!r}")
+    kontrol("fis Z not fis", any("MAHSUP fişi 001851 (Z RAPORU)" in n for n in z["notlar"]), f"-> {z['notlar']}")
+    kontrol("fis Z not matrah", any("oranlarından hesaplandı" in n for n in z["notlar"]))
+    ear = next(f for f in fis_faturalar if f["belge_no"] == "EAR2026000000001")
+    kontrol("fis EAR tip", ear["fatura_tipi"] == "E-ARSIV", f"-> {ear['fatura_tipi']}")
+    kontrol("fis EAR kdv", ear["kdv"] == Decimal("1030.83"), f"-> {ear['kdv']}")
+    kontrol("fis EAR matrah", ear["matrah"] == Decimal("10193.55"), f"-> {ear['matrah']}")
+    kontrol("fis EAR oranlar", ear["oranlar"] == [1, 10, 20], f"-> {ear['oranlar']}")
+    kontrol("fis EAR unvan", ear["satici_unvan"] == "ÖRNEK MÜŞTERİ A.Ş.", f"-> {ear['satici_unvan']!r}")
+    efa = next(f for f in fis_faturalar if f["belge_no"] == "EFA2026000000002")
+    kontrol("fis EFA tip", efa["fatura_tipi"] == "E-FATURA", f"-> {efa['fatura_tipi']}")
+    kontrol("fis EFA kdv", efa["kdv"] == Decimal("29.70"), f"-> {efa['kdv']}")
+    kontrol("fis EFA matrah", efa["matrah"] == Decimal("2970.00"), f"-> {efa['matrah']}")
+    kontrol("fis EFA oranlar", efa["oranlar"] == [1], f"-> {efa['oranlar']}")
+    kontrol("fis EFA unvan", efa["satici_unvan"] == "ÖRNEK TEDARİK LTD.ŞTİ.", f"-> {efa['satici_unvan']!r}")
+
+    print("\n== MAHSUP FİŞİ CETVEL TARAFI + ÇAPRAZ KONTROL ==")
+    fis_cetvel = cetvel_dosya_parse(os.path.join(TEST_KLASORU, "fis_listesi_ornek.pdf"))
+    print("  notlar:", fis_cetvel["notlar"])
+    for c in fis_cetvel["kayitlar"]:
+        print(f"  belge={c['belge_no']} tarih={c['tarih']} matrah={tl_format(c['matrah'])} kdv={tl_format(c['kdv'])}")
+    kontrol("fis cetvel 3 kayit", len(fis_cetvel["kayitlar"]) == 3, f"-> {len(fis_cetvel['kayitlar'])}")
+    kontrol("fis cetvel vkn bos", all(c["vkn"] == "" for c in fis_cetvel["kayitlar"]))
+    fis_sonuc, fis_ozet = capraz_kontrol(fis_faturalar, fis_cetvel["kayitlar"])
+    for s in fis_sonuc:
+        print(f"  [{s['durum']}] {s['belge_no']}")
+    print("  OZET:", fis_ozet)
+    kontrol("fis capraz 3 eslesen", fis_ozet["eslesen"] == 3, f"-> {fis_ozet['eslesen']}")
+    kontrol("fis capraz sorun yok", fis_ozet["cetvelde_yok"] == 0 and fis_ozet["faturada_yok"] == 0,
+            f"-> cetvelde_yok={fis_ozet['cetvelde_yok']} faturada_yok={fis_ozet['faturada_yok']}")
+
+    print("\n== MAHSUP FİŞİ ↔ MUAVİN (hesap bazlı çapraz kontrol) ==")
+    from fis_listesi import fis_listesi_hesap_parse
+    from excel_oku import muavin_satis_parse
+    from matcher import z_raporu_hesap_kontrol
+    fis_hesap = fis_listesi_hesap_parse(os.path.join(TEST_KLASORU, "fis_listesi_ornek.pdf"))
+    muavin_sonuc = muavin_satis_parse(os.path.join(TEST_KLASORU, "muavin_satis.xlsx"))
+    muavin_hesap = muavin_sonuc["kayitlar"]
+    print("  fis_hesap kayit sayisi:", len(fis_hesap))
+    print("  muavin kayit sayisi:", len(muavin_hesap), "notlar:", muavin_sonuc["notlar"])
+    for k in fis_hesap[:4]:
+        print(f"  fis {k['belge']} hesap={k['hesap']} alacak={tl_format(k['alacak'])}")
+    kontrol("muavin not var", bool(muavin_sonuc["notlar"]))
+    kontrol("fis hesap 16 kayit", len(fis_hesap) == 16, f"-> {len(fis_hesap)}")
+    kontrol("muavin 6 kayit", len(muavin_hesap) == 6, f"-> {len(muavin_hesap)}")
+    kontrol("muavin Z2127", any(k["belge"] == "Z2127" and k["hesap"] == "600.01.002" and k["alacak"] == Decimal("13909.90") for k in muavin_hesap))
+
+    mh_sonuc, mh_ozet = z_raporu_hesap_kontrol(fis_hesap, muavin_hesap)
+    for s in mh_sonuc:
+        print(f"  [{s['durum']}] {s['belge_no'] or ''} hesap={s['unvan']} tutar={tl_format(s['matrah'])} {s['detay']}")
+    print("  OZET:", mh_ozet)
+    kontrol("muavin hesap eslesen 2", mh_ozet["eslesen"] == 2, f"-> {mh_ozet['eslesen']}")
+    kontrol("muavin hesap tutar farki 0", mh_ozet["tutar_farki"] == 0, f"-> {mh_ozet['tutar_farki']}")
+    kontrol("muavin hesap cetvelde yok 14", mh_ozet["cetvelde_yok"] == 14, f"-> {mh_ozet['cetvelde_yok']}")
+    kontrol("muavin hesap faturada yok 4", mh_ozet["faturada_yok"] == 4, f"-> {mh_ozet['faturada_yok']}")
 
     print("\n== KARIŞIK ÇAPRAZ KONTROL (PDF + Excel) ==")
     karisik_faturalar = list(faturalar) + excel_faturalar

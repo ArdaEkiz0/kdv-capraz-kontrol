@@ -160,7 +160,7 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
     for f in faturalar:
         if id(f) in kullanilan_f:
             continue
-        if f["belge_no"] and f["satici_vkn"]:
+        if f["belge_no"]:
             kalan_f.append(f)
 
     for f in kalan_f:
@@ -192,6 +192,100 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
 # ============================================================================
 # İADE FATURA DESTEĞİ (YENİ)
 # ============================================================================
+
+def z_raporu_hesap_kontrol(fis_kayitlari, muavin_kayitlari):
+    """MAHSUP fişi PDF'i ile muavin defterini hesap bazında karşılaştırır.
+
+    Kayıt formatı (her iki taraf için): {belge, tarih, hesap, hesap_adi, borc, alacak}
+    Sonuç satırları capraz_kontrol ile aynı formatta üretilir.
+    """
+    sonuc_satirlari = []
+    ozet = {
+        "fatura_adet": len(fis_kayitlari),
+        "cetvel_adet": len(muavin_kayitlari),
+        "eslesen": 0, "tutar_farki": 0, "vkn_farki": 0,
+        "cetvelde_yok": 0, "faturada_yok": 0, "mukerrer": 0,
+        "parse_sorunu": 0, "fark_toplami": 0,
+    }
+
+    def anahtar(k):
+        return ((k["belge"] or "").upper(), k.get("hesap") or "")
+
+    f_grup = defaultdict(list)
+    for k in fis_kayitlari:
+        f_grup[anahtar(k)].append(k)
+    m_grup = defaultdict(list)
+    for k in muavin_kayitlari:
+        m_grup[anahtar(k)].append(k)
+
+    kullanilan_f = set()
+    kullanilan_m = set()
+
+    def kayit_tutar(k):
+        return k["alacak"] if k["alacak"] else k["borc"]
+
+    def durum_ekle(durum, f, m, detay=""):
+        k = f if f is not None else m
+        tutar = kayit_tutar(k) if k is not None else None
+        belge = (k["belge"] or "") if k is not None else ""
+        sonuc_satirlari.append({
+            "durum": durum,
+            "belge_no": belge,
+            "vkn": "",
+            "tarih": k.get("tarih") if k is not None else None,
+            "matrah": tutar,
+            "kdv": None,
+            "toplam": None,
+            "oranlar": [],
+            "tip": "Z RAPORU" if belge.startswith("Z") else "MAHSUP",
+            "oran_kontrol": "",
+            "unvan": (k.get("hesap_adi") or "") if k is not None else "",
+            "kaynak": "Fatura" if f is not None else "Cetvel",
+            "detay": detay,
+        })
+
+    for a, f_list in f_grup.items():
+        m_list = m_grup.pop(a, [])
+        if not m_list:
+            continue
+        es = min(len(f_list), len(m_list))
+        for i in range(es):
+            f = f_list[i]
+            m = m_list[i]
+            kullanilan_f.add(id(f))
+            kullanilan_m.add((id(m), a))
+            f_tutar = kayit_tutar(f)
+            m_tutar = kayit_tutar(m)
+            hesap = a[1]
+            if f_tutar is not None and m_tutar is not None and abs(f_tutar - m_tutar) > TOLERANS:
+                ozet["tutar_farki"] += 1
+                durum_ekle(DURUM_TUTAR_FARKI, f, m, "Hesap: " + hesap + " | " + fark_metni(f_tutar, m_tutar))
+            else:
+                ozet["eslesen"] += 1
+                durum_ekle(DURUM_OK, f, m, "Hesap: " + hesap)
+        for f in f_list[es:]:
+            ozet["mukerrer"] += 1
+            durum_ekle(DURUM_MUKERRER, f, None, "Hesap: " + a[1] + " | Aynı belge/hesap birden fazla kayıt")
+        for m in m_list[es:]:
+            ozet["mukerrer"] += 1
+            durum_ekle(DURUM_MUKERRER, None, m, "Hesap: " + a[1] + " | Muavinde aynı belge/hesap birden fazla kayıt")
+
+    kalan_f = [f for f in fis_kayitlari if id(f) not in kullanilan_f and f["belge"]]
+    for f in kalan_f:
+        ozet["cetvelde_yok"] += 1
+        durum_ekle(DURUM_CETVELDE_YOK, f, None, "Hesap: " + (f.get("hesap") or "") + " | Muavinde kaydı yok")
+
+    for a, m_list in list(m_grup.items()):
+        for m in m_list:
+            if (id(m), a) in kullanilan_m or not m["belge"]:
+                continue
+            ozet["faturada_yok"] += 1
+            durum_ekle(DURUM_FATURADA_YOK, None, m, "Hesap: " + (m.get("hesap") or "") + " | Faturada kaydı yok")
+
+    ozet["fark_toplami"] = ozet["tutar_farki"]
+    sonuc_satirlari.sort(key=lambda r: (SORUNLU_DURUMLAR.index(r["durum"]) if r["durum"] in SORUNLU_DURUMLAR else 99, r["belge_no"] or ""))
+    return sonuc_satirlari, ozet
+
 
 def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
     """İade faturalarını ayrı ele alarak çapraz kontrol yapar.

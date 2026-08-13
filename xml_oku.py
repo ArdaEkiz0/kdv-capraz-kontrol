@@ -159,6 +159,7 @@ def _icerikleri_oku(ham_veri):
                 if satir["kdv"] is not None:
                     vergi_detay.append(satir)
 
+    notlar = []
     oran_kontrol = ""
     if tip in ("SATIS", "IADE") and len(oranlar) == 1 and matrah is not None and kdv is not None:
         beklenen = (matrah * Decimal(oranlar[0]) / Decimal("100")).quantize(Decimal("0.01"))
@@ -169,8 +170,6 @@ def _icerikleri_oku(ham_veri):
             oran_kontrol = "OK"
     elif tip in ("SATIS", "IADE") and len(oranlar) > 1:
         oran_kontrol = "COK ORANLI"
-
-    notlar = []
     if matrah is None or kdv is None:
         notlar.append("Matrah/KDV tutarları bulunamadı, manuel kontrol edin")
     elif toplam is not None:

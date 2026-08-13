@@ -30,6 +30,7 @@ DURUM_RENK = {
     DURUM_MUKERRER: UYARI_DOLGU,
     DURUM_CETVELDE_YOK: SORUN_DOLGU,
     DURUM_FATURADA_YOK: SORUN_DOLGU,
+    DURUM_PARSE_SORUNU: SORUN_DOLGU,
 }
 
 DURUM_ADLARI = {
@@ -40,6 +41,13 @@ DURUM_ADLARI = {
     DURUM_FATURADA_YOK: "Faturalarda Yok",
     DURUM_MUKERRER: "Mükerrer",
     DURUM_PARSE_SORUNU: "Okunamadı",
+}
+
+# Durum görünen adı -> renk (iade gibi harici durumlar için güvenli eşleme)
+DURUM_AD_RENK = {
+    DURUM_ADLARI[k]: renk
+    for k, renk in DURUM_RENK.items()
+    if k in DURUM_ADLARI
 }
 
 
@@ -223,7 +231,7 @@ def rapor_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol,
     tablo_yaz(
         ws2, basliklar, satirlar,
         genislikler=[18, 22, 13, 30, 12, 14, 14, 14, 14, 10, 14, 10, 60],
-        renk_kurali=lambda s: DURUM_RENK.get(next(k for k in DURUM_RENK if DURUM_ADLARI.get(k) == s[0]), None),
+        renk_kurali=lambda s: DURUM_AD_RENK.get(s[0]),
         sayi_kolonlari={7, 8, 9},
     )
 

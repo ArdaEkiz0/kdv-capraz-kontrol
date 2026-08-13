@@ -329,6 +329,95 @@ def muavin_excel_parse(dosya_yolu):
     return sonuc
 
 
+def muavin_satis_parse(dosya_yolu):
+    """Hesap başlıklı satış muavinini (ör. muavin_gokkusagi.xlsx) okur.
+
+    Format: her hesap başlığı (örn. '600.00.001 SİGARA SATIŞ') altında
+    TARİH / TİP / FİŞ NO / AÇIKLAMA / BORÇ / ALACAK sütunları,
+    açıklamalar '01/07/2026-2126-Z RAPORU' biçimindedir.
+
+    Dönen kayıt: {belge, tarih, hesap, hesap_adi, borc, alacak}
+    """
+    from decimal import Decimal
+
+    satirlar = excel_satirlar(dosya_yolu)
+    sonuc = {"dosya": dosya_yolu, "kayitlar": [], "notlar": []}
+
+    baslik_i = None
+    kolonlar = None
+    for i, satir in enumerate(satirlar):
+        normlar = [_norm_baslik(c) for c in satir]
+        if "TARIH" in normlar and "ACIKLAMA" in normlar and "BORC" in normlar and "ALACAK" in normlar:
+            baslik_i = i
+            kolonlar = {
+                "tarih": normlar.index("TARIH"),
+                "aciklama": normlar.index("ACIKLAMA"),
+                "borc": normlar.index("BORC"),
+                "alacak": normlar.index("ALACAK"),
+            }
+            break
+    if baslik_i is None:
+        sonuc["notlar"].append("Satış muavini tanınamadı (TARİH/AÇIKLAMA/BORÇ/ALACAK sütunları aranıyor)")
+        return sonuc
+
+    import re as _re
+    aktif_hesap = ""
+    aktif_hesap_adi = ""
+    for i in range(len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        ilk_ham = str(satir[0]).strip() if satir and satir[0] is not None else ""
+        hm = _re.match(r"^(\d{3}\.\d{1,2}\.\d{3})", ilk_ham)
+        if hm:
+            aktif_hesap = hm.group(1)
+            aktif_hesap_adi = ilk_ham
+            continue
+        if i <= baslik_i or not aktif_hesap:
+            continue
+        a_idx = kolonlar["aciklama"]
+        if a_idx is None or a_idx >= len(satir):
+            continue
+        aciklama = satir[a_idx]
+        if aciklama is None:
+            continue
+        aciklama = str(aciklama).strip()
+        m = _re.search(
+            r"(\d{1,2})[/.](\d{1,2})[/.](\d{4})\s*[-–]\s*([A-Za-z0-9]+)\s*[-–]\s*(?:Z RAPORU|E[AF]A)",
+            aciklama.upper(),
+        )
+        if not m:
+            continue
+        gun, ay, yil = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if ay < 1 or ay > 12 or gun < 1 or gun > 31:
+            continue
+        token = m.group(4)
+        if token.isdigit():
+            belge = "Z" + token
+        else:
+            belge = fatura_no_temizle(token)
+        tarih = f"{yil:04d}-{ay:02d}-{gun:02d}"
+        borc = (tutar_parse(satir[kolonlar["borc"]])
+                if kolonlar["borc"] is not None and kolonlar["borc"] < len(satir) else None)
+        alacak = (tutar_parse(satir[kolonlar["alacak"]])
+                  if kolonlar["alacak"] is not None and kolonlar["alacak"] < len(satir) else None)
+        if borc is None and alacak is None:
+            continue
+        sonuc["kayitlar"].append({
+            "belge": belge,
+            "tarih": tarih,
+            "hesap": aktif_hesap,
+            "hesap_adi": aktif_hesap_adi,
+            "borc": borc if borc is not None else Decimal("0"),
+            "alacak": alacak if alacak is not None else Decimal("0"),
+        })
+    if not sonuc["kayitlar"]:
+        sonuc["notlar"].append("Muavin'de belge satırı bulunamadı")
+    else:
+        sonuc["notlar"].append("Satış muavini olarak okundu")
+    return sonuc
+
+
 def _muavin_birlestir(kayitlar):
     from decimal import Decimal
     gruplar = {}

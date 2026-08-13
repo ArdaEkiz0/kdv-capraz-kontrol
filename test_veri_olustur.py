@@ -126,6 +126,41 @@ def excel_fatura_listesi():
     print("olusturuldu: fatura_listesi.xlsx")
 
 
+def muavin_satis_xlsx():
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["MUAVİN DEFTER"])
+    ws.append(["DENEME TİCARET ORTAKLIĞI"])
+    ws.append(["Dönem :", "01/01/2026-31/12/2026"])
+    ws.append(["Tarih Aralığı :", "01/07/2026-31/07/2026"])
+    ws.append(["600.00.001 SİGARA SATIŞ", "", "", "", "TL"])
+    ws.append(["TARİH", "TİP", "FİŞ NO", "AÇIKLAMA", "BORÇ", "ALACAK", "BAKİYE", "B/A"])
+    ws.append(["", "", "", "Nakli Yekün:", 1338242.0, 1338242.0])
+    ws.append(["2026-07-01", "Mahsup", "001850", "01/07/2026-2126-Z RAPORU", "", 9080.00])
+    ws.append(["2026-07-02", "Mahsup", "001851", "02/07/2026-2127-Z RAPORU", "", 15221.00])
+    ws.append(["2026-07-08", "Mahsup", "001857", "08/07/2026-2133-Z RAPORU", "", 4455.00])
+    ws.append(["Nakli Yekün Hariç :"])
+    ws.append(["Genel Toplam :"])
+    ws.append([""])
+    ws.append(["600.01.002 1 Lİ TİCARİ MALLAR SATIŞI", "", "", "", "TL"])
+    ws.append(["TARİH", "TİP", "FİŞ NO", "AÇIKLAMA", "BORÇ", "ALACAK", "BAKİYE", "B/A"])
+    ws.append(["", "", "", "Nakli Yekün:", 530924.89, 530924.89])
+    ws.append(["2026-07-01", "Mahsup", "001850", "01/07/2026-2126-Z RAPORU", "", 10623.76])
+    ws.append(["2026-07-02", "Mahsup", "001851", "02/07/2026-2127-Z RAPORU", "", 13909.90])
+    ws.append(["Nakli Yekün Hariç :"])
+    ws.append(["Genel Toplam :"])
+    ws.append([""])
+    ws.append(["600.20.020 20 Lİ TİCARİ MALLAR SATIŞI", "", "", "", "TL"])
+    ws.append(["TARİH", "TİP", "FİŞ NO", "AÇIKLAMA", "BORÇ", "ALACAK", "BAKİYE", "B/A"])
+    ws.append(["", "", "", "Nakli Yekün:", 743610.33, 743610.33])
+    ws.append(["2026-07-02", "Mahsup", "001851", "02/07/2026-2127-Z RAPORU", "", 612.50])
+    ws.append(["Nakli Yekün Hariç :"])
+    ws.append(["Genel Toplam :"])
+    wb.save(os.path.join(TEST_KLASORU, "muavin_satis.xlsx"))
+    print("olusturuldu: muavin_satis.xlsx")
+
+
 def excel_cetvel_listesi():
     from openpyxl import Workbook
     wb = Workbook()
@@ -194,6 +229,41 @@ def fatura_xml_gzip(ad, icerik):
     print("olusturuldu:", ad)
 
 
+def mahsup_fis_pdf(ad, fisler):
+    pdf = yeni_pdf()
+    for i, fis in enumerate(fisler):
+        if i > 0:
+            pdf.add_page()
+        pdf.set_font("Arial", "", 10)
+        pdf.cell(0, 6, "DENEME TİCARET ORTAKLIĞI", ln=1)
+        pdf.cell(0, 6, "Şirket", ln=1)
+        pdf.cell(0, 6, "Dönem", ln=1)
+        pdf.cell(0, 6, "2026", ln=1)
+        pdf.cell(0, 6, ":", ln=1)
+        pdf.cell(0, 6, ":", ln=1)
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 6, "MAHSUP  FİŞİ", ln=1)
+        pdf.set_font("Arial", "", 10)
+        pdf.cell(0, 6, "Tarih", ln=1)
+        pdf.cell(0, 6, ": " + fis["tarih"], ln=1)
+        pdf.cell(0, 6, "Fiş No", ln=1)
+        pdf.cell(0, 6, ": " + fis["fis_no"], ln=1)
+        pdf.cell(0, 6, "Yevmiye Madde No", ln=1)
+        pdf.cell(0, 6, ": 00000000", ln=1)
+        for baslik in ("HESAP KODU", "HESAP ADI", "AÇIKLAMA", "BORÇ", "ALACAK"):
+            pdf.cell(0, 6, baslik, ln=1)
+        pdf.cell(0, 6, "Belge Düzenleme Nedeni", ln=1)
+        pdf.cell(0, 6, ": " + fis["neden"], ln=1)
+        for satir in fis["satirlar"]:
+            for hucre in (satir["hesap_kodu"], satir["hesap_adi"], satir["aciklama"], tl(satir["borc"]), tl(satir["alacak"])):
+                pdf.cell(0, 6, hucre, ln=1)
+        pdf.cell(0, 6, "FİŞ TOPLAM :", ln=1)
+        pdf.cell(0, 6, tl(fis["toplam"]), ln=1)
+        pdf.cell(0, 6, tl(fis["toplam"]), ln=1)
+    pdf.output(os.path.join(TEST_KLASORU, ad))
+    print("olusturuldu:", ad)
+
+
 def tl(sayi):
     return f"{sayi:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
@@ -253,4 +323,43 @@ if __name__ == "__main__":
 
     excel_fatura_listesi()
     excel_cetvel_listesi()
+    muavin_satis_xlsx()
+
+    mahsup_fis_pdf("fis_listesi_ornek.pdf", [
+        {
+            "tarih": "02/07/2026", "fis_no": "001851", "neden": "Z RAPORU",
+            "satirlar": [
+                {"hesap_kodu": "120.01.037", "hesap_adi": "PRATİK İŞLEM ÖDEME", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 640.00, "alacak": 0.00},
+                {"hesap_kodu": "108.01.001", "hesap_adi": "DİĞER HAZIR DEĞERLER", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 14150.11, "alacak": 0.00},
+                {"hesap_kodu": "391.01.001", "hesap_adi": "1Lİ HESAPLANAN KDV", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 0.00, "alacak": 145.21},
+                {"hesap_kodu": "391.01.020", "hesap_adi": "20Lİ HESAPLANAN KDV", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 0.00, "alacak": 122.50},
+                {"hesap_kodu": "600.01.002", "hesap_adi": "1 Lİ TİCARİ MALLAR SATIŞI", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 0.00, "alacak": 13909.90},
+                {"hesap_kodu": "600.20.020", "hesap_adi": "20 Lİ TİCARİ MALLAR SATIŞI", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 0.00, "alacak": 612.50},
+            ],
+            "toplam": 14790.11,
+        },
+        {
+            "tarih": "16/07/2026", "fis_no": "002063", "neden": "ÖRNEK MÜŞTERİ A.Ş.",
+            "satirlar": [
+                {"hesap_kodu": "600.01.002", "hesap_adi": "1 Lİ TİCARİ MALLAR SATIŞI", "aciklama": "16/07/2026 EAR2026000000001 ÖRNEK MÜŞTERİ A.Ş.", "borc": 0.00, "alacak": 3940.59},
+                {"hesap_kodu": "600.10.001", "hesap_adi": "10 LU TİCARİ MALLAR SATIŞI", "aciklama": "16/07/2026 EAR2026000000001 ÖRNEK MÜŞTERİ A.Ş.", "borc": 0.00, "alacak": 2590.92},
+                {"hesap_kodu": "600.20.020", "hesap_adi": "20 Lİ TİCARİ MALLAR SATIŞI", "aciklama": "16/07/2026 EAR2026000000001 ÖRNEK MÜŞTERİ A.Ş.", "borc": 0.00, "alacak": 3661.63},
+                {"hesap_kodu": "391.01.001", "hesap_adi": "1Lİ HESAPLANAN KDV", "aciklama": "16/07/2026 EAR2026000000001 ÖRNEK MÜŞTERİ A.Ş.", "borc": 0.00, "alacak": 39.41},
+                {"hesap_kodu": "391.01.010", "hesap_adi": "10LU HESAPLANAN KDV", "aciklama": "16/07/2026 EAR2026000000001 ÖRNEK MÜŞTERİ A.Ş.", "borc": 0.00, "alacak": 259.09},
+                {"hesap_kodu": "391.01.020", "hesap_adi": "20Lİ HESAPLANAN KDV", "aciklama": "16/07/2026 EAR2026000000001 ÖRNEK MÜŞTERİ A.Ş.", "borc": 0.00, "alacak": 732.33},
+                {"hesap_kodu": "100.01.001", "hesap_adi": "KASA", "aciklama": "16/07/2026 EAR2026000000001 ÖRNEK MÜŞTERİ A.Ş.", "borc": 11223.97, "alacak": 0.00},
+            ],
+            "toplam": 11223.97,
+        },
+        {
+            "tarih": "30/07/2026", "fis_no": "002110", "neden": "ÖRNEK TEDARİK LTD.ŞTİ.",
+            "satirlar": [
+                {"hesap_kodu": "153.01.001", "hesap_adi": "1 Lİ EKMEK ALIŞLARI", "aciklama": "30/07/2026 EFA2026000000002 ÖRNEK TEDARİK LTD.ŞTİ.", "borc": 2970.30, "alacak": 0.00},
+                {"hesap_kodu": "191.01.001", "hesap_adi": "1Lİ İNDİRİLECEK KDV", "aciklama": "30/07/2026 EFA2026000000002 ÖRNEK TEDARİK LTD.ŞTİ.", "borc": 29.70, "alacak": 0.00},
+                {"hesap_kodu": "100.01.001", "hesap_adi": "KASA", "aciklama": "30/07/2026 EFA2026000000002 ÖRNEK TEDARİK LTD.ŞTİ.", "borc": 0.00, "alacak": 3000.00},
+            ],
+            "toplam": 3000.00,
+        },
+    ])
+
     print("Test verileri hazır:", TEST_KLASORU)

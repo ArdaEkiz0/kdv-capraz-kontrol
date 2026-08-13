@@ -11,6 +11,8 @@ from db import db_al
 from dosya import cetvel_dosya_parse, fatura_dosya_parse
 from efatura import efatura_parse
 from email_gonder import mail_icerigi_olustur, outlook_ile_gonder, smtp_ile_gonder
+from excel_oku import muavin_satis_parse
+from fis_listesi import fis_listesi_hesap_parse
 from fatura_detay_pencere import FaturaDetayPencere
 from filtre_dialog import GelismisFiltreDialog, filtre_uygula
 from guncelleme import guncelleme_kontrol, guncellemeyi_kur, uygulamayi_yeniden_baslat
@@ -18,7 +20,7 @@ from iade_ayristirici import iade_ayristirici_ozet
 from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_MUKERRER,
                      DURUM_OK, DURUM_PARSE_SORUNU, DURUM_TUTAR_FARKI,
                      DURUM_VKN_FARKI, SORUNLU_DURUMLAR, capraz_kontrol,
-                     capraz_kontrol_iade_destekli)
+                     capraz_kontrol_iade_destekli, z_raporu_hesap_kontrol)
 from muavin_coklu import cetvel_klasor_dialog
 from muhtasar_ba_formu import ba_formu_olustur
 from ozetler import eksik_belgeler
@@ -63,6 +65,8 @@ class KdvKontrolApp:
         self.ozet = None
         self.faturalar = []
         self.cetvel_kayitlari = []
+        self.fis_hesap_kayitlari = []
+        self.muavin_hesap_kayitlari = []
         self.filtre = "Tumu"
         self.aktif_filtre = None
         self.gecmis_bilgi = None
@@ -89,7 +93,7 @@ class KdvKontrolApp:
     def _arayuz_kur(self):
         bilgi = ttk.Label(
             self.kok,
-            text=("Kullanım: 1) Fatura dosyalarını seçin (e-fatura XML/PDF veya Excel)  2) KDV kontrol cetvelini seçin   "
+            text=("Kullanım: 1) Fatura dosyalarını seçin (e-fatura XML/PDF, MAHSUP fişi PDF veya Excel)  2) KDV kontrol cetvelini seçin   "
                   "3) 'Kontrolü Başlat' ile çapraz kontrol yapın  4) Excel raporunu kaydedin"),
             background="#DDEBF7", padding=8, anchor="w",
         )
@@ -366,15 +370,26 @@ class KdvKontrolApp:
         try:
             self.faturalar = []
             self.cetvel_kayitlari = []
+            self.fis_hesap_kayitlari = []
+            self.muavin_hesap_kayitlari = []
             for i, dosya in enumerate(self.fatura_dosyalari, start=1):
                 faturalar = fatura_dosya_parse(dosya)
                 self.faturalar.extend(faturalar)
+                fis_hesap = fis_listesi_hesap_parse(dosya)
+                if fis_hesap:
+                    self.fis_hesap_kayitlari.extend(fis_hesap)
                 self.kok.update_idletasks()
             for dosya in self.cetvel_dosyalari:
                 c = cetvel_dosya_parse(dosya)
                 self.cetvel_kayitlari.extend(c["kayitlar"])
                 if c["notlar"]:
                     self._log_yaz(f"[Cetvel] {os.path.basename(dosya)}: {'; '.join(c['notlar'])}")
+                muavin = muavin_satis_parse(dosya)
+                if muavin["kayitlar"]:
+                    self.muavin_hesap_kayitlari.extend(muavin["kayitlar"])
+                    self._log_yaz(f"[Muavin] {os.path.basename(dosya)}: {len(muavin['kayitlar'])} hesap kaydı okundu")
+                elif muavin["notlar"]:
+                    self._log_yaz(f"[Muavin] {os.path.basename(dosya)}: {'; '.join(muavin['notlar'])}")
 
             self._donem_listesini_doldur()
             self._kontrol_hesapla()
@@ -421,6 +436,7 @@ class KdvKontrolApp:
             self.sonuc_satirlari, self.ozet = capraz_kontrol_iade_destekli(
                 faturalar, cetvel_kayitlari
             )
+            self._muavin_hesap_kontrol(ay)
             self.aktif_filtre = None
             self._filtre_uygula()
             self._ozet_guncelle()
@@ -442,6 +458,28 @@ class KdvKontrolApp:
                 self.gecmis_bilgi = None
         finally:
             self.kok.configure(cursor="")
+
+    def _muavin_hesap_kontrol(self, ay="Tumu"):
+        """MAHSUP fişi hesap kayıtları ile satış muavinini karşılaştırır."""
+        if not self.fis_hesap_kayitlari or not self.muavin_hesap_kayitlari:
+            return
+        fis = self.fis_hesap_kayitlari
+        muavin = self.muavin_hesap_kayitlari
+        if ay != "Tumu":
+            fis = [k for k in fis if (k.get("tarih") or "")[:7] == ay]
+            muavin = [k for k in muavin if (k.get("tarih") or "")[:7] == ay]
+        if not fis or not muavin:
+            return
+        mh_satirlar, mh_ozet = z_raporu_hesap_kontrol(fis, muavin)
+        for s in mh_satirlar:
+            s["detay"] = "[Muavin] " + s["detay"]
+        self.sonuc_satirlari.extend(mh_satirlar)
+        for anahtar in ("eslesen", "tutar_farki", "vkn_farki", "cetvelde_yok",
+                        "faturada_yok", "mukerrer", "parse_sorunu"):
+            self.ozet[anahtar] = self.ozet.get(anahtar, 0) + mh_ozet[anahtar]
+        self._log_yaz(f"[Muavin] Hesap bazlı kontrol: {len(fis)} MAHSUP, {len(muavin)} muavin kaydı → "
+                      f"{mh_ozet['eslesen']} eşleşen, {mh_ozet['tutar_farki']} tutar farkı, "
+                      f"{mh_ozet['faturada_yok']} muavinde eksik, {mh_ozet['cetvelde_yok']} MAHSUP'te eksik")
 
     def _satir_detay_goster(self, event):
         secili = self.tablo.selection()
@@ -708,7 +746,7 @@ class KdvKontrolApp:
 
         ttk.Label(
             ana,
-            text="e-Fatura, PDF ve Excel faturaları ile\nKDV kontrol cetvellerini çapraz kontrol eder.",
+            text="e-Fatura, MAHSUP fişi, PDF ve Excel faturaları ile\nKDV kontrol cetvellerini çapraz kontrol eder.",
             justify="center",
         ).pack(pady=(0, 15))
 

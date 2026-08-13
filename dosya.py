@@ -3,6 +3,7 @@ import os
 from cetvel import cetvel_parse
 from efatura import efatura_parse
 from excel_oku import cetvel_excel_parse, fatura_excel_parse, muavin_excel_parse
+from fis_listesi import fis_listesi_cetvel_parse, fis_listesi_parse
 from xml_oku import fatura_xml_parse
 
 EXCEL_UZANTILARI = (".xlsx", ".xlsm", ".xls")
@@ -16,6 +17,10 @@ def fatura_dosya_parse(dosya_yolu):
         return fatura_excel_parse(dosya_yolu)
     if uzanti in XML_UZANTILARI:
         return fatura_xml_parse(dosya_yolu)
+    if uzanti in PDF_UZANTILARI:
+        sonuc = fis_listesi_parse(dosya_yolu)
+        if sonuc is not None:
+            return sonuc
     return efatura_parse(dosya_yolu)
 
 
@@ -28,4 +33,8 @@ def cetvel_dosya_parse(dosya_yolu):
             if muavin["kayitlar"]:
                 return muavin
         return sonuc
+    if uzanti in PDF_UZANTILARI:
+        sonuc = fis_listesi_cetvel_parse(dosya_yolu)
+        if sonuc is not None:
+            return sonuc
     return cetvel_parse(dosya_yolu)
