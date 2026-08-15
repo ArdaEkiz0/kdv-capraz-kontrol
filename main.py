@@ -1,4 +1,5 @@
 import os
+import threading
 import tkinter as tk
 from datetime import datetime
 from tkinter import filedialog, messagebox, simpledialog, ttk
@@ -70,6 +71,8 @@ class KdvKontrolApp:
         self.filtre = "Tumu"
         self.aktif_filtre = None
         self.gecmis_bilgi = None
+        self._iptal = threading.Event()
+        self._islem_devam = False
 
         try:
             self.db = db_al()
@@ -365,42 +368,113 @@ class KdvKontrolApp:
         if not self.fatura_dosyalari and not self.cetvel_dosyalari:
             messagebox.showwarning("Uyarı", "Önce fatura ve/veya cetvel dosyalarını seçin.")
             return
+        if self._islem_devam:
+            messagebox.showwarning("Uyarı", "Devam eden bir işlem var, lütfen bekleyin.")
+            return
+        self._iptal.clear()
+        self._islem_devam = True
+        self._butonlari_aktif_fiyatla(False)
         self.kok.configure(cursor="watch")
-        self.kok.update_idletasks()
-        try:
-            self.faturalar = []
-            self.cetvel_kayitlari = []
-            self.fis_hesap_kayitlari = []
-            self.muavin_hesap_kayitlari = []
-            for i, dosya in enumerate(self.fatura_dosyalari, start=1):
-                faturalar = fatura_dosya_parse(dosya)
-                self.faturalar.extend(faturalar)
-                fis_hesap = fis_listesi_hesap_parse(dosya)
-                if fis_hesap:
-                    self.fis_hesap_kayitlari.extend(fis_hesap)
-                self.kok.update_idletasks()
-            for dosya in self.cetvel_dosyalari:
-                c = cetvel_dosya_parse(dosya)
-                self.cetvel_kayitlari.extend(c["kayitlar"])
-                if c["notlar"]:
-                    self._log_yaz(f"[Cetvel] {os.path.basename(dosya)}: {'; '.join(c['notlar'])}")
-                muavin = muavin_satis_parse(dosya)
-                if muavin["kayitlar"]:
-                    self.muavin_hesap_kayitlari.extend(muavin["kayitlar"])
-                    self._log_yaz(f"[Muavin] {os.path.basename(dosya)}: {len(muavin['kayitlar'])} hesap kaydı okundu")
-                elif muavin["notlar"]:
-                    self._log_yaz(f"[Muavin] {os.path.basename(dosya)}: {'; '.join(muavin['notlar'])}")
+        self._log_yaz("Kontrol başlatılıyor... (Arka planda çalışıyor)")
 
-            self._donem_listesini_doldur()
-            self._kontrol_hesapla()
-            self._parse_sorunlarini_bildir()
-            self._db_kaydet()
-            self._log_yaz(f"Kontrol tamamlandı: {len(self.faturalar)} fatura, {len(self.cetvel_kayitlari)} cetvel satırı, "
-                          f"{len(self.sonuc_satirlari)} sonuç satırı.")
-            if self.ozet.get("iade_adet", 0):
-                self._log_yaz(f"İade faturası: {self.ozet['iade_adet']} adet, toplam KDV: {tl_format(self.ozet.get('iade_kdv_toplam'))} TL")
-        finally:
-            self.kok.configure(cursor="")
+        t = threading.Thread(target=self._kontrol_arka_planda, daemon=True)
+        t.start()
+
+    def _butonlari_aktif_fiyatla(self, aktif):
+        durum = "normal" if aktif else "disabled"
+        for widget in self.kok.winfo_children():
+            if isinstance(widget, ttk.Frame):
+                for buton in widget.winfo_children():
+                    if isinstance(buton, ttk.Button):
+                        try:
+                            buton.configure(state=durum)
+                        except Exception:
+                            pass
+
+    def _kontrol_arka_planda(self):
+        try:
+            faturalar = []
+            cetvel_kayitlari = []
+            fis_hesap_kayitlari = []
+            muavin_hesap_kayitlari = []
+            toplam = len(self.fatura_dosyalari) + len(self.cetvel_dosyalari)
+
+            for i, dosya in enumerate(self.fatura_dosyalari, start=1):
+                if self._iptal.is_set():
+                    self.kok.after(0, lambda: self._log_yaz("İşlem iptal edildi."))
+                    return
+                ad = os.path.basename(dosya)
+                self.kok.after(0, lambda a=ad, s=i, t=toplam: self._log_yaz(f"[{s}/{t}] Fatura okunuyor: {a}"))
+                try:
+                    f = fatura_dosya_parse(dosya)
+                    faturalar.extend(f)
+                except Exception as hata:
+                    self.kok.after(0, lambda d=ad, h=hata: self._log_yaz(f"[Hata] {d}: {hata}"))
+                try:
+                    fis_hesap = fis_listesi_hesap_parse(dosya)
+                    if fis_hesap:
+                        fis_hesap_kayitlari.extend(fis_hesap)
+                except Exception:
+                    pass
+
+            for j, dosya in enumerate(self.cetvel_dosyalari, start=1):
+                if self._iptal.is_set():
+                    self.kok.after(0, lambda: self._log_yaz("İşlem iptal edildi."))
+                    return
+                ad = os.path.basename(dosya)
+                s = len(self.fatura_dosyalari) + j
+                self.kok.after(0, lambda a=ad, ss=s, t=toplam: self._log_yaz(f"[{ss}/{t}] Cetvel okunuyor: {a}"))
+                try:
+                    c = cetvel_dosya_parse(dosya)
+                    cetvel_kayitlari.extend(c["kayitlar"])
+                    if c["notlar"]:
+                        self.kok.after(0, lambda a=ad, n=c["notlar"]: self._log_yaz(f"[Cetvel] {a}: {'; '.join(n)}"))
+                except Exception as hata:
+                    self.kok.after(0, lambda d=ad, h=hata: self._log_yaz(f"[Hata] {d}: {hata}"))
+                try:
+                    muavin = muavin_satis_parse(dosya)
+                    if muavin["kayitlar"]:
+                        muavin_hesap_kayitlari.extend(muavin["kayitlar"])
+                        self.kok.after(0, lambda a=ad, k=muavin["kayitlar"]: self._log_yaz(
+                            f"[Muavin] {a}: {len(k)} hesap kaydı okundu"))
+                    elif muavin["notlar"]:
+                        self.kok.after(0, lambda a=ad, n=muavin["notlar"]: self._log_yaz(
+                            f"[Muavin] {a}: {'; '.join(n)}"))
+                except Exception:
+                    pass
+
+            sonuc = {
+                "faturalar": faturalar,
+                "cetvel_kayitlari": cetvel_kayitlari,
+                "fis_hesap_kayitlari": fis_hesap_kayitlari,
+                "muavin_hesap_kayitlari": muavin_hesap_kayitlari,
+            }
+            self.kok.after(0, lambda: self._kontrol_bitti(sonuc))
+
+        except Exception as hata:
+            self.kok.after(0, lambda: self._log_yaz(f"Kritik hata: {hata}"))
+            self.kok.after(0, self._kontrol_bitiyoruz)
+
+    def _kontrol_bitti(self, sonuc):
+        self.faturalar = sonuc["faturalar"]
+        self.cetvel_kayitlari = sonuc["cetvel_kayitlari"]
+        self.fis_hesap_kayitlari = sonuc["fis_hesap_kayitlari"]
+        self.muavin_hesap_kayitlari = sonuc["muavin_hesap_kayitlari"]
+
+        self._donem_listesini_doldur()
+        self._kontrol_hesapla()
+        self._parse_sorunlarini_bildir()
+        self._db_kaydet()
+        self._log_yaz(f"Kontrol tamamlandı: {len(self.faturalar)} fatura, {len(self.cetvel_kayitlari)} cetvel satırı, "
+                       f"{len(self.sonuc_satirlari)} sonuç satırı.")
+        if self.ozet and self.ozet.get("iade_adet", 0):
+            self._log_yaz(f"İade faturası: {self.ozet['iade_adet']} adet, toplam KDV: {tl_format(self.ozet.get('iade_kdv_toplam'))} TL")
+        self._kontrol_bitiyoruz()
+
+    def _kontrol_bitiyoruz(self):
+        self._islem_devam = False
+        self.kok.configure(cursor="")
+        self._butonlari_aktif_fiyatla(True)
 
     def _donem_listesini_doldur(self):
         donemler = set()
