@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KDV Çapraz Kontrol - Akıllı Muhasebe Kontrolü</title>
+    <meta name="description" content="e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile otomatik karşılaştırın. Farkları, eksikleri ve hataları saniyeler içinde bulun.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #10b981;
+            --accent: #f59e0b;
+            --dark: #1e293b;
+            --gray: #64748b;
+            --light: #f8fafc;
+            --white: #ffffff;
+            --gradient: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            color: var(--dark);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: var(--gradient);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            opacity: 0.3;
+        }
+
+        .hero-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-text h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            color: var(--white);
+            line-height: 1.2;
+            margin-bottom: 1.5rem;
+        }
+
+        .hero-text h1 span {
+            background: linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-text p {
+            font-size: 1.25rem;
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 2rem;
+            max-width: 500px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: var(--white);
+            color: var(--primary);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: var(--white);
+            border: 2px solid rgba(255,255,255,0.3);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-3px);
+        }
+
+        .hero-visual {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .hero-card {
+            background: var(--white);
+            border-radius: 24px;
+            padding: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+            width: 100%;
+            max-width: 500px;
+        }
+
+        .hero-card-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .hero-card-icon {
+            width: 50px;
+            height: 50px;
+            background: var(--gradient);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--white);
+            font-size: 1.5rem;
+        }
+
+        .hero-card-title {
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .hero-card-subtitle {
+            font-size: 0.875rem;
+            color: var(--gray);
+        }
+
+        .hero-card-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+            background: #f8fafc;
+            border-radius: 12px;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--gray);
+            margin-top: 0.25rem;
+        }
+
+        .hero-card-items {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .card-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1rem;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .card-item-status {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            color: var(--white);
+        }
+
+        .status-ok { background: #10b981; }
+        .status-warning { background: #f59e0b; }
+        .status-error { background: #ef4444; }
+
+        .card-item-info {
+            flex: 1;
+        }
+
+        .card-item-title {
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .card-item-subtitle {
+            font-size: 0.75rem;
+            color: var(--gray);
+        }
+
+        /* Features Section */
+        .features {
+            padding: 6rem 2rem;
+            background: var(--white);
+        }
+
+        .section-header {
+            text-align: center;
+            max-width: 700px;
+            margin: 0 auto 4rem;
+        }
+
+        .section-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #ede9fe 0%, #e0e7ff 100%);
+            color: var(--primary);
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .section-header h2 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--dark);
+            margin-bottom: 1rem;
+        }
+
+        .section-header p {
+            font-size: 1.125rem;
+            color: var(--gray);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .feature-card {
+            padding: 2rem;
+            border-radius: 20px;
+            background: var(--light);
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+
+        .feature-card:hover {
+            background: var(--white);
+            border-color: #e2e8f0;
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+        }
+
+        .feature-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .icon-blue { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #2563eb; }
+        .icon-green { background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); color: #10b981; }
+        .icon-purple { background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%); color: #7c3aed; }
+        .icon-orange { background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%); color: #ea580c; }
+        .icon-pink { background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%); color: #db2777; }
+        .icon-cyan { background: linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%); color: #0891b2; }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--dark);
+            margin-bottom: 0.75rem;
+        }
+
+        .feature-card p {
+            color: var(--gray);
+            font-size: 0.95rem;
+        }
+
+        /* How It Works */
+        .how-it-works {
+            padding: 6rem 2rem;
+            background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+        }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .step {
+            text-align: center;
+            padding: 2rem;
+            position: relative;
+        }
+
+        .step-number {
+            width: 80px;
+            height: 80px;
+            background: var(--gradient);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--white);
+            margin: 0 auto 1.5rem;
+            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.3);
+        }
+
+        .step h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--dark);
+            margin-bottom: 0.75rem;
+        }
+
+        .step p {
+            color: var(--gray);
+            font-size: 0.95rem;
+        }
+
+        /* Supported Formats */
+        .formats {
+            padding: 6rem 2rem;
+            background: var(--white);
+        }
+
+        .formats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .format-card {
+            text-align: center;
+            padding: 2rem 1rem;
+            background: var(--light);
+            border-radius: 16px;
+            transition: all 0.3s ease;
+        }
+
+        .format-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        }
+
+        .format-icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+        }
+
+        .format-card h4 {
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 0.25rem;
+        }
+
+        .format-card p {
+            font-size: 0.8rem;
+            color: var(--gray);
+        }
+
+        /* CTA Section */
+        .cta {
+            padding: 6rem 2rem;
+            background: var(--gradient);
+            text-align: center;
+        }
+
+        .cta h2 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--white);
+            margin-bottom: 1rem;
+        }
+
+        .cta p {
+            font-size: 1.125rem;
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 2rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* Footer */
+        .footer {
+            background: var(--dark);
+            color: var(--white);
+            padding: 4rem 2rem 2rem;
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 3rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .footer-brand h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .footer-brand p {
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+
+        .footer-links h4 {
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .footer-links ul {
+            list-style: none;
+        }
+
+        .footer-links li {
+            margin-bottom: 0.5rem;
+        }
+
+        .footer-links a {
+            color: #94a3b8;
+            text-decoration: none;
+            transition: color 0.3s ease;
+            font-size: 0.9rem;
+        }
+
+        .footer-links a:hover {
+            color: var(--white);
+        }
+
+        .footer-social {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .footer-social a {
+            width: 40px;
+            height: 40px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--white);
+            transition: all 0.3s ease;
+        }
+
+        .footer-social a:hover {
+            background: var(--primary);
+            transform: translateY(-3px);
+        }
+
+        .footer-bottom {
+            text-align: center;
+            padding-top: 2rem;
+            margin-top: 2rem;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+                gap: 2rem;
+            }
+
+            .hero-text h1 {
+                font-size: 2.5rem;
+            }
+
+            .hero-text p {
+                margin: 0 auto 2rem;
+            }
+
+            .hero-buttons {
+                justify-content: center;
+            }
+
+            .section-header h2 {
+                font-size: 2rem;
+            }
+
+            .cta h2 {
+                font-size: 2rem;
+            }
+        }
+
+        /* Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .hero-card {
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .feature-card {
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .feature-card:nth-child(1) { animation-delay: 0.1s; }
+        .feature-card:nth-child(2) { animation-delay: 0.2s; }
+        .feature-card:nth-child(3) { animation-delay: 0.3s; }
+        .feature-card:nth-child(4) { animation-delay: 0.4s; }
+        .feature-card:nth-child(5) { animation-delay: 0.5s; }
+        .feature-card:nth-child(6) { animation-delay: 0.6s; }
+    </style>
+</head>
+<body>
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-text">
+                <h1>KDV Kontrolünüzü <span>Otomatikleştiren</span> Program</h1>
+                <p>e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile saniyeler içinde karşılaştırın. Farkları, eksikleri ve hataları otomatik bulun.</p>
+                <div class="hero-buttons">
+                    <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases" class="btn btn-primary" target="_blank">
+                        <i class="fas fa-download"></i>
+                        Ücretsiz İndir
+                    </a>
+                    <a href="#nasil-calisir" class="btn btn-secondary">
+                        <i class="fas fa-play-circle"></i>
+                        Nasıl Çalışır?
+                    </a>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="hero-card">
+                    <div class="hero-card-header">
+                        <div class="hero-card-icon">
+                            <i class="fas fa-chart-line"></i>
+                        </div>
+                        <div>
+                            <div class="hero-card-title">Kontrol Paneli</div>
+                            <div class="hero-card-subtitle">171 Fatura • 154 Cetvel</div>
+                        </div>
+                    </div>
+                    <div class="hero-card-stats">
+                        <div class="stat-item">
+                            <div class="stat-value">156</div>
+                            <div class="stat-label">Eşleşen</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" style="color: #f59e0b;">3</div>
+                            <div class="stat-label">Fark Var</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" style="color: #ef4444;">2</div>
+                            <div class="stat-label">Eksik</div>
+                        </div>
+                    </div>
+                    <div class="hero-card-items">
+                        <div class="card-item">
+                            <div class="card-item-status status-ok"><i class="fas fa-check"></i></div>
+                            <div class="card-item-info">
+                                <div class="card-item-title">GFE202400000001</div>
+                                <div class="card-item-subtitle">ABC Ticaret • 1.200 ₺</div>
+                            </div>
+                        </div>
+                        <div class="card-item">
+                            <div class="card-item-status status-warning"><i class="fas fa-exclamation"></i></div>
+                            <div class="card-item-info">
+                                <div class="card-item-title">GFE202400000003</div>
+                                <div class="card-item-subtitle">Tutar Farkı • 50 ₺</div>
+                            </div>
+                        </div>
+                        <div class="card-item">
+                            <div class="card-item-status status-error"><i class="fas fa-times"></i></div>
+                            <div class="card-item-info">
+                                <div class="card-item-title">GFE202400000004</div>
+                                <div class="card-item-subtitle">Cetvelde Kaydı Yok</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features">
+        <div class="section-header">
+            <span class="section-badge">✨ Özellikler</span>
+            <h2>Neden KDV Çapraz Kontrol?</h2>
+            <p>Muhasebe sürecinizi hızlandıran güçlü özellikler</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon icon-blue">
+                    <i class="fas fa-file-invoice"></i>
+                </div>
+                <h3>Çoklu Format Desteği</h3>
+                <p>e-Fatura XML, PDF, MAHSUP fişi, Excel ve taranmış belgeleri tek programda işleyin.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-green">
+                    <i class="fas fa-search-dollar"></i>
+                </div>
+                <h3>Akıllı Eşleştirme</h3>
+                <p>VKN, belge no ve tutar ile otomatik çapraz kontrol. Manuel iş yükünüzü azaltın.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-purple">
+                    <i class="fas fa-chart-pie"></i>
+                </div>
+                <h3>Dashboard & Grafikler</h3>
+                <p>KDV dağılımı, aylık trendler ve KPI kartları ile görsel özetler alın.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-orange">
+                    <i class="fas fa-envelope-open-text"></i>
+                </div>
+                <h3>Mail Gönderimi</h3>
+                <p>Outlook veya SMTP ile tek tıkla muhasebecinize rapor gönderin.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-pink">
+                    <i class="fas fa-sync-alt"></i>
+                </div>
+                <h3>Otomatik Güncelleme</h3>
+                <p>GitHub'dan yeni sürümü otomatik kontrol eder, tek tıkla güncellenir.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-cyan">
+                    <i class="fas fa-database"></i>
+                </div>
+                <h3>Veritabanı Geçmişi</h3>
+                <p>Kontrol geçmişinizi saklayın, önceki dönemlerle karşılaştırma yapın.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="how-it-works" id="nasil-calisir">
+        <div class="section-header">
+            <span class="section-badge">🚀 Kullanım</span>
+            <h2>Nasıl Çalışır?</h2>
+            <p>4 basit adımda KDV kontrolünüzü tamamlayın</p>
+        </div>
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <h3>Faturaları Seçin</h3>
+                <p>Fatura dosyalarınızın olduğu klasörü seçin. XML, PDF veya Excel olabilir.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <h3>Cetveli Seçin</h3>
+                <p>KDV kontrol cetvelinizi yükleyin. Birden fazla dosya desteklenir.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <h3>Kontrolü Başlatın</h3>
+                <p>"Kontrolü Başlat" butonuna tıklayın. Sonuçlar otomatik gelsin.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <h3>Rapor Alın</h3>
+                <p>Excel veya PDF rapor oluşturun. Mail ile gönderin.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Supported Formats -->
+    <section class="formats">
+        <div class="section-header">
+            <span class="section-badge">📄 Formatlar</span>
+            <h2>Desteklenen Formatlar</h2>
+            <p>Tüm muhasebe belgelerinizi tek çatı altında işleyin</p>
+        </div>
+        <div class="formats-grid">
+            <div class="format-card">
+                <div class="format-icon">📄</div>
+                <h4>e-Fatura</h4>
+                <p>XML (UBL)</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">📑</div>
+                <h4>E-Fatura</h4>
+                <p>PDF</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">🧾</div>
+                <h4>MAHSUP Fişi</h4>
+                <p>PDF</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">📊</div>
+                <h4>Fatura Listesi</h4>
+                <p>Excel</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">📋</div>
+                <h4>KDV Cetveli</h4>
+                <p>PDF/Excel</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">📒</div>
+                <h4>Satış Muavini</h4>
+                <p>Excel</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <h2>Hemen Başlayın</h2>
+        <p>KDV kontrol sürecinizi otomatikleştirin. Ücretsiz indirin, hemen kullanmaya başlayın.</p>
+        <div class="cta-buttons">
+            <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases" class="btn btn-primary" target="_blank">
+                <i class="fab fa-github"></i>
+                GitHub'dan İndir
+            </a>
+            <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" class="btn btn-secondary" target="_blank">
+                <i class="fas fa-code"></i>
+                Kaynak Kodu
+            </a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <h3>📊 KDV Çapraz Kontrol</h3>
+                <p>Muhasebe sürecinizi kolaylaştıran akıllı çözüm.</p>
+                <div class="footer-social">
+                    <a href="https://github.com/ArdaEkiz0" target="_blank"><i class="fab fa-github"></i></a>
+                    <a href="https://www.linkedin.com/in/arda-mehmet-ekiz-107640333/" target="_blank"><i class="fab fa-linkedin"></i></a>
+                    <a href="https://www.instagram.com/ardaaekiz/" target="_blank"><i class="fab fa-instagram"></i></a>
+                    <a href="mailto:ardaekiz72@gmail.com"><i class="fas fa-envelope"></i></a>
+                </div>
+            </div>
+            <div class="footer-links">
+                <h4>Proje</h4>
+                <ul>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases" target="_blank">İndirme</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" target="_blank">Kaynak Kod</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/issues" target="_blank">Sorun Bildir</a></li>
+                </ul>
+            </div>
+            <div class="footer-links">
+                <h4>Dokümantasyon</h4>
+                <ul>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#readme" target="_blank">Kurulum Rehberi</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#-nasıl-kullanılır" target="_blank">Kullanım Kılavuzu</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#-sık-sorulan-sorular" target="_blank">SSS</a></li>
+                </ul>
+            </div>
+            <div class="footer-links">
+                <h4>İletişim</h4>
+                <ul>
+                    <li><a href="mailto:ardaekiz72@gmail.com">E-posta</a></li>
+                    <li><a href="https://www.linkedin.com/in/arda-mehmet-ekiz-107640333/" target="_blank">LinkedIn</a></li>
+                    <li><a href="https://www.instagram.com/ardaaekiz/" target="_blank">Instagram</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 Arda M. Ekiz. Tüm hakları saklıdır. MIT Lisansı ile korunmaktadır.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Intersection Observer for animations
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.feature-card, .step, .format-card').forEach(el => {
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>
