@@ -253,9 +253,28 @@
             color: var(--bg-primary);
         }
 
+        [data-theme="dark"] .version-badge {
+            background: rgba(0,0,0,0.15);
+            border-color: rgba(0,0,0,0.2);
+            color: var(--bg-primary);
+        }
+
         .btn-primary:hover {
             transform: translateY(-3px);
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .version-badge {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.2rem 0.6rem;
+            border-radius: 50px;
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.4);
+            color: #ffffff;
+            margin-left: 0.25rem;
+            vertical-align: middle;
         }
 
         .btn-secondary {
@@ -845,9 +864,9 @@
                 <h1>KDV Kontrolünüzü <span>Otomatikleştiren</span> Program</h1>
                 <p>e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile saniyeler içinde karşılaştırın. Farkları, eksikleri ve hataları otomatik bulun.</p>
                 <div class="hero-buttons">
-                    <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/download/v2.2.0/kdv-kontrol-v2.2.2.zip" class="btn btn-primary" download>
+                    <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest/download/kdv-kontrol.zip" class="btn btn-primary" download>
                         <i class="fas fa-download"></i>
-                        Ücretsiz İndir
+                        Ücretsiz İndir <span class="version-badge" id="hero-version"></span>
                     </a>
                     <a href="#nasil-calisir" class="btn btn-secondary">
                         <i class="fas fa-play-circle"></i>
@@ -1050,9 +1069,9 @@
         <h2>Hemen Başlayın</h2>
         <p>KDV kontrol sürecinizi otomatikleştirin. Ücretsiz indirin, hemen kullanmaya başlayın.</p>
         <div class="cta-buttons">
-            <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/download/v2.2.0/kdv-kontrol-v2.2.2.zip" class="btn btn-primary" download>
+            <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest/download/kdv-kontrol.zip" class="btn btn-primary" download>
                 <i class="fas fa-download"></i>
-                Ücretsiz İndir
+                Ücretsiz İndir <span class="version-badge" id="cta-version"></span>
             </a>
             <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" class="btn btn-secondary" target="_blank">
                 <i class="fas fa-code"></i>
@@ -1132,6 +1151,23 @@
         const savedTheme = localStorage.getItem('theme') || 'light';
         html.setAttribute('data-theme', savedTheme);
         updateThemeIcon(savedTheme);
+
+        // Fetch latest version from GitHub
+        function loadVersion() {
+            fetch('https://api.github.com/repos/ArdaEkiz0/kdv-capraz-kontrol/releases/latest')
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.tag_name) {
+                        const v = data.tag_name.replace(/^v/, '');
+                        const hero = document.getElementById('hero-version');
+                        const cta = document.getElementById('cta-version');
+                        if (hero) hero.textContent = 'v' + v;
+                        if (cta) cta.textContent = 'v' + v;
+                    }
+                })
+                .catch(() => {});
+        }
+        loadVersion();
 
         themeToggle.addEventListener('click', () => {
             const currentTheme = html.getAttribute('data-theme');
