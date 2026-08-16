@@ -36,6 +36,31 @@ DESTEKLENEN_DOSYALAR = [("Desteklenen Dosyalar", "*.pdf *.xlsx *.xlsm *.xls *.xm
                         ("Excel Dosyaları", "*.xlsx *.xlsm *.xls"),
                         ("XML Dosyaları", "*.xml")]
 
+# ---- Arayüz renk paleti (web sitesiyle uyumlu) ----
+RENK_PRIMER = "#2563eb"
+RENK_PRIMER_KOYU = "#1d4ed8"
+RENK_PRIMER_ACIK = "#dbeafe"
+RENK_MOR = "#7c3aed"
+RENK_BG = "#f5f7fb"
+RENK_KART = "#ffffff"
+RENK_BORDER = "#dbe2ef"
+RENK_METIN = "#1e293b"
+RENK_METIN_IKINCIL = "#64748b"
+RENK_BASLIK_ALANI = "#eef2ff"
+RENK_BASARILI = "#10b981"
+RENK_UYARI = "#f59e0b"
+RENK_HATA = "#ef4444"
+RENK_BUTON_METIN = "#ffffff"
+RENK_BUTON_KAYDIR = "#eff2f7"
+RENK_SATIR_BG = "#ffffff"
+RENK_SATIR_ALT = "#f8fafc"
+RENK_SECILI = "#dbeafe"
+FONT_BASLIK = ("Segoe UI", 16, "bold")
+FONT_METIN = ("Segoe UI", 10)
+FONT_KUCUK = ("Segoe UI", 9)
+FONT_MONO = ("Consolas", 9)
+
+
 DURUM_RENKLER = {
     DURUM_OK: "#C6EFCE",
     DURUM_TUTAR_FARKI: "#FFC7CE",
@@ -59,6 +84,7 @@ class KdvKontrolApp:
         kok.title("KDV Çapraz Kontrol | Geliştirici: Arda M. Ekiz")
         kok.geometry("1280x780")
         kok.minsize(1000, 600)
+        kok.configure(bg=RENK_BG)
 
         self.fatura_dosyalari = []
         self.cetvel_dosyalari = []
@@ -93,12 +119,56 @@ class KdvKontrolApp:
         self._son_dosyalari_geri_yukle()
         self._arayuz_kur()
 
+    def _stil_kur(self):
+        """Modern mavi/mor tema uygular (mevcut widget yapısını değiştirmez)."""
+        try:
+            stil = ttk.Style(self.kok)
+            if "clam" in stil.theme_names():
+                stil.theme_use("clam")
+        except Exception:
+            return
+
+        try:
+            stil.configure("TFrame", background=RENK_BG)
+            stil.configure("Kart.TFrame", background=RENK_KART, relief="flat")
+
+            stil.configure("TLabel", background=RENK_BG, foreground=RENK_METIN, font=FONT_METIN)
+            stil.configure("Kart.TLabel", background=RENK_KART, foreground=RENK_METIN, font=FONT_METIN)
+            stil.configure("Ikincil.TLabel", background=RENK_BG, foreground=RENK_METIN_IKINCIL, font=FONT_KUCUK)
+
+            stil.configure("TButton", background=RENK_PRIMER, foreground=RENK_BUTON_METIN,
+                           font=("Segoe UI", 10), padding=(10, 6), borderwidth=0, focuscolor="none")
+            stil.map("TButton",
+                     background=[("active", RENK_PRIMER_KOYU), ("pressed", RENK_PRIMER_KOYU)],
+                     relief=[("pressed", "sunken")])
+
+            stil.configure("Baslik.TLabel", background=RENK_BASLIK_ALANI, foreground=RENK_PRIMER,
+                           font=FONT_BASLIK, padding=10)
+
+            stil.configure("TRadiobutton", background=RENK_BG, foreground=RENK_METIN, font=FONT_METIN)
+            stil.configure("TCombobox", fieldbackground=RENK_KART, background=RENK_KART,
+                           foreground=RENK_METIN, arrowcolor=RENK_PRIMER)
+            stil.configure("Treeview", background=RENK_SATIR_BG, fieldbackground=RENK_SATIR_BG,
+                           foreground=RENK_METIN, rowheight=28, font=FONT_METIN, borderwidth=0)
+            stil.configure("Treeview.Heading", background=RENK_BASLIK_ALANI, foreground=RENK_METIN,
+                           font=("Segoe UI", 10, "bold"), padding=(8, 7), relief="flat")
+            stil.map("Treeview",
+                     background=[("selected", RENK_SECILI)],
+                     foreground=[("selected", RENK_PRIMER_KOYU)])
+            stil.map("Treeview.Heading",
+                     background=[("active", "#e2e8f0")])
+
+            stil.configure("Altlik.TFrame", background=RENK_KART, relief="flat", borderwidth=1)
+        except Exception:
+            pass
+
     def _arayuz_kur(self):
+        self._stil_kur()
         bilgi = ttk.Label(
             self.kok,
             text=("Kullanım: 1) Fatura dosyalarını seçin (e-fatura XML/PDF, MAHSUP fişi PDF veya Excel)  2) KDV kontrol cetvelini seçin   "
                   "3) 'Kontrolü Başlat' ile çapraz kontrol yapın  4) Excel raporunu kaydedin"),
-            background="#DDEBF7", padding=8, anchor="w",
+            style="Baslik.TLabel", padding=(12, 10), anchor="w",
         )
         bilgi.pack(fill="x")
 
@@ -121,7 +191,7 @@ class KdvKontrolApp:
         self.guncelleme_butonu.pack(side="left", padx=(0, 6))
         ttk.Button(ust, text="ℹ️ Hakkında", command=self.hakkinda_pencere_ac).pack(side="left", padx=(0, 6))
 
-        self.dosya_etiketi = ttk.Label(ust, text="Fatura: (seçilmedi) | Cetvel: (seçilmedi)")
+        self.dosya_etiketi = ttk.Label(ust, text="Fatura: (seçilmedi) | Cetvel: (seçilmedi)", style="Ikincil.TLabel")
         self.dosya_etiketi.pack(side="left", padx=(12, 0))
 
         filtre = ttk.Frame(self.kok, padding=(8, 0))
@@ -137,7 +207,7 @@ class KdvKontrolApp:
         self.ay_combobox.pack(side="left")
         self.ay_combobox.bind("<<ComboboxSelected>>", lambda e: self._kontrol_hesapla())
 
-        tablo_kapsayici = ttk.Frame(self.kok, padding=(8, 6))
+        tablo_kapsayici = ttk.Frame(self.kok, padding=(8, 6), style="Kart.TFrame")
         tablo_kapsayici.pack(fill="both", expand=True)
 
         self.tablo = ttk.Treeview(tablo_kapsayici, columns=KOLONLAR, show="headings", height=18)
@@ -158,12 +228,14 @@ class KdvKontrolApp:
         tablo_kapsayici.rowconfigure(0, weight=1)
         tablo_kapsayici.columnconfigure(0, weight=1)
 
-        self.ozet_etiketi = ttk.Label(self.kok, text="", padding=(8, 4))
+        self.ozet_etiketi = ttk.Label(self.kok, text="", padding=(12, 6), style="Ikincil.TLabel")
         self.ozet_etiketi.pack(fill="x")
 
         log_kapsayici = ttk.Frame(self.kok, padding=(8, 0))
         log_kapsayici.pack(fill="x", side="bottom")
-        self.log = tk.Text(log_kapsayici, height=5, state="disabled", wrap="word")
+        self.log = tk.Text(log_kapsayici, height=5, state="disabled", wrap="word",
+                           bg=RENK_KART, fg=RENK_METIN, relief="flat",
+                           font=FONT_MONO, padx=8, pady=6, insertbackground=RENK_PRIMER)
         log_kaydirma = ttk.Scrollbar(log_kapsayici, orient="vertical", command=self.log.yview)
         self.log.configure(yscrollcommand=log_kaydirma.set)
         self.log.pack(side="left", fill="x", expand=True)
