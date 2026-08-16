@@ -410,12 +410,13 @@ class KdvKontrolApp:
                     faturalar.extend(f)
                 except Exception as hata:
                     self.kok.after(0, lambda d=ad, h=hata: self._log_yaz(f"[Hata] {d}: {hata}"))
-                try:
-                    fis_hesap = fis_listesi_hesap_parse(dosya)
-                    if fis_hesap:
-                        fis_hesap_kayitlari.extend(fis_hesap)
-                except Exception:
-                    pass
+                if dosya.lower().endswith(".pdf"):
+                    try:
+                        fis_hesap = fis_listesi_hesap_parse(dosya)
+                        if fis_hesap:
+                            fis_hesap_kayitlari.extend(fis_hesap)
+                    except Exception:
+                        pass
 
             for j, dosya in enumerate(self.cetvel_dosyalari, start=1):
                 if self._iptal.is_set():
@@ -431,17 +432,18 @@ class KdvKontrolApp:
                         self.kok.after(0, lambda a=ad, n=c["notlar"]: self._log_yaz(f"[Cetvel] {a}: {'; '.join(n)}"))
                 except Exception as hata:
                     self.kok.after(0, lambda d=ad, h=hata: self._log_yaz(f"[Hata] {d}: {hata}"))
-                try:
-                    muavin = muavin_satis_parse(dosya)
-                    if muavin["kayitlar"]:
-                        muavin_hesap_kayitlari.extend(muavin["kayitlar"])
-                        self.kok.after(0, lambda a=ad, k=muavin["kayitlar"]: self._log_yaz(
-                            f"[Muavin] {a}: {len(k)} hesap kaydı okundu"))
-                    elif muavin["notlar"]:
-                        self.kok.after(0, lambda a=ad, n=muavin["notlar"]: self._log_yaz(
-                            f"[Muavin] {a}: {'; '.join(n)}"))
-                except Exception:
-                    pass
+                if dosya.lower().endswith((".xlsx", ".xlsm", ".xls")):
+                    try:
+                        muavin = muavin_satis_parse(dosya)
+                        if muavin["kayitlar"]:
+                            muavin_hesap_kayitlari.extend(muavin["kayitlar"])
+                            self.kok.after(0, lambda a=ad, k=muavin["kayitlar"]: self._log_yaz(
+                                f"[Muavin] {a}: {len(k)} hesap kaydı okundu"))
+                        elif muavin["notlar"]:
+                            self.kok.after(0, lambda a=ad, n=muavin["notlar"]: self._log_yaz(
+                                f"[Muavin] {a}: {'; '.join(n)}"))
+                    except Exception:
+                        pass
 
             sonuc = {
                 "faturalar": faturalar,
