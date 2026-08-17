@@ -175,24 +175,30 @@ class KdvKontrolApp:
         ust = ttk.Frame(self.kok, padding=(8, 6))
         ust.pack(fill="x")
 
-        ttk.Button(ust, text="Fatura Dosyaları Seç", command=self.fatura_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="Fatura Klasörü Seç", command=self.fatura_klasoru_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="Kontrol Cetveli Seç", command=self.cetvel_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="Kontrolü Başlat", command=self.kontrol_baslat).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="🔧 Veriyi İncele & Düzelt", command=self.veri_incele_ac).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="📊 Dashboard", command=self.dashboard_goster).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="🔎 Gelişmiş Filtre", command=self.gelismis_filtre_ac).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="📂 Klasör Cetvel", command=self.cetvel_klasor_ac).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="Excel Raporunu Kaydet", command=self.rapor_kaydet).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="PDF Raporunu Kaydet", command=self.rapor_pdf_kaydet).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="📊 Ba/Bs Formu", command=self.muhtasar_kaydet).pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="📧 Mail Gönder", command=self.mail_gonder_ac).pack(side="left", padx=(0, 6))
-        self.guncelleme_butonu = ttk.Button(ust, text="🔄 Güncelleme", command=self.guncelleme_kontrol_ac)
-        self.guncelleme_butonu.pack(side="left", padx=(0, 6))
-        ttk.Button(ust, text="ℹ️ Hakkında", command=self.hakkinda_pencere_ac).pack(side="left", padx=(0, 6))
-
-        self.dosya_etiketi = ttk.Label(ust, text="Fatura: (seçilmedi) | Cetvel: (seçilmedi)", style="Ikincil.TLabel")
+        # 1. satır: dosya seçim + kontrol
+        satir1 = ttk.Frame(ust)
+        satir1.pack(fill="x", pady=(0, 5))
+        ttk.Button(satir1, text="Fatura Dosyaları Seç", command=self.fatura_sec).pack(side="left", padx=(0, 6))
+        ttk.Button(satir1, text="Fatura Klasörü Seç", command=self.fatura_klasoru_sec).pack(side="left", padx=(0, 6))
+        ttk.Button(satir1, text="Kontrol Cetveli Seç", command=self.cetvel_sec).pack(side="left", padx=(0, 6))
+        ttk.Button(satir1, text="Kontrolü Başlat", command=self.kontrol_baslat).pack(side="left", padx=(0, 6))
+        self.dosya_etiketi = ttk.Label(satir1, text="Fatura: (seçilmedi) | Cetvel: (seçilmedi)", style="Ikincil.TLabel")
         self.dosya_etiketi.pack(side="left", padx=(12, 0))
+
+        # 2. satır: araç ve rapor butonları
+        satir2 = ttk.Frame(ust)
+        satir2.pack(fill="x")
+        ttk.Button(satir2, text="🔧 Veriyi İncele", command=self.veri_incele_ac).pack(side="left", padx=(0, 6))
+        ttk.Button(satir2, text="📊 Dashboard", command=self.dashboard_goster).pack(side="left", padx=(0, 6))
+        ttk.Button(satir2, text="🔎 Gelişmiş Filtre", command=self.gelismis_filtre_ac).pack(side="left", padx=(0, 6))
+        ttk.Button(satir2, text="📂 Klasör Cetvel", command=self.cetvel_klasor_ac).pack(side="left", padx=(0, 6))
+        ttk.Button(satir2, text="Excel Raporunu Kaydet", command=self.rapor_kaydet).pack(side="left", padx=(0, 6))
+        ttk.Button(satir2, text="PDF Raporunu Kaydet", command=self.rapor_pdf_kaydet).pack(side="left", padx=(0, 6))
+        ttk.Button(satir2, text="📊 Ba/Bs Formu", command=self.muhtasar_kaydet).pack(side="left", padx=(0, 6))
+        ttk.Button(satir2, text="📧 Mail Gönder", command=self.mail_gonder_ac).pack(side="left", padx=(0, 6))
+        self.guncelleme_butonu = ttk.Button(satir2, text="🔄 Güncelleme", command=self.guncelleme_kontrol_ac)
+        self.guncelleme_butonu.pack(side="left", padx=(0, 6))
+        ttk.Button(satir2, text="ℹ️ Hakkında", command=self.hakkinda_pencere_ac).pack(side="left", padx=(0, 6))
 
         filtre = ttk.Frame(self.kok, padding=(8, 0))
         filtre.pack(fill="x")
@@ -622,6 +628,12 @@ class KdvKontrolApp:
         for s in mh_satirlar:
             s["detay"] = "[Muavin] " + s["detay"]
         self.sonuc_satirlari.extend(mh_satirlar)
+        if self.ozet is None:
+            self.ozet = {
+                "fatura_adet": 0, "cetvel_adet": 0, "eslesen": 0, "tutar_farki": 0,
+                "vkn_farki": 0, "cetvelde_yok": 0, "faturada_yok": 0, "mukerrer": 0,
+                "parse_sorunu": 0, "fark_toplami": 0,
+            }
         for anahtar in ("eslesen", "tutar_farki", "vkn_farki", "cetvelde_yok",
                         "faturada_yok", "mukerrer", "parse_sorunu"):
             self.ozet[anahtar] = self.ozet.get(anahtar, 0) + mh_ozet[anahtar]
