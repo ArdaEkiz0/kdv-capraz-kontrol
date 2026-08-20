@@ -5,7 +5,10 @@ import tempfile
 try:
     import pymupdf as fitz
 except ImportError:
-    import fitz
+    try:
+        import fitz
+    except Exception:
+        fitz = None
 from PIL import Image, ImageOps
 
 import pytesseract
@@ -15,12 +18,14 @@ COZUNURLUK = 300
 
 def tesseract_mevcut_mi():
     try:
-        return shutil.which("tesseract") is not None
+        return fitz is not None and shutil.which("tesseract") is not None
     except Exception:
         return False
 
 
 def sayfa_gorsel(dosya_yolu, sayfa_no, cozunurluk=COZUNURLUK):
+    if fitz is None:
+        raise RuntimeError("pymupdf yüklenemedi (DLL sorunu)")
     doc = fitz.open(dosya_yolu)
     try:
         sayfa = doc[sayfa_no]

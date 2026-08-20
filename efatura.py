@@ -7,16 +7,29 @@ from utils import fatura_no_temizle, tarih_parse, tutar_parse, vkn_temizle
 try:
     import pymupdf as fitz
 except ImportError:
-    import fitz
+    try:
+        import fitz
+    except Exception:
+        fitz = None
+
+
+def _pdfminer_metni(dosya_yolu):
+    from pdfminer.high_level import extract_text
+    return extract_text(dosya_yolu)
 
 
 def pdf_metni_al(dosya_yolu):
-    doc = fitz.open(dosya_yolu)
-    parcalar = []
-    for sayfa in doc:
-        parcalar.append(sayfa.get_text())
-    doc.close()
-    return "\n".join(parcalar)
+    if fitz is not None:
+        try:
+            doc = fitz.open(dosya_yolu)
+            parcalar = []
+            for sayfa in doc:
+                parcalar.append(sayfa.get_text())
+            doc.close()
+            return "\n".join(parcalar)
+        except Exception:
+            pass
+    return _pdfminer_metni(dosya_yolu)
 
 
 def eslesme_bul(metin, pattern, sayi=1):
@@ -108,6 +121,16 @@ def efatura_parse(dosya_yolu):
     try:
         doc = fitz.open(dosya_yolu)
     except Exception as hata:
+        try:
+            tam_metin = _pdfminer_metni(dosya_yolu)
+            fatura = sayfa_parse(tam_metin)
+            if fatura:
+                fatura["dosya"] = dosya_yolu
+                fatura["sayfa"] = 1
+                fatura["notlar"].append("pdfminer ile okundu")
+                return [fatura]
+        except Exception:
+            pass
         return [{
             "dosya": dosya_yolu,
             "sayfa": 1,
