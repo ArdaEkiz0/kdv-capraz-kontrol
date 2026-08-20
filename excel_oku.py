@@ -329,6 +329,90 @@ def muavin_excel_parse(dosya_yolu):
     return sonuc
 
 
+def muavin_191_parse(dosya_yolu):
+    """KDV 191 hesap (alım fatura) defteriini okur (örn. 19112356.xlsx).
+
+    Format: her hesap grubu 'Hesap Kodu  191 01 001' başlığı altında
+    TARİH / FİŞ TİP / BELGE NO / İSL. KOD / AÇİKLAMA / DETAY NO /
+    KATEGORİ DETAYI / BORÇ BEDELİ / ALACAK BEDELİ sütunları.
+
+    Dönen kayıt (capraz_kontrol cetvel format): {vkn, belge_no, tarih,
+    matrah, kdv, unvan, notlar}
+    """
+    from decimal import Decimal
+    import re as _re
+
+    satirlar = excel_satirlar(dosya_yolu)
+    sonuc = {"dosya": dosya_yolu, "kayitlar": [], "notlar": []}
+
+    baslik_i = None
+    kolonlar = None
+    for i, satir in enumerate(satirlar):
+        normlar = [_norm_baslik(c) for c in satir]
+        if "TARIH" in normlar and "DETAY NO" in normlar and "BORC BEDELI" in normlar:
+            baslik_i = i
+            kolonlar = {
+                "tarih": normlar.index("TARIH"),
+                "detay": normlar.index("DETAY NO"),
+                "borc": normlar.index("BORC BEDELI"),
+                "alacak": normlar.index("ALACAK BEDELI") if "ALACAK BEDELI" in normlar else None,
+                "aciklama": normlar.index("ACIKLAMA") if "ACIKLAMA" in normlar else None,
+            }
+            break
+    if baslik_i is None:
+        sonuc["notlar"].append("191 hesap defteri tanınamadı (TARİH/DETAY NO/BORÇ BEDELİ sütunları aranıyor)")
+        return sonuc
+
+    for i in range(len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        normlar = [_norm_baslik(c) for c in satir]
+        if i == baslik_i:
+            continue
+        if "HESAP KODU" in normlar[0]:
+            continue
+        if "TARIH" in normlar and "BORC BEDELI" in normlar:
+            continue
+        tarih = satir[kolonlar["tarih"]] if kolonlar["tarih"] < len(satir) else None
+        tarih_str = None
+        if tarih is not None:
+            ts = tarih_parse(str(tarih).strip())
+            if ts:
+                tarih_str = str(ts)
+            else:
+                from excel_oku import _excel_seri_tarih
+                tarih_str = _excel_seri_tarih(tarih) if isinstance(tarih, (int, float)) else None
+        belge_raw = satir[kolonlar["detay"]] if kolonlar["detay"] < len(satir) else None
+        if belge_raw is None:
+            continue
+        belge = str(belge_raw).strip()
+        if not belge:
+            continue
+        borc = (tutar_parse(satir[kolonlar["borc"]])
+                if kolonlar["borc"] is not None and kolonlar["borc"] < len(satir) else None)
+        alacak = (tutar_parse(satir[kolonlar["alacak"]])
+                  if kolonlar["alacak"] is not None and kolonlar["alacak"] < len(satir) else None)
+        if borc is None and alacak is None:
+            continue
+        kdv = borc if borc is not None else alacak
+        unvan = ""
+        if kolonlar["aciklama"] is not None and kolonlar["aciklama"] < len(satir):
+            unvan = str(satir[kolonlar["aciklama"]] or "").strip()[:80]
+        kayit = {
+            "vkn": "", "belge_no": fatura_no_temizle(belge),
+            "tarih": tarih_str, "matrah": None, "kdv": kdv,
+            "unvan": unvan, "notlar": [],
+        }
+        sonuc["kayitlar"].append(kayit)
+    sonuc["kayitlar"] = _muavin_birlestir(sonuc["kayitlar"])
+    if not sonuc["kayitlar"]:
+        sonuc["notlar"].append("191 hesap'de fatura satırı bulunamadı")
+    else:
+        sonuc["notlar"].append("KDV 191 hesap listesi olarak okundu")
+    return sonuc
+
+
 def muavin_satis_parse(dosya_yolu):
     """Hesap başlıklı satış muavinini (ör. muavin_gokkusagi.xlsx) okur.
 
