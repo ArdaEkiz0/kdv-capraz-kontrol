@@ -1,5 +1,6 @@
 import os
 from datetime import date, datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 from utils import fatura_no_temizle, tarih_parse, tutar_parse, vkn_temizle
 
@@ -112,6 +113,25 @@ def _huc_tutar(deger):
     return tutar_parse(deger)
 
 
+def _gelen_tutar(deger):
+    """Gelen faturalar formatındaki sayı hücresini 2 ondalıklı tutara çevirir.
+
+    Excel bu hücreleri sayı olarak tutar; KDV TUTAR hücreleri matrah*oran
+    sonucu 3 ondalıklı float olabilir (örn. 578.612). tutar_parse bunu
+    nokta=binlik sanıp 578612 yapar, bu yüzden float için direkt Decimal.
+    """
+    if deger is None:
+        return None
+    if isinstance(deger, (int, float)):
+        try:
+            d = Decimal(str(deger))
+            if d.is_finite():
+                return d.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except Exception:
+            pass
+    return tutar_parse(deger)
+
+
 def _baslik_satiri_bul(satirlar):
     for i, satir in enumerate(satirlar):
         eşleşme = 0
@@ -218,6 +238,103 @@ def fatura_excel_parse(dosya_yolu):
             "belge_no": None, "tarih": None, "satici_vkn": None, "alici_vkn": None,
             "matrah": None, "kdv": None, "toplam": None, "oranlar": [],
             "notlar": ["Excel'de veri satırı bulunamadı (başlık satırı tanınamadı)"], "unvan": None,
+        })
+    return sonuc
+
+
+def fatura_gelen_parse(dosya_yolu):
+    """Gelen faturalar Excel formatı (ornek veri - gönderici faturaları listesi).
+
+    Başlıklar: FATURA TARİHİ, FATURA NUMARASI, FATURA TÜRÜ, GÖNDERİCİ UNVANI,
+    GÖNDERİCİ VKN, ÖDENECEK TUTAR, TOPLAM KDV %1 MATRAH/TUTAR, %10, %20.
+    Her satır bir faturadır. Matrah = KDV matrah kolonları toplamı,
+    KDV = KDV tutar kolonları toplamı.
+
+    Format tanınmazsa None döner.
+    """
+    satirlar = excel_satirlar(dosya_yolu)
+    baslik_i = None
+    kolon = {}
+    for i, satir in enumerate(satirlar):
+        normlar = [_norm_baslik(c) for c in satir]
+        if ("FATURA NUMARASI" in normlar and "GONDERICI VKN" in normlar
+                and any(n.startswith("TOPLAM KDV") and n.endswith("MATRAH") for n in normlar)):
+            baslik_i = i
+            kolon = {
+                "tarih": normlar.index("FATURA TARIHI") if "FATURA TARIHI" in normlar else None,
+                "belge": normlar.index("FATURA NUMARASI"),
+                "unvan": normlar.index("GONDERICI UNVANI") if "GONDERICI UNVANI" in normlar else None,
+                "vkn": normlar.index("GONDERICI VKN"),
+                "toplam": normlar.index("ODENECEK TUTAR") if "ODENECEK TUTAR" in normlar else None,
+            }
+            for oran in ("1", "10", "20"):
+                matrah_h = f"TOPLAM KDV {oran} MATRAH"
+                tutar_h = f"TOPLAM KDV {oran} TUTAR"
+                if matrah_h in normlar and tutar_h in normlar:
+                    kolon[f"matrah_{oran}"] = normlar.index(matrah_h)
+                    kolon[f"kdv_{oran}"] = normlar.index(tutar_h)
+            break
+    if baslik_i is None:
+        return None
+
+    sonuc = []
+    for i in range(baslik_i + 1, len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        belge_ham = satir[kolon["belge"]] if kolon["belge"] < len(satir) else None
+        if belge_ham is None or not str(belge_ham).strip():
+            continue
+        kayit = {
+            "dosya": dosya_yolu, "tip": "excel", "satir": i + 1,
+            "belge_no": fatura_no_temizle(str(belge_ham)),
+            "tarih": None, "satici_vkn": None, "alici_vkn": None,
+            "matrah": None, "kdv": None, "toplam": None,
+            "oranlar": [], "notlar": [], "unvan": None,
+        }
+        if kolon["tarih"] is not None and kolon["tarih"] < len(satir):
+            tv = satir[kolon["tarih"]]
+            if tv is not None:
+                t = tarih_parse(str(tv).strip()) or _excel_seri_tarih(tv)
+                kayit["tarih"] = str(t) if t else None
+        if kolon["vkn"] < len(satir):
+            kayit["satici_vkn"] = vkn_temizle(str(satir[kolon["vkn"]] or ""))
+        if kolon["unvan"] is not None and kolon["unvan"] < len(satir):
+            kayit["unvan"] = str(satir[kolon["unvan"]] or "").strip()[:80] or None
+        if kolon["toplam"] is not None and kolon["toplam"] < len(satir):
+            kayit["toplam"] = _gelen_tutar(satir[kolon["toplam"]])
+
+        matrah = Decimal("0")
+        kdv = Decimal("0")
+        oranlar = []
+        for oran in ("1", "10", "20"):
+            mkey = f"matrah_{oran}"
+            kkey = f"kdv_{oran}"
+            if mkey not in kolon or kkey not in kolon:
+                continue
+            m = _gelen_tutar(satir[kolon[mkey]]) if kolon[mkey] < len(satir) else None
+            k = _gelen_tutar(satir[kolon[kkey]]) if kolon[kkey] < len(satir) else None
+            if m is not None and k is not None:
+                matrah += m
+                kdv += k
+                if m:
+                    oranlar.append(int(oran))
+        kayit["matrah"] = matrah if oranlar else None
+        kayit["kdv"] = kdv if oranlar else None
+        kayit["oranlar"] = oranlar
+
+        if kayit["matrah"] is None or kayit["kdv"] is None:
+            kayit["notlar"].append("Matrah/KDV bulunamadı, manuel kontrol edin")
+        elif kayit["toplam"] is not None and abs(kayit["matrah"] + kayit["kdv"] - kayit["toplam"]) > 0.02:
+            kayit["notlar"].append("Matrah+KDV ≠ Toplam")
+        sonuc.append(kayit)
+
+    if not sonuc:
+        sonuc.append({
+            "dosya": dosya_yolu, "tip": "excel", "satir": 1,
+            "belge_no": None, "tarih": None, "satici_vkn": None, "alici_vkn": None,
+            "matrah": None, "kdv": None, "toplam": None, "oranlar": [],
+            "notlar": ["Excel'de veri satırı bulunamadı (gelen faturalar formatı)"], "unvan": None,
         })
     return sonuc
 

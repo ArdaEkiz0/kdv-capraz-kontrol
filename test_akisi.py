@@ -57,6 +57,23 @@ if __name__ == "__main__":
     kontrol("excel fatura 1", excel_faturalar[0]["belge_no"] == "GFE202400000001" and excel_faturalar[0]["matrah"] == 1000)
     kontrol("excel fatura kdv", excel_faturalar[2]["kdv"] == 50)
 
+    print("\n== GELEN FATURALAR (ornek veri) ==")
+    gelen_faturalar = fatura_dosya_parse(os.path.join(TEST_KLASORU, "gelen_faturalar.xlsx"))
+    for f in gelen_faturalar:
+        print(f"  satir={f['satir']} belge={f['belge_no']} vkn={f['satici_vkn']} matrah={tl_format(f['matrah'])} kdv={tl_format(f['kdv'])} toplam={tl_format(f['toplam'])} oran={f['oranlar']}")
+    kontrol("gelen fatura 3 kayit", len(gelen_faturalar) == 3, f"-> {len(gelen_faturalar)}")
+    kontrol("gelen fatura 1 (%10)", gelen_faturalar[0]["belge_no"] == "ABC202600000101"
+            and round(float(gelen_faturalar[0]["matrah"]), 2) == 5786.12
+            and round(float(gelen_faturalar[0]["kdv"]), 2) == 578.61
+            and gelen_faturalar[0]["oranlar"] == [10])
+    kontrol("gelen fatura 2 (%20)", gelen_faturalar[1]["belge_no"] == "ABD202600000102"
+            and round(float(gelen_faturalar[1]["matrah"]), 2) == 1179.86
+            and round(float(gelen_faturalar[1]["kdv"]), 2) == 235.97
+            and gelen_faturalar[1]["oranlar"] == [20])
+    kontrol("gelen fatura 3 (%1+%20)", round(float(gelen_faturalar[2]["matrah"]), 2) == round(643.57 + 0.83, 2)
+            and round(float(gelen_faturalar[2]["kdv"]), 2) == round(6.44 + 0.17, 2)
+            and round(float(gelen_faturalar[2]["toplam"]), 2) == 651.01)
+
     print("\n== EXCEL CETVEL LİSTESİ ==")
     excel_cetvel = cetvel_dosya_parse(os.path.join(TEST_KLASORU, "kontrol_cetveli.xlsx"))
     print("  notlar:", excel_cetvel["notlar"])

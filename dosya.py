@@ -2,7 +2,8 @@ import os
 
 from cetvel import cetvel_parse
 from efatura import efatura_parse
-from excel_oku import cetvel_excel_parse, fatura_excel_parse, muavin_excel_parse, muavin_191_parse
+from excel_oku import (cetvel_excel_parse, fatura_excel_parse, fatura_gelen_parse,
+                       muavin_excel_parse, muavin_191_parse)
 from fis_listesi import fis_listesi_cetvel_parse, fis_listesi_parse
 from xml_oku import fatura_xml_parse
 
@@ -14,6 +15,9 @@ XML_UZANTILARI = (".xml",)
 def fatura_dosya_parse(dosya_yolu):
     uzanti = os.path.splitext(dosya_yolu)[1].lower()
     if uzanti in EXCEL_UZANTILARI:
+        sonuc = fatura_gelen_parse(dosya_yolu)
+        if sonuc is not None:
+            return sonuc
         return fatura_excel_parse(dosya_yolu)
     if uzanti in XML_UZANTILARI:
         return fatura_xml_parse(dosya_yolu)
