@@ -40,12 +40,11 @@ def tutarlar_uyumlu(f, c):
 
 def _kdv_sifir(f, c):
     f_kdv = f.get("kdv")
-    c_kdv = c.get("kdv")
-    if f_kdv is None or c_kdv is None:
-        return False
+    if f_kdv is None:
+        return True
     if (f.get("fatura_tipi") or f.get("tip") or "").upper() == "IADE":
         f_kdv = abs(f_kdv)
-    return abs(f_kdv) < TOLERANS and abs(c_kdv) < TOLERANS
+    return abs(f_kdv) < TOLERANS
 
 
 def fark_metni(f_alan, c_alan):
