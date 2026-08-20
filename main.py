@@ -18,10 +18,11 @@ from fatura_detay_pencere import FaturaDetayPencere
 from filtre_dialog import GelismisFiltreDialog, filtre_uygula
 from guncelleme import guncelleme_kontrol, guncellemeyi_kur, uygulamayi_yeniden_baslat
 from iade_ayristirici import iade_ayristirici_ozet
-from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_MUKERRER,
-                     DURUM_OK, DURUM_PARSE_SORUNU, DURUM_TUTAR_FARKI,
-                     DURUM_VKN_FARKI, SORUNLU_DURUMLAR, capraz_kontrol,
-                     capraz_kontrol_iade_destekli, z_raporu_hesap_kontrol)
+from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_KDV_SIFIR,
+                     DURUM_MUKERRER, DURUM_OK, DURUM_PARSE_SORUNU,
+                     DURUM_TUTAR_FARKI, DURUM_VKN_FARKI, SORUNLU_DURUMLAR,
+                     capraz_kontrol, capraz_kontrol_iade_destekli,
+                     z_raporu_hesap_kontrol)
 from muavin_coklu import cetvel_klasor_dialog
 from muhtasar_ba_formu import ba_formu_olustur
 from ozetler import eksik_belgeler
@@ -65,6 +66,7 @@ DURUM_RENKLER = {
     DURUM_OK: "#C6EFCE",
     DURUM_TUTAR_FARKI: "#FFC7CE",
     DURUM_VKN_FARKI: "#FFEB9C",
+    DURUM_KDV_SIFIR: "#DDEBF7",
     DURUM_MUKERRER: "#FFEB9C",
     DURUM_CETVELDE_YOK: "#FFC7CE",
     DURUM_FATURADA_YOK: "#FFC7CE",
@@ -631,11 +633,11 @@ class KdvKontrolApp:
         if self.ozet is None:
             self.ozet = {
                 "fatura_adet": 0, "cetvel_adet": 0, "eslesen": 0, "tutar_farki": 0,
-                "vkn_farki": 0, "cetvelde_yok": 0, "faturada_yok": 0, "mukerrer": 0,
-                "parse_sorunu": 0, "fark_toplami": 0,
+                "vkn_farki": 0, "kdv_sifir": 0, "cetvelde_yok": 0, "faturada_yok": 0,
+                "mukerrer": 0, "parse_sorunu": 0, "fark_toplami": 0,
             }
-        for anahtar in ("eslesen", "tutar_farki", "vkn_farki", "cetvelde_yok",
-                        "faturada_yok", "mukerrer", "parse_sorunu"):
+        for anahtar in ("eslesen", "tutar_farki", "vkn_farki", "kdv_sifir",
+                        "cetvelde_yok", "faturada_yok", "mukerrer", "parse_sorunu"):
             self.ozet[anahtar] = self.ozet.get(anahtar, 0) + mh_ozet[anahtar]
         self._log_yaz(f"[Muavin] Hesap bazlı kontrol: {len(fis)} MAHSUP, {len(muavin)} muavin kaydı → "
                       f"{mh_ozet['eslesen']} eşleşen, {mh_ozet['tutar_farki']} tutar farkı, "
@@ -703,7 +705,8 @@ class KdvKontrolApp:
             return
         o = self.ozet
         metin = (f"Fatura: {o['fatura_adet']}  |  Cetvel: {o['cetvel_adet']}  |  Eşleşen: {o['eslesen']}  |  "
-                 f"Tutar Farkı: {o['tutar_farki']}  |  VKN Farkı: {o['vkn_farki']}  |  Cetvelde Yok: {o['cetvelde_yok']}  |  "
+                 f"Tutar Farkı: {o['tutar_farki']}  |  VKN Farkı: {o['vkn_farki']}  |  KDV 0: {o.get('kdv_sifir', 0)}  |  "
+                 f"Cetvelde Yok: {o['cetvelde_yok']}  |  "
                  f"Faturalarda Yok: {o['faturada_yok']}  |  Mükerrer: {o['mukerrer']}  |  Okunamayan: {o['parse_sorunu']}")
         iade_metin = ""
         if o.get("iade_adet", 0):

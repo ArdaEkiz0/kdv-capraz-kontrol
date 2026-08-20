@@ -6,13 +6,14 @@ TOLERANS = Decimal("0.02")
 DURUM_OK = "EŞLEŞTİ"
 DURUM_TUTAR_FARKI = "TUTAR FARKI"
 DURUM_VKN_FARKI = "VKN FARKI"
+DURUM_KDV_SIFIR = "KDV 0"
 DURUM_CETVELDE_YOK = "CETVELDE YOK"
 DURUM_FATURADA_YOK = "FATURALARDA YOK"
 DURUM_MUKERRER = "MÜKERRER"
 DURUM_PARSE_SORUNU = "PARSE SORUNU"
 
 SORUNLU_DURUMLAR = (
-    DURUM_TUTAR_FARKI, DURUM_VKN_FARKI, DURUM_CETVELDE_YOK,
+    DURUM_TUTAR_FARKI, DURUM_VKN_FARKI, DURUM_KDV_SIFIR, DURUM_CETVELDE_YOK,
     DURUM_FATURADA_YOK, DURUM_MUKERRER, DURUM_PARSE_SORUNU,
 )
 
@@ -37,6 +38,16 @@ def tutarlar_uyumlu(f, c):
     return True
 
 
+def _kdv_sifir(f, c):
+    f_kdv = f.get("kdv")
+    c_kdv = c.get("kdv")
+    if f_kdv is None or c_kdv is None:
+        return False
+    if (f.get("fatura_tipi") or f.get("tip") or "").upper() == "IADE":
+        f_kdv = abs(f_kdv)
+    return abs(f_kdv) < TOLERANS and abs(c_kdv) < TOLERANS
+
+
 def fark_metni(f_alan, c_alan):
     f_deger = "" if f_alan is None else f"{f_alan:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     c_deger = "" if c_alan is None else f"{c_alan:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -58,6 +69,7 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
         "eslesen": 0,
         "tutar_farki": 0,
         "vkn_farki": 0,
+        "kdv_sifir": 0,
         "cetvelde_yok": 0,
         "faturada_yok": 0,
         "mukerrer": 0,
@@ -136,6 +148,10 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
                 farklar = fark_parcalari(f, c)
                 if farklar:
                     detay += " | " + " | ".join(farklar)
+            elif _kdv_sifir(f, c):
+                durum = DURUM_KDV_SIFIR
+                ozet["kdv_sifir"] += 1
+                detay = "Kontrol edilecek KDV tutarı yok (KDV 0)"
             elif not tutarlar_uyumlu(f, c):
                 durum = DURUM_TUTAR_FARKI
                 ozet["tutar_farki"] += 1
@@ -203,7 +219,7 @@ def z_raporu_hesap_kontrol(fis_kayitlari, muavin_kayitlari):
     ozet = {
         "fatura_adet": len(fis_kayitlari),
         "cetvel_adet": len(muavin_kayitlari),
-        "eslesen": 0, "tutar_farki": 0, "vkn_farki": 0,
+        "eslesen": 0, "tutar_farki": 0, "vkn_farki": 0, "kdv_sifir": 0,
         "cetvelde_yok": 0, "faturada_yok": 0, "mukerrer": 0,
         "parse_sorunu": 0, "fark_toplami": 0,
     }
@@ -307,7 +323,7 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
         sonuc = []
         ozet = {
             "fatura_adet": 0, "cetvel_adet": len(cetvel_kayitlari),
-            "eslesen": 0, "tutar_farki": 0, "vkn_farki": 0,
+            "eslesen": 0, "tutar_farki": 0, "vkn_farki": 0, "kdv_sifir": 0,
             "cetvelde_yok": 0, "faturada_yok": 0, "mukerrer": 0,
             "parse_sorunu": 0, "fark_toplami": 0,
         }
