@@ -149,9 +149,8 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
                 if farklar:
                     detay += " | " + " | ".join(farklar)
             elif _kdv_sifir(f, c):
-                durum = DURUM_KDV_SIFIR
                 ozet["kdv_sifir"] += 1
-                detay = "Kontrol edilecek KDV tutarı yok (KDV 0)"
+                continue
             elif not tutarlar_uyumlu(f, c):
                 durum = DURUM_TUTAR_FARKI
                 ozet["tutar_farki"] += 1
