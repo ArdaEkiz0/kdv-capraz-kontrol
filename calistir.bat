@@ -64,7 +64,7 @@ REM --- Gerekli kutuphaneler ---
 %PY% %PY_ARG% -c "import pymupdf, openpyxl, pytesseract, PIL, matplotlib, fpdf" >nul 2>nul
 if errorlevel 1 (
     echo Gerekli kutuphaneler kuruluyor, bir dakika surebilir...
-    %PY% %PY_ARG% -m pip install --quiet pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2
+    %PY% %PY_ARG% -m pip install --quiet --upgrade --force-reinstall pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2
     if errorlevel 1 (
         echo Kutuphaneler kurulamadi. Asagidaki hatayi not edin:
         %PY% %PY_ARG% -m pip install pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2
