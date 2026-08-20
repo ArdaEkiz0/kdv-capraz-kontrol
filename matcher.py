@@ -38,15 +38,6 @@ def tutarlar_uyumlu(f, c):
     return True
 
 
-def _kdv_sifir(f, c):
-    f_kdv = f.get("kdv")
-    if f_kdv is None:
-        return True
-    if (f.get("fatura_tipi") or f.get("tip") or "").upper() == "IADE":
-        f_kdv = abs(f_kdv)
-    return abs(f_kdv) < TOLERANS
-
-
 def fark_metni(f_alan, c_alan):
     f_deger = "" if f_alan is None else f"{f_alan:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     c_deger = "" if c_alan is None else f"{c_alan:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
@@ -61,6 +52,25 @@ def duplikat_bul(liste, anahtar_fonksiyonu):
 
 
 def capraz_kontrol(faturalar, cetvel_kayitlari):
+    def anahtar_fatura(f):
+        return (f["belge_no"] or "").upper()
+
+    def anahtar_cetvel(c):
+        return (c["belge_no"] or "").upper()
+
+    def _kdv0_fatura(f):
+        f_kdv = f.get("kdv")
+        if f_kdv is None:
+            return True
+        if (f.get("fatura_tipi") or f.get("tip") or "").upper() == "IADE":
+            f_kdv = abs(f_kdv)
+        return abs(f_kdv) < TOLERANS
+
+    kdv0_belges = {anahtar_fatura(f) for f in faturalar if _kdv0_fatura(f)}
+    if kdv0_belges:
+        faturalar = [f for f in faturalar if anahtar_fatura(f) not in kdv0_belges]
+        cetvel_kayitlari = [c for c in cetvel_kayitlari if anahtar_cetvel(c) not in kdv0_belges]
+
     sonuc_satirlari = []
     ozet = {
         "fatura_adet": len(faturalar),
@@ -68,18 +78,12 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
         "eslesen": 0,
         "tutar_farki": 0,
         "vkn_farki": 0,
-        "kdv_sifir": 0,
+        "kdv_sifir": len(kdv0_belges),
         "cetvelde_yok": 0,
         "faturada_yok": 0,
         "mukerrer": 0,
         "parse_sorunu": 0,
     }
-
-    def anahtar_fatura(f):
-        return (f["belge_no"] or "").upper()
-
-    def anahtar_cetvel(c):
-        return (c["belge_no"] or "").upper()
 
     f_grup = defaultdict(list)
     for f in faturalar:
@@ -147,9 +151,6 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
                 farklar = fark_parcalari(f, c)
                 if farklar:
                     detay += " | " + " | ".join(farklar)
-            elif _kdv_sifir(f, c):
-                ozet["kdv_sifir"] += 1
-                continue
             elif not tutarlar_uyumlu(f, c):
                 durum = DURUM_TUTAR_FARKI
                 ozet["tutar_farki"] += 1
