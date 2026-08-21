@@ -537,7 +537,11 @@ def muavin_191_parse(dosya_yolu):
             if kdv is None:
                 continue
             m = _re.search(r"FT\.?\s*[NM]IZ\s*NO\s*[:#]?\s*([A-Za-z0-9\-/]+)", aciklama_txt)
-            belge = fatura_no_temizle(m.group(1)) if m else None
+            if m:
+                belge = fatura_no_temizle(m.group(1))
+            else:
+                kalan = _re.findall(r"[A-Z][A-Z0-9]{2}\d{4}\d{4,}", aciklama_txt.upper())
+                belge = fatura_no_temizle(kalan[-1]) if kalan else None
             if not belge:
                 continue
             unvan = aciklama_txt.split("FT.")[0].strip(" .")[:80]
@@ -662,7 +666,13 @@ def muavin_391_parse(dosya_yolu):
             continue
 
         m = _re.search(r"FT\.?\s*[NM]IZ\s*NO\s*[:#]?\s*([A-Za-z0-9\-/]+)", aciklama_txt)
-        belge = fatura_no_temizle(m.group(1)) if m else None
+        if m:
+            belge = fatura_no_temizle(m.group(1))
+        else:
+            # FT.MIZ NO: yokta, e-fatura belge pattern (kod+yıl+araç) çek.
+            # TTNET/telekom açıklamalar 'TTNET A.Ş.GN/1111/A112026000000301' biçimindedir.
+            kalan = _re.findall(r"[A-Z][A-Z0-9]{2}\d{4}\d{4,}", aciklama_txt.upper())
+            belge = fatura_no_temizle(kalan[-1]) if kalan else None
         if not belge:
             continue
         unvan = aciklama_txt.split("FT.")[0].strip(" .")[:80]

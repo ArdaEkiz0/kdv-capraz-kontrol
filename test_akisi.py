@@ -99,9 +99,11 @@ if __name__ == "__main__":
     print("  notlar:", m191["notlar"])
     for c in m191["kayitlar"]:
         print(f"  {c['belge_no']} tarih={c['tarih']} kdv={tl_format(c['kdv'])} {' '.join(c['notlar'])}")
-    kontrol("191 parse 2 kayit", len(m191["kayitlar"]) == 2, f"-> {len(m191['kayitlar'])}")
+    kontrol("191 parse 4 kayit", len(m191["kayitlar"]) == 4, f"-> {len(m191['kayitlar'])}")
     kontrol("191 belge FT.NIZ NO", m191["kayitlar"][0]["belge_no"] == "ORT2026000000301")
     kontrol("191 kdv borc kolonu", round(float(m191["kayitlar"][1]["kdv"]), 2) == 1189.99)
+    kontrol("191 TTNET GN belge", any(k["belge_no"] == "A112026000000301" for k in m191["kayitlar"]))
+    kontrol("191 TTNET GN kdv", any(k["belge_no"] == "A112026000000301" and round(float(k["kdv"]), 2) == 199.98 for k in m191["kayitlar"]))
 
     print("\n== XML FATURA (UBL e-fatura) ==")
     from dosya import fatura_dosya_parse as fatura_dosya_parse_fn
