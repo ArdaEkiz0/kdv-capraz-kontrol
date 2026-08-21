@@ -94,6 +94,15 @@ if __name__ == "__main__":
     grub3 = sum(float(k["kdv"]) for k in m391["kayitlar"] if "391-03-001" in " ".join(k["notlar"]))
     kontrol("391-03-001 toplam (Genel Toplam'e eş)", round(grub3, 2) == 10137.56, f"-> {round(grub3,2)}")
 
+    print("\n== EXCEL 191 HESAP DEFTERİ (alım KDV) ==")
+    m191 = cetvel_dosya_parse(os.path.join(TEST_KLASORU, "191_hesap.xlsx"))
+    print("  notlar:", m191["notlar"])
+    for c in m191["kayitlar"]:
+        print(f"  {c['belge_no']} tarih={c['tarih']} kdv={tl_format(c['kdv'])} {' '.join(c['notlar'])}")
+    kontrol("191 parse 2 kayit", len(m191["kayitlar"]) == 2, f"-> {len(m191['kayitlar'])}")
+    kontrol("191 belge FT.NIZ NO", m191["kayitlar"][0]["belge_no"] == "ORT2026000000301")
+    kontrol("191 kdv borc kolonu", round(float(m191["kayitlar"][1]["kdv"]), 2) == 1189.99)
+
     print("\n== XML FATURA (UBL e-fatura) ==")
     from dosya import fatura_dosya_parse as fatura_dosya_parse_fn
     from xml_oku import fatura_xml_parse

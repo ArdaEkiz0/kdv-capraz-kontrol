@@ -447,16 +447,20 @@ def muavin_excel_parse(dosya_yolu):
 
 
 def muavin_191_parse(dosya_yolu):
-    """KDV 191 hesap (alım fatura) defteriini okur (örn. 19112356.xlsx).
+    """KDV 191 hesap (alım fatura) defteri okur (örn. 19112356.xlsx veya 191.xlsx).
 
-    Format: her hesap grubu 'Hesap Kodu  191 01 001' başlığı altında
-    TARİH / FİŞ TİP / BELGE NO / İSL. KOD / AÇİKLAMA / DETAY NO /
-    KATEGORİ DETAYI / BORÇ BEDELİ / ALACAK BEDELİ sütunları.
+    İki varyant desteklenir:
+      - eski: 'Hesap Kodu 191 01 001' başlığı altında
+              TARİH / FİŞ TİP / BELGE NO / İSL. KOD / AÇIKLAMA / DETAY NO /
+              KATEGORİ DETAYI / BORÇ BEDELİ / ALACAK BEDELİ sütunları.
+      - yeni (391 ile aynı): 'Hesap Kodu 191-xx-xxx' başlığı altında
+              TARİH / FİŞ NO / SR / AÇIKLAMA / BORÇ TUT. / ALACAK TUT. /
+              REFERANS KODU / REFERANS İSMİ / İŞLEM TİPİ sütunları,
+              açıklama '...FT.NIZ NO:XXXX KDVSI' içerir, KDV Borç kolonundadır.
 
     Dönen kayıt (capraz_kontrol cetvel format): {vkn, belge_no, tarih,
     matrah, kdv, unvan, notlar}
     """
-    from decimal import Decimal
     import re as _re
 
     satirlar = excel_satirlar(dosya_yolu)
@@ -464,6 +468,7 @@ def muavin_191_parse(dosya_yolu):
 
     baslik_i = None
     kolonlar = None
+    yeni_format = False
     for i, satir in enumerate(satirlar):
         normlar = [_norm_baslik(c) for c in satir]
         if "TARIH" in normlar and "DETAY NO" in normlar and "BORC BEDELI" in normlar:
@@ -476,20 +481,72 @@ def muavin_191_parse(dosya_yolu):
                 "aciklama": normlar.index("ACIKLAMA") if "ACIKLAMA" in normlar else None,
             }
             break
+        if "TARIH" in normlar and "FIS NO" in normlar \
+                and "ACIKLAMA" in normlar and "BORC TUT" in normlar and "ALACAK TUT" in normlar:
+            baslik_i = i
+            yeni_format = True
+            kolonlar = {
+                "tarih": normlar.index("TARIH"),
+                "fis": normlar.index("FIS NO"),
+                "aciklama": normlar.index("ACIKLAMA"),
+                "borc": normlar.index("BORC TUT"),
+                "alacak": normlar.index("ALACAK TUT"),
+            }
+            break
     if baslik_i is None:
-        sonuc["notlar"].append("191 hesap defteri tanınamadı (TARİH/DETAY NO/BORÇ BEDELİ sütunları aranıyor)")
+        sonuc["notlar"].append("191 hesap defteri tanınamadı (TARİH/DETAY NO/BORÇ BEDELİ veya TARİH/FİŞ NO/BORÇ TUT./ALACAK TUT. sütunları aranıyor)")
         return sonuc
 
+    aktif_hesap = ""
     for i in range(len(satirlar)):
         satir = satirlar[i]
         if not any(c is not None and str(c).strip() for c in satir):
             continue
         normlar = [_norm_baslik(c) for c in satir]
+        if i < baslik_i:
+            ilk = str(satir[0] or "").strip() if satir else ""
+            if _re.match(r"^19\d-", ilk):
+                aktif_hesap = ilk
+            continue
         if i == baslik_i:
             continue
         if "HESAP KODU" in normlar[0]:
             continue
         if "TARIH" in normlar and "BORC BEDELI" in normlar:
+            continue
+        if "TARIH" in normlar and "FIS NO" in normlar:
+            continue
+        if yeni_format:
+            ilk = str(satir[0] or "").strip() if satir and satir[0] is not None else ""
+            if _re.match(r"^19\d-", ilk):
+                aktif_hesap = ilk
+                continue
+            if not aktif_hesap.startswith("191"):
+                continue
+            aciklama_txt = str(satir[kolonlar["aciklama"]] or "").strip() if kolonlar["aciklama"] < len(satir) else ""
+            if any(k in aciklama_txt.upper() for k in ("TOPLAM", "GENEL TOPLAM", "BAKIYE", "YEKUN")):
+                continue
+            if not _re.match(r"^\d{1,2}[./]\d{1,2}[./]\d{4}", ilk):
+                continue
+            tarih = tarih_parse(ilk)
+            borc = (tutar_parse(satir[kolonlar["borc"]])
+                    if kolonlar["borc"] < len(satir) else None)
+            alacak = (tutar_parse(satir[kolonlar["alacak"]])
+                      if kolonlar["alacak"] < len(satir) else None)
+            kdv = borc if borc is not None and borc else alacak
+            if kdv is None:
+                continue
+            m = _re.search(r"FT\.?\s*[NM]IZ\s*NO\s*[:#]?\s*([A-Za-z0-9\-/]+)", aciklama_txt)
+            belge = fatura_no_temizle(m.group(1)) if m else None
+            if not belge:
+                continue
+            unvan = aciklama_txt.split("FT.")[0].strip(" .")[:80]
+            kayit = {
+                "vkn": "", "belge_no": belge, "tarih": str(tarih) if tarih else None,
+                "matrah": None, "kdv": kdv, "unvan": unvan,
+                "notlar": [f"Hesap: {aktif_hesap}"] if aktif_hesap else [],
+            }
+            sonuc["kayitlar"].append(kayit)
             continue
         tarih = satir[kolonlar["tarih"]] if kolonlar["tarih"] < len(satir) else None
         tarih_str = None
@@ -586,6 +643,8 @@ def muavin_391_parse(dosya_yolu):
         if "TARIH" in normlar and "FIS NO" in normlar:
             continue
         ilk = str(satir[0] or "").strip() if satir and satir[0] is not None else ""
+        if not aktif_hesap.startswith("391"):
+            continue
         # Toplam satırları atla
         aciklama_txt = str(satir[kolonlar["aciklama"]] or "").strip() if kolonlar["aciklama"] < len(satir) else ""
         if any(k in aciklama_txt.upper() for k in ("TOPLAM", "GENEL TOPLAM", "BAKIYE", "YEKUN")):
@@ -602,7 +661,7 @@ def muavin_391_parse(dosya_yolu):
         if kdv is None:
             continue
 
-        m = _re.search(r"FT\.?\s*MIZ\s*NO\s*[:#]?\s*([A-Za-z0-9\-/]+)", aciklama_txt)
+        m = _re.search(r"FT\.?\s*[NM]IZ\s*NO\s*[:#]?\s*([A-Za-z0-9\-/]+)", aciklama_txt)
         belge = fatura_no_temizle(m.group(1)) if m else None
         if not belge:
             continue
