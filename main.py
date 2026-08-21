@@ -32,10 +32,11 @@ from surum import SURUM
 from utils import tl_format
 from veri_incele import VeriIncelePenceresi
 
-DESTEKLENEN_DOSYALAR = [("Desteklenen Dosyalar", "*.pdf *.xlsx *.xlsm *.xls *.xml"),
+DESTEKLENEN_DOSYALAR = [("Desteklenen Dosyalar", "*.pdf *.xlsx *.xlsm *.xls *.xml *.zip"),
                         ("PDF Dosyaları", "*.pdf"),
                         ("Excel Dosyaları", "*.xlsx *.xlsm *.xls"),
-                        ("XML Dosyaları", "*.xml")]
+                        ("XML Dosyaları", "*.xml"),
+                        ("Zip Arşiv (XML Fatura Listesi)", "*.zip")]
 
 # ---- Arayüz renk paleti (web sitesiyle uyumlu) ----
 RENK_PRIMER = "#2563eb"

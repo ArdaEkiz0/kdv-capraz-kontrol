@@ -117,6 +117,20 @@ if __name__ == "__main__":
     kontrol("xml 1 oran notu yok", not any("Matrah×Oran" in n for n in xml_faturalar[0]["notlar"]))
     kontrol("xml 3 oran kontrol", xml_faturalar[2]["oran_kontrol"] in ("OK", ""), f"-> {xml_faturalar[2]['oran_kontrol']}")
 
+    print("\n== GELEN ZIP (telekom + elektrik XML) ==")
+    gz_faturalar = fatura_dosya_parse_fn(os.path.join(TEST_KLASORU, "gelen_zip_faturalar.zip"))
+    kontrol("gzip 2 kayit", len(gz_faturalar) == 2, f"-> {len(gz_faturalar)}")
+    gediz = next((f for f in gz_faturalar if f["belge_no"] == "ORN2026000000001"), None)
+    turkcell = next((f for f in gz_faturalar if f["belge_no"] == "TEL2026000000002"), None)
+    kontrol("zip gediz elektrik kdv", gediz is not None and round(float(gediz["kdv"]), 2) == 227.27
+            and round(float(gediz["kdv_ayrik"]), 2) == 227.27)
+    kontrol("zip turkcell sektor", turkcell is not None and turkcell["sektor"] == "TELECOM"
+            and round(float(turkcell["kdv"]), 2) == 142.36
+            and round(float(turkcell["kdv_ayrik"]), 2) == 76.92
+            and round(float(turkcell["diger_vergi_toplam"]), 2) == 65.44)
+    kontrol("zip turkcell vergi detay", turkcell is not None and any(
+        d.get("ad") == "Özel İletişim Vergisi" and d.get("kod") == "4081" for d in turkcell["vergi_detay"]))
+
     print("\n== XML ORAN FARKI (NameError regresyon) ==")
     import re as _re
     import tempfile as _tmp

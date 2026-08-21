@@ -1,4 +1,5 @@
 import os
+import zipfile
 
 from cetvel import cetvel_parse
 from efatura import efatura_parse
@@ -10,10 +11,48 @@ from xml_oku import fatura_xml_parse
 EXCEL_UZANTILARI = (".xlsx", ".xlsm", ".xls")
 PDF_UZANTILARI = (".pdf",)
 XML_UZANTILARI = (".xml",)
+ZIP_UZANTILARI = (".zip",)
+
+
+def _zip_xml_faturalar(zip_yolu):
+    """Zip arşiv içindeki e-fatura XML'lerini okuyup birleştirir.
+
+    (örn. GEDİZ ELEKTRİK XML Fatura Listesi). Arşivde XML yoksa None döner.
+    """
+    import tempfile
+    sonuc = []
+    try:
+        arsiv = zipfile.ZipFile(zip_yolu)
+    except Exception:
+        return None
+    xml_listesi = [n for n in arsiv.namelist() if n.lower().endswith(".xml")]
+    if not xml_listesi:
+        return None
+    gecici = tempfile.mkdtemp()
+    try:
+        for n in xml_listesi:
+            try:
+                ham = arsiv.read(n)
+            except Exception:
+                continue
+            yol = os.path.join(gecici, os.path.basename(n))
+            with open(yol, "wb") as f:
+                f.write(ham)
+            for kayit in fatura_xml_parse(yol):
+                kayit["kaynak_zip"] = os.path.basename(zip_yolu)
+                sonuc.append(kayit)
+    finally:
+        import shutil
+        shutil.rmtree(gecici, ignore_errors=True)
+    return sonuc
 
 
 def fatura_dosya_parse(dosya_yolu):
     uzanti = os.path.splitext(dosya_yolu)[1].lower()
+    if uzanti in ZIP_UZANTILARI or (uzanti == "" and _zip_mi(dosya_yolu)):
+        sonuc = _zip_xml_faturalar(dosya_yolu)
+        if sonuc is not None:
+            return sonuc
     if uzanti in EXCEL_UZANTILARI:
         sonuc = fatura_gelen_parse(dosya_yolu)
         if sonuc is not None:
@@ -26,6 +65,14 @@ def fatura_dosya_parse(dosya_yolu):
         if sonuc is not None:
             return sonuc
     return efatura_parse(dosya_yolu)
+
+
+def _zip_mi(dosya_yolu):
+    try:
+        with open(dosya_yolu, "rb") as f:
+            return f.read(4) == b"PK\x03\x04"
+    except Exception:
+        return False
 
 
 def cetvel_dosya_parse(dosya_yolu):

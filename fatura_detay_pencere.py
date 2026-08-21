@@ -34,19 +34,29 @@ class FaturaDetayPencere(tk.Toplevel):
         bilgi.pack(fill="x", pady=(0, 8))
 
         f = self.fatura
+        sektor = f.get("sektor") or ""
+        if sektor:
+            sektor_etiket = {"TELECOM": "📡 Telekom", "ELEKTRIK": "⚡ Elektrik"}.get(sektor, sektor)
+        else:
+            sektor_etiket = ""
         satirlar = [
             ("Belge No", f.get("belge_no") or "-"),
             ("Tarih", f.get("tarih") or "-"),
             ("Tip", f.get("tip") or "-"),
+            ("Sektör", sektor_etiket or "-"),
             ("Satıcı VKN", f.get("satici_vkn") or "-"),
             ("Satıcı Ünvan", f.get("satici_unvan") or "-"),
             ("Alıcı VKN", f.get("alici_vkn") or "-"),
             ("KDV Oranları", ", ".join(f"%{o}" for o in f.get("oranlar") or []) or "-"),
             ("Matrah", tl_format(f.get("matrah")) + " TL"),
-            ("KDV", tl_format(f.get("kdv")) + " TL"),
-            ("Toplam", tl_format(f.get("toplam")) + " TL"),
-            ("Eşleşme Durumu", self.sonuc.get("durum") or "-"),
+            ("KDV (tüm vergi)", tl_format(f.get("kdv")) + " TL"),
         ]
+        kdv_ayrik = f.get("kdv_ayrik")
+        if kdv_ayrik is not None:
+            satirlar.append(("KDV (saf 0015)", tl_format(kdv_ayrik) + " TL"))
+            satirlar.append(("Diğer vergiler", tl_format(f.get("diger_vergi_toplam")) + " TL"))
+        satirlar.append(("Toplam", tl_format(f.get("toplam")) + " TL"))
+        satirlar.append(("Eşleşme Durumu", self.sonuc.get("durum") or "-"))
         for i, (etiket, deger) in enumerate(satirlar):
             ttk.Label(bilgi, text=etiket + ":", font=("Segoe UI", 9, "bold")).grid(
                 row=i, column=0, sticky="w", pady=2, padx=(0, 8)
@@ -60,19 +70,22 @@ class FaturaDetayPencere(tk.Toplevel):
             detay_frame = ttk.LabelFrame(ana, text="📊 Oran Bazlı KDV Detayı", padding=8)
             detay_frame.pack(fill="both", expand=True, pady=(0, 8))
 
-            cols = ("oran", "matrah", "kdv", "muafiyet")
+            cols = ("ad", "oran", "matrah", "kdv", "muafiyet")
             tree = ttk.Treeview(detay_frame, columns=cols, show="headings", height=4)
+            tree.heading("ad", text="Vergi")
             tree.heading("oran", text="Oran")
             tree.heading("matrah", text="Matrah")
             tree.heading("kdv", text="KDV")
             tree.heading("muafiyet", text="Muafiyet")
-            tree.column("oran", width=80, anchor="center")
-            tree.column("matrah", width=120, anchor="e")
-            tree.column("kdv", width=120, anchor="e")
-            tree.column("muafiyet", width=150, anchor="w")
+            tree.column("ad", width=200, anchor="w")
+            tree.column("oran", width=70, anchor="center")
+            tree.column("matrah", width=110, anchor="e")
+            tree.column("kdv", width=110, anchor="e")
+            tree.column("muafiyet", width=130, anchor="w")
 
             for st in detay:
                 tree.insert("", "end", values=(
+                    st.get("ad") or (f"KDV" if st.get('kod') == '0015' else "-"),
                     f"%{st.get('oran')}" if st.get('oran') else "-",
                     tl_format(st.get("matrah")),
                     tl_format(st.get("kdv")),

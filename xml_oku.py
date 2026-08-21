@@ -143,7 +143,8 @@ def _icerikleri_oku(ham_veri):
     if belge_vergi is not None:
         for e in belge_vergi.iter():
             if _yerel_ad(e.tag) == "TaxSubtotal":
-                satir = {"oran": None, "matrah": None, "kdv": None, "muafiyet": None}
+                satir = {"oran": None, "matrah": None, "kdv": None, "muafiyet": None,
+                         "ad": None, "kod": None}
                 for a in e.iter():
                     n = _yerel_ad(a.tag)
                     if n == "Percent":
@@ -156,8 +157,47 @@ def _icerikleri_oku(ham_veri):
                         satir["kdv"] = _xml_tutar(_metin(a))
                     elif n == "TaxExemptionReason":
                         satir["muafiyet"] = _metin(a)
+                    elif n == "TaxTypeCode":
+                        satir["kod"] = (_metin(a) or "").strip()
+                    elif n == "Name" and satir["ad"] is None:
+                        metin = (_metin(a) or "").strip()
+                        if metin and not any(k in metin.upper() for k in ("SUPPLIER", "CUSTOMER", "ACCOUNTING")):
+                            satir["ad"] = metin
                 if satir["kdv"] is not None:
+                    if satir["ad"] is None and satir["kod"]:
+                        satir["ad"] = "KDV" if satir["kod"] == "0015" else f"Vergi ({satir['kod']})"
                     vergi_detay.append(satir)
+
+    # Saf KDV (0015) ve diğer vergileri ayrıştır
+    kdv_ayrik = None
+    diger_vergi_toplam = Decimal("0")
+    for st in vergi_detay:
+        if st.get("kod") == "0015" or (st.get("ad") or "").upper().startswith("KDV"):
+            if kdv_ayrik is None:
+                kdv_ayrik = Decimal("0")
+            kdv_ayrik += st["kdv"] or Decimal("0")
+        else:
+            diger_vergi_toplam += st["kdv"] or Decimal("0")
+    if kdv_ayrik is not None:
+        kdv_ayrik = kdv_ayrik.quantize(Decimal("0.01"))
+    diger_vergi_toplam = diger_vergi_toplam.quantize(Decimal("0.01"))
+
+    # Sektör tanıma (telekom / elektrik)
+    sektor = ""
+    unvan_ust = satici_unvan.upper()
+    TELEKOM_ANAHTAR = ("TURKCELL", "VODAFONE", "TURK TELEKOM", "TTNET", "AVEA",
+                       "TURKCELL ILETISIM", "VODAFONE TELEKOM")
+    ELEKTRIK_ANAHTAR = ("ELEKTRIK", "ELEKTRİK", "GEDIZ", "GEDİZ", "AKSA", "TOROSLAR EDA",
+                        "AYDED", "ULUDAG ELEKTRIK", "KOLIN", "ENERJISA")
+    for a in TELEKOM_ANAHTAR:
+        if a in unvan_ust:
+            sektor = "TELECOM"
+            break
+    if not sektor:
+        for a in ELEKTRIK_ANAHTAR:
+            if a in unvan_ust:
+                sektor = "ELEKTRIK"
+                break
 
     notlar = []
     oran_kontrol = ""
@@ -189,6 +229,9 @@ def _icerikleri_oku(ham_veri):
         "oranlar": oranlar,
         "fatura_tipi": tip,
         "vergi_detay": vergi_detay,
+        "kdv_ayrik": kdv_ayrik,
+        "diger_vergi_toplam": diger_vergi_toplam,
+        "sektor": sektor,
         "oran_kontrol": oran_kontrol,
         "notlar": notlar,
     }
