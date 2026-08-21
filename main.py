@@ -9,7 +9,7 @@ from cetvel import cetvel_parse
 from config import gecmis_ekle, gecmis_karsilastir
 from dashboard import DashboardFrame
 from db import db_al
-from dosya import cetvel_dosya_parse, fatura_dosya_parse
+from dosya import cetvel_dosya_parse, fatura_birlestir, fatura_dosya_parse
 from efatura import efatura_parse
 from email_gonder import mail_icerigi_olustur, outlook_ile_gonder, smtp_ile_gonder
 from excel_oku import muavin_satis_parse
@@ -498,6 +498,8 @@ class KdvKontrolApp:
                             fis_hesap_kayitlari.extend(fis_hesap)
                     except Exception:
                         pass
+
+            faturalar = fatura_birlestir(faturalar)
 
             for j, dosya in enumerate(self.cetvel_dosyalari, start=1):
                 if self._iptal.is_set():

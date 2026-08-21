@@ -75,6 +75,49 @@ def _zip_mi(dosya_yolu):
         return False
 
 
+def fatura_birlestir(faturalar):
+    """Aynı belge numarasına sahip faturaları tek kayıtta birleştirir.
+
+    Muavin tarafında (_muavin_birlestir) aynı belge numarası tek satıra
+    toplanırken, fatura XML'lerinde aynı belge birden fazla dosyada
+    (düzeltme/zeyil/parça) bulunabildığı için burada da kdv/matrah/toplam
+    toplanıp tek faturaya indirilir. Böylece çapraz kontrolde "iki kez
+    taranıp" mükerrer/tutar farkı gösterilmesinin önüne geçilir.
+    """
+    from decimal import Decimal
+    gruplar = {}
+    for k in faturalar:
+        anahtar = (k["belge_no"] or "").upper()
+        if not anahtar:
+            gruplar[id(k)] = k
+            continue
+        if anahtar in gruplar:
+            g = gruplar[anahtar]
+            for alan in ("matrah", "kdv", "toplam"):
+                gd = g.get(alan)
+                kd = k.get(alan)
+                if gd is None:
+                    g[alan] = kd
+                elif kd is not None:
+                    g[alan] = gd + kd
+            for n in k.get("notlar") or []:
+                if n not in g["notlar"]:
+                    g["notlar"].append(n)
+            if g.get("tarih") is None and k.get("tarih"):
+                g["tarih"] = k["tarih"]
+        else:
+            g = dict(k)
+            g["notlar"] = list(k.get("notlar") or [])
+            gruplar[anahtar] = g
+    sonuc = []
+    for g in gruplar.values():
+        for alan in ("matrah", "kdv", "toplam"):
+            if g.get(alan) is not None:
+                g[alan] = g[alan].quantize(Decimal("0.01"))
+        sonuc.append(g)
+    return sonuc
+
+
 def cetvel_dosya_parse(dosya_yolu):
     uzanti = os.path.splitext(dosya_yolu)[1].lower()
     if uzanti in EXCEL_UZANTILARI:
