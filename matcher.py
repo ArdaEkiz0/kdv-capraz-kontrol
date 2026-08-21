@@ -11,6 +11,15 @@ DURUM_CETVELDE_YOK = "CETVELDE YOK"
 DURUM_FATURADA_YOK = "FATURALARDA YOK"
 DURUM_MUKERRER = "MÜKERRER"
 DURUM_PARSE_SORUNU = "PARSE SORUNU"
+DURUM_TEVKIFATLI = "TEVKİFATLI"
+DURUM_INDIRIMLI = "İNDİRİMLİ"
+
+# Faturanın KDV/matrahının muavin defterine tevkifat sonrası düşülen oranları.
+# Örn. %30 tevkifat -> muavinde %70 (0.70) kayıtlı; akaryakıt %5 -> 0.95.
+# Gerçek uygulamada gördüğün oranları: 0.70 (otömotiv/şarj/akaryakıt %30 tevk),
+# 0.95 (akaryakıt %5). Düşkün oranları (0.9/0.8/0.5 vb.) tutar farklıdan
+# ayırt etmek için katılmamıştır.
+TEVKIFAT_ORANLARI = (Decimal("0.70"), Decimal("0.95"))
 
 SORUNLU_DURUMLAR = (
     DURUM_TUTAR_FARKI, DURUM_VKN_FARKI, DURUM_KDV_SIFIR, DURUM_CETVELDE_YOK,
@@ -51,6 +60,38 @@ def duplikat_bul(liste, anahtar_fonksiyonu):
     return {a: n for a, n in sayac.items() if n > 1}
 
 
+def _oran_yaklasik(f_deger, c_deger, hedef):
+    """f_deger'in c_deger'e oranı hedef tevkifat oranına yakın mı?"""
+    if f_deger is None or c_deger is None:
+        return False
+    if f_deger == 0:
+        return False
+    oran = c_deger / f_deger
+    return abs(oran - hedef) <= Decimal("0.02")
+
+
+def tevkifat_kes(f, c):
+    """Fatura ile cetvel KDV/matrahı tevkifat oranıyla ilişkiliyse oranı döndürür, yoksa None."""
+    f_kdv = f.get("kdv")
+    c_kdv = c.get("kdv")
+    if f_kdv is not None and c_kdv is not None and f_kdv != 0:
+        for oran in TEVKIFAT_ORANLARI:
+            if _oran_yaklasik(f_kdv, c_kdv, oran):
+                return oran
+    return None
+
+
+def tevkifat_detay(f, c, oran):
+    parcalar = []
+    for alan in ("matrah", "kdv"):
+        f_deger = f.get(alan)
+        c_deger = c.get(alan)
+        if f_deger is not None and c_deger is not None:
+            parcalar.append(alan.capitalize() + ": " + fark_metni(f_deger, c_deger))
+    yuzde = int(round((1 - oran) * 100))
+    return " | ".join(parcalar) + f" | Muavin KDV tevkifatlı (≈%{yuzde} düşülmüş, oran {oran})"
+
+
 def capraz_kontrol(faturalar, cetvel_kayitlari):
     def anahtar_fatura(f):
         return (f["belge_no"] or "").upper()
@@ -83,6 +124,7 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
         "faturada_yok": 0,
         "mukerrer": 0,
         "parse_sorunu": 0,
+        "tevkifatli": 0,
     }
 
     f_grup = defaultdict(list)
@@ -152,15 +194,24 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
                 if farklar:
                     detay += " | " + " | ".join(farklar)
             elif not tutarlar_uyumlu(f, c):
-                durum = DURUM_TUTAR_FARKI
-                ozet["tutar_farki"] += 1
-                detay = " | ".join(fark_parcalari(f, c))
-                if f["tarih"] and c["tarih"] and f["tarih"] != c["tarih"]:
-                    detay += f" | Tarih: {f['tarih']} vs {c['tarih']}"
+                tk_oran = tevkifat_kes(f, c)
+                if tk_oran is not None:
+                    durum = DURUM_TEVKIFATLI
+                    ozet["tevkifatli"] += 1
+                    detay = tevkifat_detay(f, c, tk_oran)
+                else:
+                    durum = DURUM_TUTAR_FARKI
+                    ozet["tutar_farki"] += 1
+                    detay = " | ".join(fark_parcalari(f, c))
+                    if f["tarih"] and c["tarih"] and f["tarih"] != c["tarih"]:
+                        detay += f" | Tarih: {f['tarih']} vs {c['tarih']}"
             else:
                 durum = DURUM_OK
                 ozet["eslesen"] += 1
                 detay = ""
+                if (f.get("indirim_toplam") or Decimal("0")) > Decimal("0"):
+                    durum = DURUM_INDIRIMLI
+                    detay = f"Fatura özel indirim içerir (≈{f['indirim_toplam']:,.2f})"
             durum_ekle(durum, f, c, detay)
         if len(f_listesi) > eslenen:
             for f in f_listesi[eslenen:]:
@@ -340,6 +391,7 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
             DURUM_TUTAR_FARKI: "İADE MATRAH FARKI",
             DURUM_VKN_FARKI: "İADE VKN FARKI",
             DURUM_MUKERRER: "İADE MÜKERRER",
+            DURUM_TEVKIFATLI: "İADE TEVKİFATLI",
         }
         # İade fatura kdv/matrah negatif oldığdan muavin pozitif'le eşleşmek
         # için mutlak değerle kopyamayıp capraz kontrol edilir.
@@ -352,7 +404,7 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
             if f2.get("matrah") is not None:
                 f2["matrah"] = abs(f2["matrah"])
             iade_abs.append(f2)
-        iade_sonuc, _ = capraz_kontrol(iade_abs, cetvel_kayitlari)
+        iade_sonuc, iade_ozet2 = capraz_kontrol(iade_abs, cetvel_kayitlari)
         for r, f in zip(iade_sonuc, iade_faturalar):
             r["durum"] = durum_cevir.get(r["durum"], r["durum"])
             if r["kdv"] is not None:
@@ -366,6 +418,7 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
         sonuc.extend(iade_sonuc)
 
         # Normal kontrolde "FATURALARDA YOK" çıkmış, iade ile eşleşen muavin satırlarını kaldır
+        ozet["tevkifatli"] = ozet.get("tevkifatli", 0) + iade_ozet2.get("tevkifatli", 0)
         eslesen_iade_belge = {r["belge_no"] for r in iade_sonuc if r["durum"] == "İADE EŞLEŞTİ"}
         if eslesen_iade_belge:
             onceki_sayı = len(sonuc)

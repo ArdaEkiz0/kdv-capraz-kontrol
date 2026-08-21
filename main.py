@@ -19,8 +19,9 @@ from filtre_dialog import GelismisFiltreDialog, filtre_uygula
 from guncelleme import guncelleme_kontrol, guncellemeyi_kur, uygulamayi_yeniden_baslat
 from iade_ayristirici import iade_ayristirici_ozet
 from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_KDV_SIFIR,
-                     DURUM_MUKERRER, DURUM_OK, DURUM_PARSE_SORUNU,
-                     DURUM_TUTAR_FARKI, DURUM_VKN_FARKI, SORUNLU_DURUMLAR,
+                     DURUM_INDIRIMLI, DURUM_MUKERRER, DURUM_OK, DURUM_PARSE_SORUNU,
+                     DURUM_TEVKIFATLI, DURUM_TUTAR_FARKI, DURUM_VKN_FARKI,
+                     SORUNLU_DURUMLAR,
                      capraz_kontrol, capraz_kontrol_iade_destekli,
                      z_raporu_hesap_kontrol)
 from muavin_coklu import cetvel_klasor_dialog
@@ -72,6 +73,8 @@ DURUM_RENKLER = {
     DURUM_CETVELDE_YOK: "#FFC7CE",
     DURUM_FATURADA_YOK: "#FFC7CE",
     DURUM_PARSE_SORUNU: "#FFC7CE",
+    DURUM_TEVKIFATLI: "#DDEBF7",
+    DURUM_INDIRIMLI: "#DDEBF7",
 }
 
 KOLONLAR = ("durum", "belge_no", "vkn", "tarih", "tip", "matrah", "kdv", "kaynak", "detay")
@@ -709,8 +712,10 @@ class KdvKontrolApp:
         o = self.ozet
         metin = (f"Fatura: {o['fatura_adet']}  |  Cetvel: {o['cetvel_adet']}  |  Eşleşen: {o['eslesen']}  |  "
                  f"Tutar Farkı: {o['tutar_farki']}  |  VKN Farkı: {o['vkn_farki']}  |  KDV 0: {o.get('kdv_sifir', 0)}  |  "
+                 f"Tevkifatlı: {o.get('tevkifatli', 0)}  |  "
                  f"Cetvelde Yok: {o['cetvelde_yok']}  |  "
-                 f"Faturalarda Yok: {o['faturada_yok']}  |  Mükerrer: {o['mukerrer']}  |  Okunamayan: {o['parse_sorunu']}")
+                 f"Faturalarda Yok: {o['faturada_yok']}  |  Mükerrer: {o['mukerrer']}  |  Okunamayan: {o['parse_sorunu']}  |  "
+                 f"İndiriml: {sum(1 for r in self.sonuc_satirlari if r['durum'] == 'İNDİRİMLİ')}")
         iade_metin = ""
         if o.get("iade_adet", 0):
             iade_metin = f"  |  İade: {o['iade_adet']}"

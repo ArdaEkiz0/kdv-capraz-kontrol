@@ -93,7 +93,28 @@ def _icerikleri_oku(ham_veri):
             if toplam_satir:
                 matrah = toplam_satir.quantize(Decimal("0.01"))
 
+# Özel indirim (AllowanceCharge, charge=false) — matrahı düşülmüş indirim
+    # tutarını ayrı tutup, fatura dikkate alınması için kayıtta saklar.
+    indirim_toplam = Decimal("0")
+    for e in kok.iter():
+        if _yerel_ad(e.tag) != "AllowanceCharge":
+            continue
+        ind = None
+        amt = None
+        for a in e.iter():
+            n = _yerel_ad(a.tag)
+            if n == "ChargeIndicator" and ind is None:
+                ind = _metin(a)
+            elif n == "Amount" and amt is None:
+                amt = _xml_tutar(_metin(a))
+        if ind is None or amt is None:
+            continue
+        if ind.strip().lower() == "false":
+            indirim_toplam += amt
+    indirim_toplam = indirim_toplam.quantize(Decimal("0.01"))
+
     vergi_totalleri = _dogrudan(kok, "TaxTotal")
+    belge_vergi = vergi_totalleri[0] if vergi_totalleri else None
     belge_vergi = vergi_totalleri[0] if vergi_totalleri else None
 
     # Saf KDV (kod 0015) ve diğer vergileri (OİV/TRT vb.) ayrıştır.
@@ -258,6 +279,7 @@ def _icerikleri_oku(ham_veri):
         "matrah": matrah,
         "kdv": kdv,
         "toplam": toplam,
+        "indirim_toplam": indirim_toplam,
         "oranlar": oranlar,
         "fatura_tipi": tip,
         "vergi_detay": vergi_detay,
