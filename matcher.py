@@ -327,7 +327,11 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
             "parse_sorunu": 0, "fark_toplami": 0,
         }
 
-    # İade faturaları ayrı kontrol (muavin 191 hesabında aranmalı)
+    # İade faturaları ayrı kontrol (muavin 191 hesabında aranmalı).
+    # Sorun: normal ve iade faturalar ayn cetvel listesini kullandığdan,
+    # iade'le eşleşen muavin kayıtlarını normal kontrol'de "FATURALARDA YOK"
+    # olarak ikire gösterdı. Düzeltme: iade faturaları SONRA kontrol edilip,
+    # eşleşen belge'ler normal "FATURALARDA YOK" sonuc'dan tam kaldırılır.
     if iade_faturalar:
         iade_eksikler = []
         durum_cevir = {
@@ -337,13 +341,25 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
             DURUM_VKN_FARKI: "İADE VKN FARKI",
             DURUM_MUKERRER: "İADE MÜKERRER",
         }
-        iade_sonuc, _ = capraz_kontrol(iade_faturalar, cetvel_kayitlari)
-        for r in iade_sonuc:
+        # İade fatura kdv/matrah negatif oldığdan muavin pozitif'le eşleşmek
+        # için mutlak değerle kopyamayıp capraz kontrol edilir.
+        import copy as _cpy
+        iade_abs = []
+        for f in iade_faturalar:
+            f2 = _cpy.deepcopy(f)
+            if f2.get("kdv") is not None:
+                f2["kdv"] = abs(f2["kdv"])
+            if f2.get("matrah") is not None:
+                f2["matrah"] = abs(f2["matrah"])
+            iade_abs.append(f2)
+        iade_sonuc, _ = capraz_kontrol(iade_abs, cetvel_kayitlari)
+        for r, f in zip(iade_sonuc, iade_faturalar):
             r["durum"] = durum_cevir.get(r["durum"], r["durum"])
             if r["kdv"] is not None:
                 r["kdv"] = abs(r["kdv"])
             if r["matrah"] is not None:
                 r["matrah"] = abs(r["matrah"])
+            r["belge_no"] = f["belge_no"]
             r["kaynak"] = "Fatura (İade)"
             if r["durum"] == "İADE MUAVİNDE YOK":
                 iade_eksikler.append(r["belge_no"] or "")

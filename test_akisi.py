@@ -390,5 +390,21 @@ if __name__ == "__main__":
     kontrol("pdf ba formu", "BA FORMU" in pdf_metin.replace("İ", "I").upper())
     kontrol("pdf gecmis degisim", "DEĞİŞİM" in pdf_metin)
 
+    print("\n== İADE FATURA KONTROLÜ ==")
+    from matcher import capraz_kontrol_iade_destekli
+    iade_fats = [
+        {'belge_no': 'EFA2026000000002', 'satici_vkn': '12345678901', 'tarih': '2026-07-30',
+         'matrah': Decimal('-2970.00'), 'kdv': Decimal('-29.70'), 'toplam': Decimal('-3267.00'),
+         'fatura_tipi': 'IADE', 'oranlar': [1]},
+    ]
+    iade_cetvel = [
+        {'belge_no': 'EFA2026000000002', 'vkn': '12345678901', 'tarih': '2026-07-30',
+         'matrah': None, 'kdv': Decimal('29.70'), 'unvan': 'DENEME TİCARET'},
+    ]
+    iade_sonuc, iade_ozet = capraz_kontrol_iade_destekli(iade_fats, iade_cetvel)
+    iade_durum = iade_sonuc[0]["durum"] if iade_sonuc else "?"
+    kontrol("iade eslesti (negatif kdv, pozitif muavin)", iade_durum == "İADE EŞLEŞTİ", f"-> {iade_durum}")
+    kontrol("iade muavinde yok sayaci 0", iade_ozet.get("iade_muavinde_yok", -1) == 0)
+
     print("\nSONUÇ:", "TÜM TESTLER TAMAM" if BASARILI else "HATALAR VAR")
     sys.exit(0 if BASARILI else 1)
