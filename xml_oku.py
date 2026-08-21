@@ -96,20 +96,38 @@ def _icerikleri_oku(ham_veri):
     vergi_totalleri = _dogrudan(kok, "TaxTotal")
     belge_vergi = vergi_totalleri[0] if vergi_totalleri else None
 
+    # Saf KDV (kod 0015) ve diğer vergileri (OİV/TRT vb.) ayrıştır.
+    # Kontroli — KDV hesabı sadece 0015 üzerinden olmalı, OİV katılmameli.
     kdv = None
+    diger_vergi_toplam = Decimal("0")
+    kdv_ayrik = None
     if belge_vergi is not None:
-        toplam = Decimal("0")
         for e in belge_vergi.iter():
-            if _yerel_ad(e.tag) == "TaxSubtotal":
-                ic = [a for a in e.iter() if _yerel_ad(a.tag) == "TaxAmount"]
-                if ic:
-                    toplam += _xml_tutar(_metin(ic[0])) or Decimal("0")
-        if toplam:
-            kdv = toplam.quantize(Decimal("0.01"))
+            if _yerel_ad(e.tag) != "TaxSubtotal":
+                continue
+            kod = ""
+            amt = None
+            for a in e.iter():
+                n = _yerel_ad(a.tag)
+                if n == "TaxTypeCode":
+                    kod = (_metin(a) or "").strip()
+                elif n == "TaxAmount" and amt is None:
+                    amt = _xml_tutar(_metin(a))
+            if amt is None:
+                continue
+            if kod == "0015" or (kod == "" and kdv is None):
+                if kdv_ayrik is None:
+                    kdv_ayrik = Decimal("0")
+                kdv_ayrik += amt
+            else:
+                diger_vergi_toplam += amt
+        if kdv_ayrik is not None:
+            kdv = kdv_ayrik.quantize(Decimal("0.01"))
     if kdv is None:
         vergi_toplam = _elemanlar(kok, "TaxAmount")
         if vergi_toplam:
             kdv = _xml_tutar(_metin(vergi_toplam[0]))
+    diger_vergi_toplam = diger_vergi_toplam.quantize(Decimal("0.01"))
 
     toplam = None
     vergi_dahil = _elemanlar(kok, "TaxInclusiveAmount")
@@ -122,11 +140,25 @@ def _icerikleri_oku(ham_veri):
 
     oranlar = []
     if belge_vergi is not None:
+        # KDV kod (0015 veya kod boş) oranlarina ayır
         for e in belge_vergi.iter():
-            if _yerel_ad(e.tag) == "Percent":
-                o = _xml_tutar(_metin(e))
-                if o is not None and o > 0:
-                    oranlar.append(int(o))
+            if _yerel_ad(e.tag) != "TaxSubtotal":
+                continue
+            kod = ""
+            oran_o = None
+            for a in e.iter():
+                n = _yerel_ad(a.tag)
+                if n == "TaxTypeCode":
+                    kod = (_metin(a) or "").strip()
+                elif n == "Percent" and oran_o is None:
+                    oran_o = _xml_tutar(_metin(a))
+            if oran_o is None:
+                continue
+            if kod and kod != "0015":
+                continue
+            o = int(oran_o)
+            if o > 0:
+                oranlar.append(o)
     oranlar = sorted(set(oranlar))
 
     tip = ""
@@ -213,7 +245,7 @@ def _icerikleri_oku(ham_veri):
     if matrah is None or kdv is None:
         notlar.append("Matrah/KDV tutarları bulunamadı, manuel kontrol edin")
     elif toplam is not None:
-        beklenen = (matrah + kdv).quantize(Decimal("0.01"))
+        beklenen = (matrah + kdv + diger_vergi_toplam).quantize(Decimal("0.01"))
         if abs(beklenen - toplam) > Decimal("0.02"):
             notlar.append("Matrah+KDV ≠ Toplam (XML tutarları tutarsız görünüyor)")
 

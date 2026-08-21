@@ -125,7 +125,7 @@ if __name__ == "__main__":
     kontrol("zip gediz elektrik kdv", gediz is not None and round(float(gediz["kdv"]), 2) == 227.27
             and round(float(gediz["kdv_ayrik"]), 2) == 227.27)
     kontrol("zip turkcell sektor", turkcell is not None and turkcell["sektor"] == "TELECOM"
-            and round(float(turkcell["kdv"]), 2) == 142.36
+            and round(float(turkcell["kdv"]), 2) == 76.92
             and round(float(turkcell["kdv_ayrik"]), 2) == 76.92
             and round(float(turkcell["diger_vergi_toplam"]), 2) == 65.44)
     kontrol("zip turkcell vergi detay", turkcell is not None and any(
