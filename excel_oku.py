@@ -530,6 +530,98 @@ def muavin_191_parse(dosya_yolu):
     return sonuc
 
 
+def muavin_391_parse(dosya_yolu):
+    """KDV 391 hesap (satış fatura) defteri okur (örn. 391.xlsx).
+
+    Format: her hesap grubu 'Hesap Kodu 391-xx-xxx' başlığı altında
+    TARİH / FİŞ NO / SR / AÇIKLAMA / BORÇ TUT. / ALACAK TUT. /
+    REFERANS KODU / REFERANS İSMİ / İŞLEM TİPİ sütunları.
+    Açıklama '...FT.MIZ NO:XXXX KDVSI' biçiminde belge numarası içerir,
+    KDV tutarı Alacak kolonundadır. Toplam/Genel Toplam/Bakiye satırları
+    atlanır.
+
+    Dönen kayıt (capraz_kontrol cetvel format): {vkn, belge_no, tarih,
+    matrah, kdv, unvan, notlar}
+    """
+    import re as _re
+
+    satirlar = excel_satirlar(dosya_yolu)
+    sonuc = {"dosya": dosya_yolu, "kayitlar": [], "notlar": []}
+
+    baslik_i = None
+    kolonlar = None
+    for i, satir in enumerate(satirlar):
+        normlar = [_norm_baslik(c) for c in satir]
+        if "TARIH" in normlar and "FIS NO" in normlar and "ACIKLAMA" in normlar \
+                and "BORC TUT" in normlar and "ALACAK TUT" in normlar:
+            baslik_i = i
+            kolonlar = {
+                "tarih": normlar.index("TARIH"),
+                "fis": normlar.index("FIS NO"),
+                "aciklama": normlar.index("ACIKLAMA"),
+                "borc": normlar.index("BORC TUT"),
+                "alacak": normlar.index("ALACAK TUT"),
+            }
+            break
+    if baslik_i is None:
+        sonuc["notlar"].append("391 hesap defteri tanınamadı (TARİH/FİŞ NO/AÇIKLAMA/BORÇ TUT./ALACAK TUT. sütunları aranıyor)")
+        return sonuc
+
+    aktif_hesap = ""
+    for i, satir in enumerate(satirlar):
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        normlar = [_norm_baslik(c) for c in satir]
+        if i < baslik_i:
+            ilk = str(satir[0] or "").strip() if satir else ""
+            if ilk.startswith("391"):
+                aktif_hesap = ilk
+            continue
+        if "HESAP KODU" in normlar[0]:
+            continue
+        ilk = str(satir[0] or "").strip() if satir and satir[0] is not None else ""
+        if ilk.startswith("391"):
+            aktif_hesap = ilk
+            continue
+        if "TARIH" in normlar and "FIS NO" in normlar:
+            continue
+        ilk = str(satir[0] or "").strip() if satir and satir[0] is not None else ""
+        # Toplam satırları atla
+        aciklama_txt = str(satir[kolonlar["aciklama"]] or "").strip() if kolonlar["aciklama"] < len(satir) else ""
+        if any(k in aciklama_txt.upper() for k in ("TOPLAM", "GENEL TOPLAM", "BAKIYE", "YEKUN")):
+            continue
+        if not _re.match(r"^\d{1,2}[./]\d{1,2}[./]\d{4}", ilk):
+            continue
+
+        tarih = tarih_parse(ilk)
+        alacak = (tutar_parse(satir[kolonlar["alacak"]])
+                  if kolonlar["alacak"] < len(satir) else None)
+        borc = (tutar_parse(satir[kolonlar["borc"]])
+                if kolonlar["borc"] < len(satir) else None)
+        kdv = alacak if alacak is not None and alacak else borc
+        if kdv is None:
+            continue
+
+        m = _re.search(r"FT\.?\s*MIZ\s*NO\s*[:#]?\s*([A-Za-z0-9\-/]+)", aciklama_txt)
+        belge = fatura_no_temizle(m.group(1)) if m else None
+        if not belge:
+            continue
+        unvan = aciklama_txt.split("FT.")[0].strip(" .")[:80]
+        kayit = {
+            "vkn": "", "belge_no": belge, "tarih": str(tarih) if tarih else None,
+            "matrah": None, "kdv": kdv, "unvan": unvan,
+            "notlar": [f"Hesap: {aktif_hesap}"] if aktif_hesap else [],
+        }
+        sonuc["kayitlar"].append(kayit)
+
+    sonuc["kayitlar"] = _muavin_birlestir(sonuc["kayitlar"])
+    if not sonuc["kayitlar"]:
+        sonuc["notlar"].append("391 hesap'de fatura satırı bulunamadı (FT.MIZ NO içeren açıklama aranıyor)")
+    else:
+        sonuc["notlar"].append("KDV 391 hesap listesi olarak okundu")
+    return sonuc
+
+
 def muavin_satis_parse(dosya_yolu):
     """Hesap başlıklı satış muavinini (ör. muavin_gokkusagi.xlsx) okur.
 

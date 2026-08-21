@@ -83,6 +83,17 @@ if __name__ == "__main__":
     kontrol("excel cetvel kdv", excel_cetvel["kayitlar"][2]["kdv"] == 45)
     kontrol("excel cetvel toplam satiri atlandi", not any(c["belge_no"] == "GENELTOPLAM" for c in excel_cetvel["kayitlar"]))
 
+    print("\n== EXCEL 391 HESAP DEFTERİ (satış KDV) ==")
+    m391 = cetvel_dosya_parse(os.path.join(TEST_KLASORU, "391_hesap.xlsx"))
+    print("  notlar:", m391["notlar"])
+    for c in m391["kayitlar"]:
+        print(f"  {c['belge_no']} tarih={c['tarih']} kdv={tl_format(c['kdv'])} {' '.join(c['notlar'])}")
+    kontrol("391 parse 5 kayit", len(m391["kayitlar"]) == 5, f"-> {len(m391['kayitlar'])}")
+    kontrol("391 belge eklendi", m391["kayitlar"][0]["belge_no"] == "DNM2026000000201")
+    kontrol("391 kdv alacak kolonu", round(float(m391["kayitlar"][2]["kdv"]), 2) == 3150.96)
+    grub3 = sum(float(k["kdv"]) for k in m391["kayitlar"] if "391-03-001" in " ".join(k["notlar"]))
+    kontrol("391-03-001 toplam (Genel Toplam'e eş)", round(grub3, 2) == 10137.56, f"-> {round(grub3,2)}")
+
     print("\n== XML FATURA (UBL e-fatura) ==")
     from dosya import fatura_dosya_parse as fatura_dosya_parse_fn
     from xml_oku import fatura_xml_parse

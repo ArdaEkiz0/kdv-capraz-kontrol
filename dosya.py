@@ -4,7 +4,7 @@ import zipfile
 from cetvel import cetvel_parse
 from efatura import efatura_parse
 from excel_oku import (cetvel_excel_parse, fatura_excel_parse, fatura_gelen_parse,
-                       muavin_excel_parse, muavin_191_parse)
+                       muavin_excel_parse, muavin_191_parse, muavin_391_parse)
 from fis_listesi import fis_listesi_cetvel_parse, fis_listesi_parse
 from xml_oku import fatura_xml_parse
 
@@ -81,6 +81,9 @@ def cetvel_dosya_parse(dosya_yolu):
         d191 = muavin_191_parse(dosya_yolu)
         if d191["kayitlar"]:
             return d191
+        d391 = muavin_391_parse(dosya_yolu)
+        if d391["kayitlar"]:
+            return d391
         sonuc = cetvel_excel_parse(dosya_yolu)
         if not sonuc["kayitlar"]:
             muavin = muavin_excel_parse(dosya_yolu)
