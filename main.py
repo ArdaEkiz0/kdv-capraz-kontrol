@@ -58,6 +58,12 @@ RENK_BUTON_KAYDIR = "#eff2f7"
 RENK_SATIR_BG = "#ffffff"
 RENK_SATIR_ALT = "#f8fafc"
 RENK_SECILI = "#dbeafe"
+# Özet kartı renkleri: (zemin, yazı)
+RENK_CHIP_YESIL = ("#D1FAE5", "#065F46")
+RENK_CHIP_KIRMIZI = ("#FEE2E2", "#991B1B")
+RENK_CHIP_SARI = ("#FEF3C7", "#92400E")
+RENK_CHIP_MAVI = ("#DBEAFE", "#1E40AF")
+RENK_CHIP_GRI = ("#EEF2F7", "#64748B")
 FONT_BASLIK = ("Segoe UI", 16, "bold")
 FONT_METIN = ("Segoe UI", 10)
 FONT_KUCUK = ("Segoe UI", 9)
@@ -165,65 +171,138 @@ class KdvKontrolApp:
                      background=[("active", "#e2e8f0")])
 
             stil.configure("Altlik.TFrame", background=RENK_KART, relief="flat", borderwidth=1)
+
+            stil.configure("Primary.TButton", background=RENK_PRIMER, foreground=RENK_BUTON_METIN,
+                           font=("Segoe UI", 11, "bold"), padding=(22, 10), borderwidth=0,
+                           focuscolor="none")
+            stil.map("Primary.TButton",
+                     background=[("active", RENK_PRIMER_KOYU), ("pressed", RENK_PRIMER_KOYU)],
+                     relief=[("pressed", "sunken")])
+
+            stil.configure("Arac.TButton", background=RENK_KART, foreground=RENK_METIN,
+                           font=("Segoe UI", 9), padding=(7, 4), borderwidth=1,
+                           bordercolor=RENK_BORDER, focuscolor="none")
+            stil.map("Arac.TButton",
+                     background=[("active", RENK_PRIMER_ACIK), ("pressed", RENK_PRIMER_ACIK)],
+                     bordercolor=[("active", RENK_PRIMER)])
+
+            stil.configure("KartIkincil.TLabel", background=RENK_KART,
+                           foreground=RENK_METIN_IKINCIL, font=FONT_KUCUK)
+            stil.configure("KartBaslik.TLabel", background=RENK_KART, foreground=RENK_METIN,
+                           font=("Segoe UI", 11, "bold"))
+            stil.configure("Kart.TRadiobutton", background=RENK_KART, foreground=RENK_METIN,
+                           font=FONT_METIN)
+
+            for yon in ("Vertical", "Horizontal"):
+                stil.configure(f"{yon}.TScrollbar", background="#e2e8f0", troughcolor=RENK_BG,
+                               bordercolor=RENK_KART, arrowcolor=RENK_METIN_IKINCIL)
         except Exception:
             pass
 
     def _arayuz_kur(self):
         self._stil_kur()
-        bilgi = ttk.Label(
-            self.kok,
-            text=("Kullanım: 1) Fatura dosyalarını seçin (e-fatura XML/PDF, MAHSUP fişi PDF veya Excel)  2) KDV kontrol cetvelini seçin   "
-                  "3) 'Kontrolü Başlat' ile çapraz kontrol yapın  4) Excel raporunu kaydedin"),
-            style="Baslik.TLabel", padding=(12, 10), anchor="w",
-        )
-        bilgi.pack(fill="x")
 
-        ust = ttk.Frame(self.kok, padding=(8, 6))
-        ust.pack(fill="x")
+        # ---- Üst şerit: uygulama adı + sürüm + kısa kullanım akışı ----
+        serit = tk.Frame(self.kok, bg=RENK_PRIMER)
+        serit.pack(fill="x")
+        serit_ic = tk.Frame(serit, bg=RENK_PRIMER)
+        serit_ic.pack(fill="x", padx=14, pady=8)
+        tk.Label(serit_ic, text="KDV Çapraz Kontrol", font=("Segoe UI", 15, "bold"),
+                 bg=RENK_PRIMER, fg="#ffffff").pack(side="left")
+        tk.Label(serit_ic, text=f" v{SURUM} ", font=("Segoe UI", 9, "bold"),
+                 bg=RENK_MOR, fg="#ffffff", padx=8, pady=2).pack(side="left", padx=(10, 0))
+        tk.Label(serit_ic, text="Fatura seç  →  Cetvel seç  →  Kontrolü Başlat  →  Excel/PDF raporu",
+                 font=("Segoe UI", 9), bg=RENK_PRIMER, fg="#bfdbfe").pack(side="right")
 
-        # 1. satır: dosya seçim + kontrol
-        satir1 = ttk.Frame(ust)
-        satir1.pack(fill="x", pady=(0, 5))
-        ttk.Button(satir1, text="Fatura Dosyaları Seç", command=self.fatura_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(satir1, text="Fatura Klasörü Seç", command=self.fatura_klasoru_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(satir1, text="Kontrol Cetveli Seç", command=self.cetvel_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(satir1, text="Kontrolü Başlat", command=self.kontrol_baslat).pack(side="left", padx=(0, 6))
-        self.dosya_etiketi = ttk.Label(satir1, text="Fatura: (seçilmedi) | Cetvel: (seçilmedi)", style="Ikincil.TLabel")
-        self.dosya_etiketi.pack(side="left", padx=(12, 0))
+        def serit_butonu(metin, komut):
+            b = tk.Button(serit_ic, text=metin, command=komut, font=("Segoe UI", 9),
+                          bg=RENK_PRIMER_KOYU, fg="#ffffff", relief="flat", bd=0,
+                          activebackground="#3b82f6", activeforeground="#ffffff",
+                          padx=10, pady=3, cursor="hand2")
+            b.pack(side="right", padx=(6, 0))
+            return b
 
-        # 2. satır: araç ve rapor butonları
-        satir2 = ttk.Frame(ust)
-        satir2.pack(fill="x")
-        ttk.Button(satir2, text="🔧 Veriyi İncele", command=self.veri_incele_ac).pack(side="left", padx=(0, 6))
-        ttk.Button(satir2, text="📊 Dashboard", command=self.dashboard_goster).pack(side="left", padx=(0, 6))
-        ttk.Button(satir2, text="🔎 Gelişmiş Filtre", command=self.gelismis_filtre_ac).pack(side="left", padx=(0, 6))
-        ttk.Button(satir2, text="🧾 Beyanname", command=self.beyanname_ac).pack(side="left", padx=(0, 6))
-        ttk.Button(satir2, text="📂 Klasör Cetvel", command=self.cetvel_klasor_ac).pack(side="left", padx=(0, 6))
-        ttk.Button(satir2, text="Excel Raporunu Kaydet", command=self.rapor_kaydet).pack(side="left", padx=(0, 6))
-        ttk.Button(satir2, text="PDF Raporunu Kaydet", command=self.rapor_pdf_kaydet).pack(side="left", padx=(0, 6))
-        ttk.Button(satir2, text="📊 Ba/Bs Formu", command=self.muhtasar_kaydet).pack(side="left", padx=(0, 6))
-        ttk.Button(satir2, text="📧 Mail Gönder", command=self.mail_gonder_ac).pack(side="left", padx=(0, 6))
-        self.guncelleme_butonu = ttk.Button(satir2, text="🔄 Güncelleme", command=self.guncelleme_kontrol_ac)
-        self.guncelleme_butonu.pack(side="left", padx=(0, 6))
-        ttk.Button(satir2, text="ℹ️ Hakkında", command=self.hakkinda_pencere_ac).pack(side="left", padx=(0, 6))
+        serit_butonu("Hakkında", self.hakkinda_pencere_ac)
+        self.guncelleme_butonu = serit_butonu("🔄 Güncelleme", self.guncelleme_kontrol_ac)
 
-        filtre = ttk.Frame(self.kok, padding=(8, 0))
-        filtre.pack(fill="x")
+        # ---- Alt bölgeler önce ayrılır (günlük + özet kartları) ----
+        log_karti = ttk.Frame(self.kok, style="Kart.TFrame", padding=(10, 6))
+        log_karti.pack(fill="x", side="bottom", padx=10, pady=(4, 10))
+        log_satir = ttk.Frame(log_karti, style="Kart.TFrame")
+        log_satir.pack(fill="x")
+        self.log = tk.Text(log_satir, height=3, state="disabled", wrap="word",
+                           bg=RENK_KART, fg=RENK_METIN, relief="flat",
+                           font=FONT_MONO, padx=8, pady=6, insertbackground=RENK_PRIMER,
+                           highlightthickness=0)
+        log_kaydirma = ttk.Scrollbar(log_satir, orient="vertical", command=self.log.yview)
+        self.log.configure(yscrollcommand=log_kaydirma.set)
+        self.log.pack(side="left", fill="x", expand=True)
+        log_kaydirma.pack(side="right", fill="y")
+
+        self.ozet_alani = tk.Frame(self.kok, bg=RENK_BG)
+        self.ozet_alani.pack(fill="x", side="bottom", padx=12, pady=(2, 2))
+        self._ozet_bos_yaz()
+
+        # ---- İşlem kartı: dosya seçimi + ana aksiyon ----
+        islem = ttk.Frame(self.kok, style="Kart.TFrame", padding=(12, 10))
+        islem.pack(fill="x", padx=10, pady=(10, 4))
+        islem_satir = ttk.Frame(islem, style="Kart.TFrame")
+        islem_satir.pack(fill="x")
+        ttk.Button(islem_satir, text="📄 Fatura Dosyaları Seç", style="Arac.TButton",
+                   command=self.fatura_sec).pack(side="left", padx=(0, 6))
+        ttk.Button(islem_satir, text="📁 Fatura Klasörü Seç", style="Arac.TButton",
+                   command=self.fatura_klasoru_sec).pack(side="left", padx=(0, 6))
+        ttk.Button(islem_satir, text="📋 Kontrol Cetveli Seç", style="Arac.TButton",
+                   command=self.cetvel_sec).pack(side="left", padx=(0, 6))
+        ttk.Button(islem_satir, text="⚡  KONTROLÜ BAŞLAT", style="Primary.TButton",
+                   command=self.kontrol_baslat).pack(side="right")
+        self.dosya_etiketi = ttk.Label(islem, text="Fatura: (seçilmedi)  |  Cetvel: (seçilmedi)",
+                                       style="KartIkincil.TLabel")
+        self.dosya_etiketi.pack(fill="x", pady=(8, 0))
+
+        # ---- Araç çubuğu: gruplanmış araç butonları ----
+        araclar = ttk.Frame(self.kok, padding=(10, 4))
+        araclar.pack(fill="x")
+        araclar_gruplari = [
+            [("🔧 Veri İncele", self.veri_incele_ac), ("📊 Dashboard", self.dashboard_goster),
+             ("🔎 Filtre", self.gelismis_filtre_ac)],
+            [("🧾 Beyanname", self.beyanname_ac), ("📂 Klasör Cetvel", self.cetvel_klasor_ac)],
+            [("Ba/Bs Formu", self.muhtasar_kaydet), ("Excel Raporu", self.rapor_kaydet),
+             ("PDF Raporu", self.rapor_pdf_kaydet), ("✉ Mail", self.mail_gonder_ac)],
+        ]
+        for i, grup in enumerate(araclar_gruplari):
+            if i:
+                ttk.Separator(araclar, orient="vertical").pack(side="left", fill="y", padx=5, pady=2)
+            for metin, komut in grup:
+                ttk.Button(araclar, text=metin, style="Arac.TButton", command=komut
+                           ).pack(side="left", padx=(0, 6))
+
+        # ---- Sonuç kartı: filtreler + tablo ----
+        tablo_karti = ttk.Frame(self.kok, style="Kart.TFrame", padding=(10, 8))
+        tablo_karti.pack(fill="both", expand=True, padx=10, pady=4)
+
+        tablo_ust = ttk.Frame(tablo_karti, style="Kart.TFrame")
+        tablo_ust.pack(fill="x", pady=(0, 8))
+        ttk.Label(tablo_ust, text="Sonuçlar", style="KartBaslik.TLabel").pack(side="left")
+
+        filtre = ttk.Frame(tablo_ust, style="Kart.TFrame")
+        filtre.pack(side="right")
         self.filtre_degisken = tk.StringVar(value="Tumu")
         for metin, deger in [("Tümü", "Tumu"), ("Sorunlu", "Sorunlu"), ("Eşleşen", "Eslenen")]:
             ttk.Radiobutton(filtre, text=metin, value=deger, variable=self.filtre_degisken,
-                            command=self._filtre_uygula).pack(side="left", padx=(0, 10))
-        ttk.Label(filtre, text="Dönem:").pack(side="left", padx=(8, 3))
+                            command=self._filtre_uygula, style="Kart.TRadiobutton"
+                            ).pack(side="left", padx=(0, 10))
+        ttk.Label(filtre, text="Dönem:", style="KartIkincil.TLabel").pack(side="left", padx=(8, 3))
         self.ay_degisken = tk.StringVar(value="Tumu")
         self.ay_combobox = ttk.Combobox(
             filtre, textvariable=self.ay_degisken, values=["Tumu"], width=10, state="readonly")
         self.ay_combobox.pack(side="left")
         self.ay_combobox.bind("<<ComboboxSelected>>", lambda e: self._kontrol_hesapla())
 
-        tablo_kapsayici = ttk.Frame(self.kok, padding=(8, 6), style="Kart.TFrame")
-        tablo_kapsayici.pack(fill="both", expand=True)
+        tablo_alan = ttk.Frame(tablo_karti, style="Kart.TFrame")
+        tablo_alan.pack(fill="both", expand=True)
 
-        self.tablo = ttk.Treeview(tablo_kapsayici, columns=KOLONLAR, show="headings", height=18)
+        self.tablo = ttk.Treeview(tablo_alan, columns=KOLONLAR, show="headings", height=16)
         for kolon in KOLONLAR:
             self.tablo.heading(kolon, text=BASLIKLAR[kolon])
             genislik = {"durum": 110, "belge_no": 180, "vkn": 110, "tarih": 90,
@@ -232,27 +311,14 @@ class KdvKontrolApp:
 
         self.tablo.bind("<Double-1>", self._satir_detay_goster)
 
-        kaydirma_y = ttk.Scrollbar(tablo_kapsayici, orient="vertical", command=self.tablo.yview)
-        kaydirma_x = ttk.Scrollbar(tablo_kapsayici, orient="horizontal", command=self.tablo.xview)
+        kaydirma_y = ttk.Scrollbar(tablo_alan, orient="vertical", command=self.tablo.yview)
+        kaydirma_x = ttk.Scrollbar(tablo_alan, orient="horizontal", command=self.tablo.xview)
         self.tablo.configure(yscrollcommand=kaydirma_y.set, xscrollcommand=kaydirma_x.set)
         self.tablo.grid(row=0, column=0, sticky="nsew")
         kaydirma_y.grid(row=0, column=1, sticky="ns")
         kaydirma_x.grid(row=1, column=0, sticky="ew")
-        tablo_kapsayici.rowconfigure(0, weight=1)
-        tablo_kapsayici.columnconfigure(0, weight=1)
-
-        self.ozet_etiketi = ttk.Label(self.kok, text="", padding=(12, 6), style="Ikincil.TLabel")
-        self.ozet_etiketi.pack(fill="x")
-
-        log_kapsayici = ttk.Frame(self.kok, padding=(8, 0))
-        log_kapsayici.pack(fill="x", side="bottom")
-        self.log = tk.Text(log_kapsayici, height=5, state="disabled", wrap="word",
-                           bg=RENK_KART, fg=RENK_METIN, relief="flat",
-                           font=FONT_MONO, padx=8, pady=6, insertbackground=RENK_PRIMER)
-        log_kaydirma = ttk.Scrollbar(log_kapsayici, orient="vertical", command=self.log.yview)
-        self.log.configure(yscrollcommand=log_kaydirma.set)
-        self.log.pack(side="left", fill="x", expand=True)
-        log_kaydirma.pack(side="right", fill="y")
+        tablo_alan.rowconfigure(0, weight=1)
+        tablo_alan.columnconfigure(0, weight=1)
 
         self.guncelleme_bilgisi = None
         self.kok.after(1500, self._otomatik_guncelleme_kontrol)
@@ -542,14 +608,17 @@ class KdvKontrolApp:
 
     def _butonlari_aktif_fiyatla(self, aktif):
         durum = "normal" if aktif else "disabled"
-        for widget in self.kok.winfo_children():
-            if isinstance(widget, ttk.Frame):
-                for buton in widget.winfo_children():
-                    if isinstance(buton, ttk.Button):
-                        try:
-                            buton.configure(state=durum)
-                        except Exception:
-                            pass
+
+        def gez(widget):
+            for cocuk in widget.winfo_children():
+                if isinstance(cocuk, (ttk.Button, tk.Button)):
+                    try:
+                        cocuk.configure(state=durum)
+                    except Exception:
+                        pass
+                gez(cocuk)
+
+        gez(self.kok)
 
     def _kontrol_arka_planda(self):
         try:
@@ -783,26 +852,58 @@ class KdvKontrolApp:
                 self._log_yaz(f"[Fatura] {self._fatura_adi(f)}: {'; '.join(f['notlar'])}")
 
     def _ozet_guncelle(self):
+        for cocuk in self.ozet_alani.winfo_children():
+            cocuk.destroy()
         if not self.ozet:
+            self._ozet_bos_yaz()
             return
         o = self.ozet
-        metin = (f"Fatura: {o['fatura_adet']}  |  Cetvel: {o['cetvel_adet']}  |  Eşleşen: {o['eslesen']}  |  "
-                 f"Tutar Farkı: {o['tutar_farki']}  |  VKN Farkı: {o['vkn_farki']}  |  KDV 0: {o.get('kdv_sifir', 0)}  |  "
-                 f"Tevkifatlı: {o.get('tevkifatli', 0)}  |  "
-                 f"Cetvelde Yok: {o['cetvelde_yok']}  |  "
-                 f"Faturalarda Yok: {o['faturada_yok']}  |  Mükerrer: {o['mukerrer']}  |  Okunamayan: {o['parse_sorunu']}  |  "
-                 f"İndiriml: {sum(1 for r in self.sonuc_satirlari if r['durum'] == 'İNDİRİMLİ')}")
-        iade_metin = ""
-        if o.get("iade_adet", 0):
-            iade_metin = f"  |  İade: {o['iade_adet']}"
+        indirimli = sum(1 for r in self.sonuc_satirlari if r["durum"] == "İNDİRİMLİ")
+        sorunlu = (o["tutar_farki"] + o["vkn_farki"] + o["cetvelde_yok"]
+                   + o["faturada_yok"] + o["mukerrer"] + o["parse_sorunu"])
+        kartlar = [
+            ("EŞLEŞEN", o["eslesen"],
+             RENK_CHIP_YESIL if o["eslesen"] else RENK_CHIP_GRI),
+            ("SORUNLU", sorunlu,
+             RENK_CHIP_KIRMIZI if sorunlu else RENK_CHIP_YESIL),
+            ("TUTAR FARKI", o["tutar_farki"],
+             RENK_CHIP_KIRMIZI if o["tutar_farki"] else RENK_CHIP_GRI),
+            ("CETVELDE YOK", o["cetvelde_yok"],
+             RENK_CHIP_KIRMIZI if o["cetvelde_yok"] else RENK_CHIP_GRI),
+            ("FATURADA YOK", o["faturada_yok"],
+             RENK_CHIP_KIRMIZI if o["faturada_yok"] else RENK_CHIP_GRI),
+            ("MÜKERRER", o["mukerrer"],
+             RENK_CHIP_SARI if o["mukerrer"] else RENK_CHIP_GRI),
+            ("OKUNAMAYAN", o["parse_sorunu"],
+             RENK_CHIP_KIRMIZI if o["parse_sorunu"] else RENK_CHIP_GRI),
+            ("İNDİRİMLİ", indirimli,
+             RENK_CHIP_MAVI if indirimli else RENK_CHIP_GRI),
+            ("TEVKİFATLI", o.get("tevkifatli", 0),
+             RENK_CHIP_MAVI if o.get("tevkifatli", 0) else RENK_CHIP_GRI),
+            ("FATURA", o["fatura_adet"], RENK_CHIP_GRI),
+            ("CETVEL", o["cetvel_adet"], RENK_CHIP_GRI),
+        ]
         if self.gecmis_bilgi and self.gecmis_bilgi.get("yeni"):
-            iade_metin += f"  |  Yeni eksik: {len(self.gecmis_bilgi['yeni'])}"
+            kartlar.append(("YENİ EKSİK", len(self.gecmis_bilgi["yeni"]), RENK_CHIP_SARI))
         if self.gecmis_bilgi and self.gecmis_bilgi.get("kapanan"):
-            iade_metin += f"  |  Çözüldü: {len(self.gecmis_bilgi['kapanan'])}"
-        self.ozet_etiketi.configure(
-            text=metin + iade_metin,
-            foreground="#B00000" if o["cetvelde_yok"] + o["faturada_yok"] + o["tutar_farki"] else "#006100",
-        )
+            kartlar.append(("ÇÖZÜLDÜ", len(self.gecmis_bilgi["kapanan"]), RENK_CHIP_YESIL))
+        for baslik, deger, (arka, yazi) in kartlar:
+            self._ozet_karti(baslik, deger, arka, yazi)
+
+    def _ozet_karti(self, baslik, deger, arka, yazi):
+        kutu = tk.Frame(self.ozet_alani, bg=arka)
+        kutu.pack(side="left", padx=(0, 8), pady=2)
+        ic = tk.Frame(kutu, bg=arka)
+        ic.pack(padx=12, pady=5)
+        tk.Label(ic, text=str(deger), font=("Segoe UI", 13, "bold"),
+                 bg=arka, fg=yazi).pack()
+        tk.Label(ic, text=baslik, font=("Segoe UI", 8),
+                 bg=arka, fg=yazi).pack()
+
+    def _ozet_bos_yaz(self):
+        tk.Label(self.ozet_alani,
+                 text="Henüz kontrol yapılmadı — fatura ve cetvel dosyalarını seçtikten sonra 'Kontrolü Başlat'a basın.",
+                 font=FONT_KUCUK, bg=RENK_BG, fg=RENK_METIN_IKINCIL).pack(side="left")
 
     def _filtre_uygula(self):
         secim = self.filtre_degisken.get()
