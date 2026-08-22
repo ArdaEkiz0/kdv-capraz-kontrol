@@ -244,7 +244,7 @@ def fatura_excel_parse(dosya_yolu):
 
 
 def fatura_gelen_parse(dosya_yolu):
-    """Gelen faturalar Excel formatı (ornek veri - gönderici faturaları listesi).
+    """Gelen faturalar Excel formatı (e-fatura portalinden indirilen gönderici faturaları listesi).
 
     Başlıklar: FATURA TARİHİ, FATURA NUMARASI, FATURA TÜRÜ, GÖNDERİCİ UNVANI,
     GÖNDERİCİ VKN, ÖDENECEK TUTAR, TOPLAM KDV %1 MATRAH/TUTAR, %10, %20.
@@ -671,7 +671,7 @@ def muavin_391_parse(dosya_yolu):
             belge = fatura_no_temizle(m.group(1))
         else:
             # FT.MIZ NO: yokta, e-fatura belge pattern (kod+yıl+araç) çek.
-            # TTNET/telekom açıklamalar 'TTNET A.Ş.GN/1111/A112026000000301' biçimindedir.
+            # TTNET/telekom açıklamalar 'TELEKOM A.Ş.GN/1111/A112026000000301' biçimindedir.
             kalan = _re.findall(r"[A-Z][A-Z0-9]{2}\d{4}\d{4,}", aciklama_txt.upper())
             belge = fatura_no_temizle(kalan[-1]) if kalan else None
         if not belge:

@@ -238,7 +238,7 @@ def _icerikleri_oku(ham_veri):
     # Sektör tanıma (telekom / elektrik)
     sektor = ""
     unvan_ust = satici_unvan.upper()
-    TELEKOM_ANAHTAR = ("TURKCELL", "VODAFONE", "TURK TELEKOM", "TTNET", "AVEA",
+    TELEKOM_ANAHTAR = ("TURKCELL", "VODAFONE", "TURK TELEKOM", "TELEKOM", "TTNET", "AVEA",
                        "TURKCELL ILETISIM", "VODAFONE TELEKOM")
     ELEKTRIK_ANAHTAR = ("ELEKTRIK", "ELEKTRİK", "GEDIZ", "GEDİZ", "AKSA", "TOROSLAR EDA",
                         "AYDED", "ULUDAG ELEKTRIK", "KOLIN", "ENERJISA")

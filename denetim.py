@@ -56,11 +56,29 @@ def cli():
     cikti = os.path.join(tempfile.gettempdir(), "denetim_rapor.xlsx")
     if os.path.exists(cikti):
         os.remove(cikti)
+    # Varsayilan: sentetik test verisi (ozel veri gerektirmez).
+    # Gercek veriyle: py -3 denetim.py --fatura <klasor> --cetvel <dosyalar...>
+    args = sys.argv[1:]
+    if "--fatura" in args:
+        fi = args.index("--fatura")
+        ci = args.index("--cetvel")
+        fatura = args[fi + 1]
+        cetveller = []
+        for a in args[ci + 1:]:
+            if a.startswith("--"):
+                break
+            cetveller.append(a)
+    else:
+        subprocess.run([sys.executable, "-X", "utf8",
+                        os.path.join(kok, "test_veri_olustur.py")],
+                       capture_output=True, text=True, timeout=180, cwd=kok)
+        fatura = os.path.join(kok, "test_veri")
+        cetveller = [os.path.join(fatura, "191_hesap.xlsx"),
+                     os.path.join(fatura, "391_hesap.xlsx")]
     r = subprocess.run(
         [sys.executable, "-X", "utf8", os.path.join(kok, "cli.py"),
-         "--fatura", "C:/faturalar",
-         "--cetvel", "C:/cetvel/191.xlsx",
-         "C:/cetvel/391.xlsx",
+         "--fatura", fatura,
+         "--cetvel", *cetveller,
          "--cikti", cikti],
         capture_output=True, text=True, timeout=240, cwd=kok)
     if r.returncode != 0:

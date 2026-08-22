@@ -1,4 +1,5 @@
 ﻿import os
+import zipfile
 
 from fpdf import FPDF
 
@@ -136,25 +137,25 @@ def muavin_satis_xlsx():
     ws.append(["Tarih Aralığı :", "01/07/2026-31/07/2026"])
     ws.append(["600.00.001 SİGARA SATIŞ", "", "", "", "TL"])
     ws.append(["TARİH", "TİP", "FİŞ NO", "AÇIKLAMA", "BORÇ", "ALACAK", "BAKİYE", "B/A"])
-    ws.append(["", "", "", "Nakli Yekün:", 1338242.0, 1338242.0])
-    ws.append(["2026-07-01", "Mahsup", "001850", "01/07/2026-2126-Z RAPORU", "", 9080.00])
-    ws.append(["2026-07-02", "Mahsup", "001851", "02/07/2026-2127-Z RAPORU", "", 15221.00])
-    ws.append(["2026-07-08", "Mahsup", "001857", "08/07/2026-2133-Z RAPORU", "", 4455.00])
+    ws.append(["", "", "", "Nakli Yekün:", 100000.0, 100000.0])
+    ws.append(["2026-07-01", "Mahsup", "900001", "01/07/2026-9001-Z RAPORU", "", 9080.00])
+    ws.append(["2026-07-02", "Mahsup", "900002", "02/07/2026-9002-Z RAPORU", "", 15221.00])
+    ws.append(["2026-07-08", "Mahsup", "900008", "08/07/2026-9008-Z RAPORU", "", 4455.00])
     ws.append(["Nakli Yekün Hariç :"])
     ws.append(["Genel Toplam :"])
     ws.append([""])
     ws.append(["600.01.002 1 Lİ TİCARİ MALLAR SATIŞI", "", "", "", "TL"])
     ws.append(["TARİH", "TİP", "FİŞ NO", "AÇIKLAMA", "BORÇ", "ALACAK", "BAKİYE", "B/A"])
-    ws.append(["", "", "", "Nakli Yekün:", 530924.89, 530924.89])
-    ws.append(["2026-07-01", "Mahsup", "001850", "01/07/2026-2126-Z RAPORU", "", 10623.76])
-    ws.append(["2026-07-02", "Mahsup", "001851", "02/07/2026-2127-Z RAPORU", "", 13909.90])
+    ws.append(["", "", "", "Nakli Yekün:", 40000.00, 40000.00])
+    ws.append(["2026-07-01", "Mahsup", "900001", "01/07/2026-9001-Z RAPORU", "", 10623.76])
+    ws.append(["2026-07-02", "Mahsup", "900002", "02/07/2026-9002-Z RAPORU", "", 13909.90])
     ws.append(["Nakli Yekün Hariç :"])
     ws.append(["Genel Toplam :"])
     ws.append([""])
     ws.append(["600.20.020 20 Lİ TİCARİ MALLAR SATIŞI", "", "", "", "TL"])
     ws.append(["TARİH", "TİP", "FİŞ NO", "AÇIKLAMA", "BORÇ", "ALACAK", "BAKİYE", "B/A"])
-    ws.append(["", "", "", "Nakli Yekün:", 743610.33, 743610.33])
-    ws.append(["2026-07-02", "Mahsup", "001851", "02/07/2026-2127-Z RAPORU", "", 612.50])
+    ws.append(["", "", "", "Nakli Yekün:", 50000.00, 50000.00])
+    ws.append(["2026-07-02", "Mahsup", "900002", "02/07/2026-9002-Z RAPORU", "", 612.50])
     ws.append(["Nakli Yekün Hariç :"])
     ws.append(["Genel Toplam :"])
     wb.save(os.path.join(TEST_KLASORU, "muavin_satis.xlsx"))
@@ -268,6 +269,196 @@ def tl(sayi):
     return f"{sayi:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def gelen_excel():
+    """Gelen faturalar Excel formati ornegi (tamamen kurgusal)."""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    basliklar = ["FATURA TARİHİ", "FATURA NUMARASI", "FATURA TÜRÜ", "GÖNDERİCİ UNVANI",
+                 "GÖNDERİCİ VKN", "ÖDENECEK TUTAR", "TOPLAM KDV %1 MATRAH",
+                 "TOPLAM KDV %1 TUTAR", "TOPLAM KDV %10 MATRAH", "TOPLAM KDV %10 TUTAR",
+                 "TOPLAM KDV %20 MATRAH", "TOPLAM KDV %20 TUTAR"]
+    ws.append(basliklar)
+    ws.append(["01-07-2026", "ABC202600000101", "SATIS", "ABC TİCARET LTD. ŞTİ.",
+               "12345678901", 6364.73, None, None, 5786.12, 578.612, None, None])
+    ws.append(["01-07-2026", "ABD202600000102", "SATIS", "XYZ İTHALAT A.Ş.",
+               "98765432109", 1415.83, None, None, None, None, 1179.86, 235.972])
+    ws.append(["01-07-2026", "ABF202600000103", "SATIS", "DENEME MARKET A.Ş.",
+               "55544433322", 651.01, 643.57, 6.44, None, None, 0.83, 0.166])
+    wb.save(os.path.join(TEST_KLASORU, "gelen_faturalar.xlsx"))
+    print("olusturuldu: gelen_faturalar.xlsx")
+
+
+def zip_faturalar():
+    """Zip icinde iki UBL XML: elektrik (%20+%10) ve telekom (KDV+OIV) (kurgusal)."""
+
+    def xml_elektrik():
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>TR1.2</cbc:CustomizationID>
+  <cbc:ProfileID>TEMELFATURA</cbc:ProfileID>
+  <cbc:ID>ORN2026000000001</cbc:ID>
+  <cbc:IssueDate>2026-07-04</cbc:IssueDate>
+  <cbc:InvoiceTypeCode>SATIS</cbc:InvoiceTypeCode>
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cac:PartyIdentification><cbc:ID schemeID="VKN">1111111111</cbc:ID></cac:PartyIdentification>
+      <cac:PartyName><cbc:Name>ÖRNEK ELEKTRİK DAĞITIM A.Ş.</cbc:Name></cac:PartyName>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cac:PartyIdentification><cbc:ID schemeID="VKN">99900011122</cbc:ID></cac:PartyIdentification>
+      <cac:PartyName><cbc:Name>DENEME TİCARET LTD. ŞTİ.</cbc:Name></cac:PartyName>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="TRY">227.27</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="TRY">250.00</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="TRY">50.00</cbc:TaxAmount>
+      <cbc:Percent>20.0</cbc:Percent>
+      <cac:TaxCategory><cac:TaxScheme><cbc:Name>KDV GERÇEK</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory>
+    </cac:TaxSubtotal>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="TRY">1772.73</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="TRY">177.27</cbc:TaxAmount>
+      <cbc:Percent>10.0</cbc:Percent>
+      <cac:TaxCategory><cac:TaxScheme><cbc:Name>KDV GERÇEK</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="TRY">2022.73</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="TRY">2022.73</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="TRY">2250.00</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="TRY">2250.00</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+</Invoice>
+'''
+
+    def xml_telekom():
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>TR1.2</cbc:CustomizationID>
+  <cbc:ProfileID>TEMELFATURA</cbc:ProfileID>
+  <cbc:ID>TEL2026000000002</cbc:ID>
+  <cbc:IssueDate>2026-07-10</cbc:IssueDate>
+  <cbc:InvoiceTypeCode>SATIS</cbc:InvoiceTypeCode>
+  <cbc:LineCountNumeric>3</cbc:LineCountNumeric>
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cac:PartyIdentification><cbc:ID schemeID="VKN">2222222222</cbc:ID></cac:PartyIdentification>
+      <cac:PartyName><cbc:Name>ÖRNEK TELEKOMÜNİKASYON HİZMETLERİ A.Ş.</cbc:Name></cac:PartyName>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cac:PartyIdentification><cbc:ID schemeID="VKN">99900011122</cbc:ID></cac:PartyIdentification>
+      <cac:PartyName><cbc:Name>DENEME TİCARET LTD. ŞTİ.</cbc:Name></cac:PartyName>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="TRY">142.36</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="TRY">384.62</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="TRY">76.92</cbc:TaxAmount>
+      <cbc:Percent>20</cbc:Percent>
+      <cac:TaxCategory><cac:TaxScheme><cbc:Name>Katma Deger Vergisi</cbc:Name><cbc:TaxTypeCode>0015</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory>
+    </cac:TaxSubtotal>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="TRY">384.62</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="TRY">38.46</cbc:TaxAmount>
+      <cbc:Percent>10</cbc:Percent>
+      <cac:TaxCategory><cac:TaxScheme><cbc:Name>Özel İletişim Vergisi</cbc:Name><cbc:TaxTypeCode>4081</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory>
+    </cac:TaxSubtotal>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="TRY">26.98</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="TRY">26.98</cbc:TaxAmount>
+      <cbc:Percent>0</cbc:Percent>
+      <cac:TaxCategory><cac:TaxScheme><cbc:Name>Telsiz Kullanım Aylık Taksit</cbc:Name><cbc:TaxTypeCode>8006</cbc:TaxTypeCode></cac:TaxScheme></cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="TRY">411.62</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="TRY">384.62</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="TRY">527.00</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="TRY">527.00</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+</Invoice>
+'''
+
+    hedef = os.path.join(TEST_KLASORU, "gelen_zip_faturalar.zip")
+    with zipfile.ZipFile(hedef, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("ORN2026000000001.xml", xml_elektrik())
+        z.writestr("TEL2026000000002.xml", xml_telekom())
+    print("olusturuldu: gelen_zip_faturalar.zip")
+
+
+def hesap_defteri_191_391():
+    """KDV 191/391 hesap defteri ornekleri (tamamen kurgusal).
+
+    391: 3 hesap grubu, 5 kayit, Genel Toplam satiri (atlanir).
+    191: 2 hesap grubu, 4 kayit (FT.NIZ NO ve GN/XXXX/belge pattern).
+    """
+    from openpyxl import Workbook
+
+    def kaydet(ad, gruplar, genel_toplam):
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["Hesap Kodu", None, None, "Hesap Adı", "Dev.Borç Tut.",
+                   "Dev.Alac.Tut.", None, None, None])
+        for kod, adi, devir, satirlar in gruplar:
+            ws.append([kod, None, None, adi, devir, devir])
+            ws.append(["Tarih", "Fiş No", "Sr", "Açıklama", "Borç Tut.",
+                       "Alacak Tut.", "Referans Kodu", "Referans İsmi", "İşlem Tipi"])
+            for s in satirlar:
+                ws.append(s)
+            ws.append([])
+        ws.append([None, None, None, "Genel Toplam :", genel_toplam, genel_toplam])
+        wb.save(os.path.join(TEST_KLASORU, ad))
+        print("olusturuldu:", ad)
+
+    g391 = [
+        ("391-01-001", "1 HESAPLANAN KDV", 75.00, [
+            ["01.07.2026", "000000000000101", 2,
+             "DENEME ELEKTRONİK TİC.LTD.ŞTİ.FT.MIZ NO:DNM2026000000201 KDVSI", 0, 45.00, None, None, "SF"],
+            ["02.07.2026", "000000000000102", 1,
+             "BAŞKA GIDA LTD.ŞTİ.FT.MIZ NO:BSK2026000000202 KDVSI", 0, 30.00, None, None, "SF"],
+        ]),
+        ("391-01-010", "10LU HESAPLANAN KDV", 3150.96, [
+            ["03.07.2026", "000000000000103", 1,
+             "XYZ GIDA SAN.VE TİC.A.Ş.FT.MIZ NO:XYZ2026000000203 KDVSI", 0, 3150.96, None, None, "SF"],
+        ]),
+        ("391-03-001", "1Lİ İADELER", 10137.56, [
+            ["04.07.2026", "000000000000104", 2,
+             "ABC TİCARET LTD. ŞTİ..FT.NIZ NO:ABC2026000000204 KDVSI", 10000.00, 0, None, None, "AF"],
+            ["05.07.2026", "000000000000105", 1,
+             "DENEME MARKET A.Ş.FT.MIZ NO:DNM2026000000205 KDVSI", 137.56, 0, None, None, "AF"],
+        ]),
+    ]
+    kaydet("391_hesap.xlsx", g391, 13363.52)
+
+    g191 = [
+        ("191-01-003", "%1 İNDİRİLECEK KDV", 1347.62, [
+            ["01.07.2026", "000000000000201", 2,
+             "ÖRNEK TEDARİK LTD.ŞTİ..FT.NIZ NO:ORT2026000000301 KDVSI", 157.63, 0, None, None, "AF"],
+            ["02.07.2026", "000000000000202", 1,
+             "DGD GIDA TEMİN TUR.ZİRAİ ÜR.SAN.TİC.A.Ş..FT.NIZ NO:DGD2026000000302 KDVSI", 1189.99, 0, None, None, "AF"],
+        ]),
+        ("191-01-010", "10LU İNDİRİLECEK KDV", 289.98, [
+            ["06.07.2026", "000000000000203", 3,
+             "ÖRNEK TELEKOM A.Ş.GN/1111/A112026000000301 KDVSI", 199.98, 0, None, None, "AF"],
+            ["07.07.2026", "000000000000204", 1,
+             "BAŞKA GIDA LTD.ŞTİ.FT.NIZ NO:BSK2026000000304 KDVSI", 90.00, 0, None, None, "AF"],
+        ]),
+    ]
+    kaydet("191_hesap.xlsx", g191, 1637.60)
+
+
 if __name__ == "__main__":
     os.makedirs(TEST_KLASORU, exist_ok=True)
     fatura_pdf("fatura_1_ok.pdf", "GFE202400000001", "05.02.2024", "12345678901", "99900011122", 1000.00, 200.00, 1200.00, 20)
@@ -324,22 +515,25 @@ if __name__ == "__main__":
     excel_fatura_listesi()
     excel_cetvel_listesi()
     muavin_satis_xlsx()
+    hesap_defteri_191_391()
+    gelen_excel()
+    zip_faturalar()
 
     mahsup_fis_pdf("fis_listesi_ornek.pdf", [
         {
-            "tarih": "02/07/2026", "fis_no": "001851", "neden": "Z RAPORU",
+            "tarih": "02/07/2026", "fis_no": "900002", "neden": "Z RAPORU",
             "satirlar": [
-                {"hesap_kodu": "120.01.037", "hesap_adi": "PRATİK İŞLEM ÖDEME", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 640.00, "alacak": 0.00},
-                {"hesap_kodu": "108.01.001", "hesap_adi": "DİĞER HAZIR DEĞERLER", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 14150.11, "alacak": 0.00},
-                {"hesap_kodu": "391.01.001", "hesap_adi": "1Lİ HESAPLANAN KDV", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 0.00, "alacak": 145.21},
-                {"hesap_kodu": "391.01.020", "hesap_adi": "20Lİ HESAPLANAN KDV", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 0.00, "alacak": 122.50},
-                {"hesap_kodu": "600.01.002", "hesap_adi": "1 Lİ TİCARİ MALLAR SATIŞI", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 0.00, "alacak": 13909.90},
-                {"hesap_kodu": "600.20.020", "hesap_adi": "20 Lİ TİCARİ MALLAR SATIŞI", "aciklama": "02/07/2026 2127 Z RAPORU", "borc": 0.00, "alacak": 612.50},
+                {"hesap_kodu": "120.01.037", "hesap_adi": "PRATİK İŞLEM ÖDEME", "aciklama": "02/07/2026 9002 Z RAPORU", "borc": 640.00, "alacak": 0.00},
+                {"hesap_kodu": "108.01.001", "hesap_adi": "DİĞER HAZIR DEĞERLER", "aciklama": "02/07/2026 9002 Z RAPORU", "borc": 14150.11, "alacak": 0.00},
+                {"hesap_kodu": "391.01.001", "hesap_adi": "1Lİ HESAPLANAN KDV", "aciklama": "02/07/2026 9002 Z RAPORU", "borc": 0.00, "alacak": 145.21},
+                {"hesap_kodu": "391.01.020", "hesap_adi": "20Lİ HESAPLANAN KDV", "aciklama": "02/07/2026 9002 Z RAPORU", "borc": 0.00, "alacak": 122.50},
+                {"hesap_kodu": "600.01.002", "hesap_adi": "1 Lİ TİCARİ MALLAR SATIŞI", "aciklama": "02/07/2026 9002 Z RAPORU", "borc": 0.00, "alacak": 13909.90},
+                {"hesap_kodu": "600.20.020", "hesap_adi": "20 Lİ TİCARİ MALLAR SATIŞI", "aciklama": "02/07/2026 9002 Z RAPORU", "borc": 0.00, "alacak": 612.50},
             ],
             "toplam": 14790.11,
         },
         {
-            "tarih": "16/07/2026", "fis_no": "002063", "neden": "ÖRNEK MÜŞTERİ A.Ş.",
+            "tarih": "16/07/2026", "fis_no": "900020", "neden": "ÖRNEK MÜŞTERİ A.Ş.",
             "satirlar": [
                 {"hesap_kodu": "600.01.002", "hesap_adi": "1 Lİ TİCARİ MALLAR SATIŞI", "aciklama": "16/07/2026 EAR2026000000001 ÖRNEK MÜŞTERİ A.Ş.", "borc": 0.00, "alacak": 3940.59},
                 {"hesap_kodu": "600.10.001", "hesap_adi": "10 LU TİCARİ MALLAR SATIŞI", "aciklama": "16/07/2026 EAR2026000000001 ÖRNEK MÜŞTERİ A.Ş.", "borc": 0.00, "alacak": 2590.92},
@@ -352,7 +546,7 @@ if __name__ == "__main__":
             "toplam": 11223.97,
         },
         {
-            "tarih": "30/07/2026", "fis_no": "002110", "neden": "ÖRNEK TEDARİK LTD.ŞTİ.",
+            "tarih": "30/07/2026", "fis_no": "900030", "neden": "ÖRNEK TEDARİK LTD.ŞTİ.",
             "satirlar": [
                 {"hesap_kodu": "153.01.001", "hesap_adi": "1 Lİ EKMEK ALIŞLARI", "aciklama": "30/07/2026 EFA2026000000002 ÖRNEK TEDARİK LTD.ŞTİ.", "borc": 2970.30, "alacak": 0.00},
                 {"hesap_kodu": "191.01.001", "hesap_adi": "1Lİ İNDİRİLECEK KDV", "aciklama": "30/07/2026 EFA2026000000002 ÖRNEK TEDARİK LTD.ŞTİ.", "borc": 29.70, "alacak": 0.00},

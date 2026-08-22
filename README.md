@@ -139,7 +139,7 @@ Outlook veya SMTP (Gmail için [Uygulama Şifresi](https://myaccount.google.com/
 GUI açmadan, toplu işlerde veya zamanlanmış görevlerde kullanın:
 
 ```cmd
-py -3 cli.py --fatura C:\faturalar\ --cetvel C:\cetvel\191.xlsx --cikti rapor.xlsx --donem 2026-07
+py -3 cli.py --fatura C:\faturalar\ --cetvel C:\cetvel\kdv191.xlsx --cikti rapor.xlsx --donem 2026-07
 ```
 
 | Argüman | Açıklama |

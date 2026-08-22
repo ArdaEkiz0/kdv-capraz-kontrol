@@ -4,7 +4,7 @@ Kullanım:
     py -3 -X utf8 cli.py --fatura <klasör|dosya ...> --cetvel <klasör|dosya ...> [--cikti rapor.xlsx] [--donem YYYY-MM]
 
 Örnek:
-    py -3 -X utf8 cli.py --fatura C:\\faturalar --cetvel 191.xlsx 391.xlsx --cikti rapor.xlsx
+    py -3 -X utf8 cli.py --fatura C:\\faturalar --cetvel cetvel1.xlsx cetvel2.xlsx --cikti rapor.xlsx
 """
 import argparse
 import os

@@ -1,4 +1,4 @@
-import glob
+﻿import glob
 import os
 import sys
 
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     kontrol("excel fatura 1", excel_faturalar[0]["belge_no"] == "GFE202400000001" and excel_faturalar[0]["matrah"] == 1000)
     kontrol("excel fatura kdv", excel_faturalar[2]["kdv"] == 50)
 
-    print("\n== GELEN FATURALAR (ornek veri) ==")
+    print("\n== GELEN FATURALAR (excel) ==")
     gelen_faturalar = fatura_dosya_parse(os.path.join(TEST_KLASORU, "gelen_faturalar.xlsx"))
     for f in gelen_faturalar:
         print(f"  satir={f['satir']} belge={f['belge_no']} vkn={f['satici_vkn']} matrah={tl_format(f['matrah'])} kdv={tl_format(f['kdv'])} toplam={tl_format(f['toplam'])} oran={f['oranlar']}")
@@ -102,8 +102,8 @@ if __name__ == "__main__":
     kontrol("191 parse 4 kayit", len(m191["kayitlar"]) == 4, f"-> {len(m191['kayitlar'])}")
     kontrol("191 belge FT.NIZ NO", m191["kayitlar"][0]["belge_no"] == "ORT2026000000301")
     kontrol("191 kdv borc kolonu", round(float(m191["kayitlar"][1]["kdv"]), 2) == 1189.99)
-    kontrol("191 TTNET GN belge", any(k["belge_no"] == "A112026000000301" for k in m191["kayitlar"]))
-    kontrol("191 TTNET GN kdv", any(k["belge_no"] == "A112026000000301" and round(float(k["kdv"]), 2) == 199.98 for k in m191["kayitlar"]))
+    kontrol("191 telekom GN belge", any(k["belge_no"] == "A112026000000301" for k in m191["kayitlar"]))
+    kontrol("191 telekom GN kdv", any(k["belge_no"] == "A112026000000301" and round(float(k["kdv"]), 2) == 199.98 for k in m191["kayitlar"]))
 
     print("\n== XML FATURA (UBL e-fatura) ==")
     from dosya import fatura_dosya_parse as fatura_dosya_parse_fn
@@ -142,16 +142,16 @@ if __name__ == "__main__":
     print("\n== GELEN ZIP (telekom + elektrik XML) ==")
     gz_faturalar = fatura_dosya_parse_fn(os.path.join(TEST_KLASORU, "gelen_zip_faturalar.zip"))
     kontrol("gzip 2 kayit", len(gz_faturalar) == 2, f"-> {len(gz_faturalar)}")
-    gediz = next((f for f in gz_faturalar if f["belge_no"] == "ORN2026000000001"), None)
-    turkcell = next((f for f in gz_faturalar if f["belge_no"] == "TEL2026000000002"), None)
-    kontrol("zip gediz elektrik kdv", gediz is not None and round(float(gediz["kdv"]), 2) == 227.27
-            and round(float(gediz["kdv_ayrik"]), 2) == 227.27)
-    kontrol("zip turkcell sektor", turkcell is not None and turkcell["sektor"] == "TELECOM"
-            and round(float(turkcell["kdv"]), 2) == 76.92
-            and round(float(turkcell["kdv_ayrik"]), 2) == 76.92
-            and round(float(turkcell["diger_vergi_toplam"]), 2) == 65.44)
-    kontrol("zip turkcell vergi detay", turkcell is not None and any(
-        d.get("ad") == "Özel İletişim Vergisi" and d.get("kod") == "4081" for d in turkcell["vergi_detay"]))
+    elektrik = next((f for f in gz_faturalar if f["belge_no"] == "ORN2026000000001"), None)
+    telekom = next((f for f in gz_faturalar if f["belge_no"] == "TEL2026000000002"), None)
+    kontrol("zip elektrik kdv", elektrik is not None and round(float(elektrik["kdv"]), 2) == 227.27
+            and round(float(elektrik["kdv_ayrik"]), 2) == 227.27)
+    kontrol("zip telekom sektor", telekom is not None and telekom["sektor"] == "TELECOM"
+            and round(float(telekom["kdv"]), 2) == 76.92
+            and round(float(telekom["kdv_ayrik"]), 2) == 76.92
+            and round(float(telekom["diger_vergi_toplam"]), 2) == 65.44)
+    kontrol("zip telekom vergi detay", telekom is not None and any(
+        d.get("ad") == "Özel İletişim Vergisi" and d.get("kod") == "4081" for d in telekom["vergi_detay"]))
 
     print("\n== XML ORAN FARKI (NameError regresyon) ==")
     import re as _re
@@ -261,14 +261,14 @@ if __name__ == "__main__":
         print(f"  belge={f['belge_no']} tarih={f['tarih']} tip={f['fatura_tipi']} unvan={f['satici_unvan']!r} "
               f"matrah={tl_format(f['matrah'])} kdv={tl_format(f['kdv'])} toplam={tl_format(f['toplam'])} oran={f['oranlar']}")
     kontrol("fis 3 kayit", len(fis_faturalar) == 3, f"-> {len(fis_faturalar)}")
-    z = next(f for f in fis_faturalar if f["belge_no"] == "Z2127")
+    z = next(f for f in fis_faturalar if f["belge_no"] == "Z9002")
     kontrol("fis Z tip", z["fatura_tipi"] == "Z RAPORU", f"-> {z['fatura_tipi']}")
     kontrol("fis Z kdv", z["kdv"] == Decimal("267.71"), f"-> {z['kdv']}")
     kontrol("fis Z matrah", z["matrah"] == Decimal("15133.50"), f"-> {z['matrah']}")
     kontrol("fis Z oranlar", z["oranlar"] == [1, 20], f"-> {z['oranlar']}")
     kontrol("fis Z tarih", z["tarih"] == "2026-07-02", f"-> {z['tarih']}")
     kontrol("fis Z vkn bos", z["satici_vkn"] == "", f"-> {z['satici_vkn']!r}")
-    kontrol("fis Z not fis", any("MAHSUP fişi 001851 (Z RAPORU)" in n for n in z["notlar"]), f"-> {z['notlar']}")
+    kontrol("fis Z not fis", any("MAHSUP fişi 900002 (Z RAPORU)" in n for n in z["notlar"]), f"-> {z['notlar']}")
     kontrol("fis Z not matrah", any("oranlarından hesaplandı" in n for n in z["notlar"]))
     ear = next(f for f in fis_faturalar if f["belge_no"] == "EAR2026000000001")
     kontrol("fis EAR tip", ear["fatura_tipi"] == "E-ARSIV", f"-> {ear['fatura_tipi']}")
@@ -312,7 +312,7 @@ if __name__ == "__main__":
     kontrol("muavin not var", bool(muavin_sonuc["notlar"]))
     kontrol("fis hesap 16 kayit", len(fis_hesap) == 16, f"-> {len(fis_hesap)}")
     kontrol("muavin 6 kayit", len(muavin_hesap) == 6, f"-> {len(muavin_hesap)}")
-    kontrol("muavin Z2127", any(k["belge"] == "Z2127" and k["hesap"] == "600.01.002" and k["alacak"] == Decimal("13909.90") for k in muavin_hesap))
+    kontrol("muavin Z9002", any(k["belge"] == "Z9002" and k["hesap"] == "600.01.002" and k["alacak"] == Decimal("13909.90") for k in muavin_hesap))
 
     mh_sonuc, mh_ozet = z_raporu_hesap_kontrol(fis_hesap, muavin_hesap)
     for s in mh_sonuc:
@@ -393,12 +393,12 @@ if __name__ == "__main__":
     print("\n== İADE FATURA KONTROLÜ ==")
     from matcher import capraz_kontrol_iade_destekli
     iade_fats = [
-        {'belge_no': 'EFA2026000000002', 'satici_vkn': '12345678901', 'tarih': '2026-07-30',
+        {'belge_no': 'IAD2026000000401', 'satici_vkn': '12345678901', 'tarih': '2026-07-30',
          'matrah': Decimal('-2970.00'), 'kdv': Decimal('-29.70'), 'toplam': Decimal('-3267.00'),
          'fatura_tipi': 'IADE', 'oranlar': [1]},
     ]
     iade_cetvel = [
-        {'belge_no': 'EFA2026000000002', 'vkn': '12345678901', 'tarih': '2026-07-30',
+        {'belge_no': 'IAD2026000000401', 'vkn': '12345678901', 'tarih': '2026-07-30',
          'matrah': None, 'kdv': Decimal('29.70'), 'unvan': 'DENEME TİCARET'},
     ]
     iade_sonuc, iade_ozet = capraz_kontrol_iade_destekli(iade_fats, iade_cetvel)
