@@ -440,7 +440,7 @@ class KdvKontrolApp:
         self.kok.after(200, izle)
 
     def _guncelleme_kur_bitti(self, sonuc):
-        if not sonuc["kopyalanan"]:
+        if not sonuc or not sonuc.get("kopyalanan"):
             self.guncelleme_durum.configure(text="Kurulacak dosya bulunamadı.", foreground="#B00000")
             return
         self.guncelleme_durum.configure(
