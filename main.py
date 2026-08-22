@@ -146,6 +146,39 @@ class KdvKontrolApp:
 
         self._son_dosyalari_geri_yukle()
         self._arayuz_kur()
+        self._kisayol_sagla()
+
+    def _kisayol_sagla(self):
+        """Masaustunde logolu kisayol yoksa arka planda olusturur."""
+        if not os.path.exists(os.path.join(PROJE_YOLU, "logo.ico")):
+            return
+
+        def guvenli(yol):
+            return yol.replace("'", "''")
+
+        kod = (
+            "$ws = New-Object -ComObject WScript.Shell;"
+            "$m = [Environment]::GetFolderPath('Desktop');"
+            "$p = Join-Path $m 'KDV Capraz Kontrol.lnk';"
+            "if (-not (Test-Path $p)) {"
+            "$l = $ws.CreateShortcut($p);"
+            f"$l.TargetPath = Join-Path '{guvenli(PROJE_YOLU)}' 'calistir.bat';"
+            f"$l.WorkingDirectory = '{guvenli(PROJE_YOLU)}';"
+            f"$l.IconLocation = Join-Path '{guvenli(PROJE_YOLU)}' 'logo.ico';"
+            "$l.Description = 'KDV Capraz Kontrol';"
+            "$l.Save()"
+            "}"
+        )
+        try:
+            import base64
+            import subprocess
+            encoded = base64.b64encode(kod.encode("utf-16-le")).decode("ascii")
+            subprocess.Popen(
+                ["powershell", "-NoProfile", "-WindowStyle", "Hidden",
+                 "-EncodedCommand", encoded],
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except Exception:
+            pass
 
     def _stil_kur(self):
         """Modern mavi/mor tema uygular (mevcut widget yapısını değiştirmez)."""
