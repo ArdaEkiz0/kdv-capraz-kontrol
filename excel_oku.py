@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -813,4 +814,234 @@ def _muavin_birlestir(kayitlar):
         if g["kdv"] is not None:
             g["kdv"] = g["kdv"].quantize(Decimal("0.01"))
         sonuc.append(g)
+    return sonuc
+
+
+# ============================================================================
+# GENEL (OTOMATİK TANIMA) MUAVİN OKUYUCU
+# ============================================================================
+
+_GENEL_ETIKET_DESENLERI = [
+    r"FT\.?\s*[NM]IZ\s*NO\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9\-/]{3,})",
+    r"(?:FATURA|BELGE|EVRAK|FIS|FIŞ|DETAY)\s*NO\s*[:#]?\s*([A-Za-z0-9][A-Za-z0-9\-/]{3,})",
+    r"\bNO\s*[:#.]\s*([A-Z0-9][A-Z0-9\-/]{6,})",
+]
+_GENEL_EBELGE_DESENI = re.compile(r"\b([A-Z0-9]{2,5}\d{9,})\b")
+_GENEL_UZUN_RAKAM = re.compile(r"^\d{12,17}$")
+_GENEL_ATLANIR = ("TOPLAM", "GENEL TOPLAM", "BAKIYE", "YEKUN", "DEVIR", "DEVİR",
+                  "SAYFA", "ÖNCEKİ SAYFA", "ONCEKI SAYFA")
+_GENEL_HESAP_DESENI = re.compile(r"^(?:\d{3}[-.\s]\d{1,2}[-.\s]\d{1,3}|(?:19|39)\d[-.]\d{1,2}(?:[-.]\d{1,3})?)$")
+
+
+def _genel_baslik_puanla(satir_norm):
+    """Bir satırın başlık olma puanı: tanınan sütun adı sayısı."""
+    puan = 0
+    for hucre in satir_norm:
+        if not hucre:
+            continue
+        for sinonimler in KOLON_SINONIMLERI.values():
+            for s in sinonimler:
+                ns = _norm_baslik(s)
+                if ns and (ns in hucre or hucre in ns) and abs(len(ns) - len(hucre)) < 15:
+                    puan += 1
+                    break
+        for ekstra in ("BORC", "ALACAK", "ACIKLAMA", "DETAY NO", "FIS NO", "REFERANS"):
+            if ekstra in hucre:
+                puan += 1
+                break
+    return puan
+
+
+def _genel_tarih_cikar(deger):
+    if deger is None:
+        return None
+    if isinstance(deger, datetime):
+        return deger.strftime("%Y-%m-%d")
+    if isinstance(deger, date):
+        return deger.strftime("%Y-%m-%d")
+    metin = str(deger).strip()
+    t = tarih_parse(metin)
+    if t:
+        return str(t)
+    try:
+        seri = _excel_seri_tarih(float(metin.replace(",", ".")))
+        if seri:
+            return seri
+    except (ValueError, AttributeError):
+        pass
+    return None
+
+
+def _genel_belge_cikar(hucreler):
+    """Hücre listesinden fatura/belge numarasını çıkarır.
+
+    Sıra: etiketli desen (FT.MIZ NO: vb.) → e-belge deseni → uzun saf rakam.
+    """
+    metinler = [h for h in hucreler if isinstance(h, str)]
+    for desen in _GENEL_ETIKET_DESENLERI:
+        m = re.search(desen, " || ".join(metinler), re.I)
+        if m:
+            belge = fatura_no_temizle(m.group(1))
+            if len(belge) >= 4 and not belge.isdigit() or len(belge) >= 12:
+                return belge
+    for h in metinler:
+        m = _GENEL_EBELGE_DESENI.search(h.upper())
+        if m:
+            return fatura_no_temizle(m.group(1))
+    for h in metinler:
+        rakam = re.sub(r"\D", "", h)
+        if _GENEL_UZUN_RAKAM.match(rakam):
+            return rakam
+    return None
+
+
+def _genel_unvan_cikar(hucreler, belge, aciklama_metni=None):
+    adaylar = []
+    for h in hucreler:
+        if isinstance(h, str):
+            metin = h.strip()
+            if not metin or len(metin) < 3:
+                continue
+            if belge and belge.upper() in metin.upper():
+                metin = metin.upper().replace(belge.upper(), " ").strip()
+            metin = re.split(r"FT\.?\s*[NM]IZ", metin, flags=re.I)[0].strip(" .,-")
+            metin = re.sub(r"(?i)\b(KDVSI|KDV|ALIM FATURA|SATIS FATURA|SATIŞ FATURA)\b.*$", "", metin).strip(" .,-")
+            if len(metin) >= 3 and not metin.replace(".", "").replace(",", "").isdigit():
+                adaylar.append(metin)
+    if not adaylar:
+        return ""
+    en_uzun = max(adaylar, key=len)
+    return en_uzun[:80]
+
+
+def muavin_genel_parse(dosya_yolu):
+    """Bilinmeyen Excel muavin/hesap defteri formatlarını otomatik tanıyıp okur.
+
+    Yeni bir cetvel türü geldiğinde özel parser'lar tanımazsa devreye girer.
+    Başlık satırı varsa sütunları eş anlamlı sözlükten eşler (sıra fark etmez);
+    başlık yoksa her satırdan tarih/belge/tutar hücrelerini kendi çıkarır.
+    Belge numarası etiketli desen (FT.MIZ NO:), e-belge deseni veya uzun
+    rakam olarak herhangi bir hücrede aranır.
+    """
+    import re as _re
+
+    satirlar = excel_satirlar(dosya_yolu)
+    sonuc = {"dosya": dosya_yolu, "kayitlar": [], "notlar": []}
+
+    # 1) En iyi başlık satırını bul
+    baslik_i = None
+    kolonlar = {}
+    en_iyi_puan = 0
+    for i, satir in enumerate(satirlar[:60]):
+        normlar = [_norm_baslik(c) for c in satir]
+        puan = _genel_baslik_puanla(normlar)
+        if puan > en_iyi_puan:
+            en_iyi_puan = puan
+    if en_iyi_puan >= 2:
+        for i, satir in enumerate(satirlar[:60]):
+            normlar = [_norm_baslik(c) for c in satir]
+            if _genel_baslik_puanla(normlar) == en_iyi_puan:
+                baslik_i = i
+                break
+
+    aktif_hesap = ""
+    kayit_sayisi = 0
+    if baslik_i is not None:
+        # Sütunları başlıklardan eşle
+        baslik_normlari = [_norm_baslik(c) for c in satirlar[baslik_i]]
+        for alan in ("tarih", "belge_no", "kdv", "matrah", "vkn", "unvan"):
+            kolonlar[alan] = _kolon_bul(baslik_normlari, alan)
+        for alan in ("aciklama", "borc", "alacak"):
+            kolonlar[alan] = None
+        # Ek eş anlamlılar
+        for j, n in enumerate(baslik_normlari):
+            if kolonlar["borc"] is None and "BORC" in n:
+                kolonlar["borc"] = j
+            if kolonlar["alacak"] is None and "ALACAK" in n:
+                kolonlar["alacak"] = j
+            if kolonlar["aciklama"] is None and ("ACIKLAMA" in n or "DETAY" in n or "ISLEM" in n or "YAPILAN" in n):
+                kolonlar["aciklama"] = j
+
+    for i, satir in enumerate(satirlar):
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        ilk = str(satir[0]).strip() if satir and satir[0] is not None else ""
+        ilk_tarih = _genel_tarih_cikar(satir[0]) if satir else None
+        if ilk_tarih is None and (_GENEL_HESAP_DESENI.match(ilk)
+                                  or _GENEL_HESAP_DESENI.match(_norm_baslik(ilk))):
+            aktif_hesap = ilk
+            continue
+        if baslik_i is not None and i <= baslik_i:
+            continue
+
+        tarih = None
+        if baslik_i is not None and kolonlar.get("tarih") is not None and kolonlar["tarih"] < len(satir):
+            tarih = _genel_tarih_cikar(satir[kolonlar["tarih"]])
+        if tarih is None:
+            for c in satir:
+                tarih = _genel_tarih_cikar(c)
+                if tarih:
+                    break
+
+        belge = _genel_belge_cikar(list(satir))
+        if belge is None:
+            continue
+
+        ust_metin = " ".join(str(c) for c in satir if c is not None)
+        if any(k in ust_metin.upper() for k in _GENEL_ATLANIR):
+            continue
+
+        kdv = None
+        if baslik_i is not None:
+            b = a = None
+            if kolonlar.get("borc") is not None and kolonlar["borc"] < len(satir):
+                b = _huc_tutar(satir[kolonlar["borc"]])
+            if kolonlar.get("alacak") is not None and kolonlar["alacak"] < len(satir):
+                a = _huc_tutar(satir[kolonlar["alacak"]])
+            if kolonlar.get("kdv") is not None and kolonlar["kdv"] < len(satir):
+                kdv = _huc_tutar(satir[kolonlar["kdv"]])
+            kdv = kdv or (b if b else a)
+        if kdv is None:
+            # Başlıksız mod: tarih/belge hücrelerini atlayıp en sağdaki sayıyı al.
+            belge_rakam = re.sub(r"\D", "", belge)
+            adaylar = []
+            for c in satir:
+                if _genel_tarih_cikar(c):
+                    continue
+                if isinstance(c, (int, float)):
+                    adaylar.append(_huc_tutar(c))
+                elif isinstance(c, str):
+                    if re.sub(r"\D", "", c) == belge_rakam:
+                        continue
+                    adaylar.append(_huc_tutar(c))
+            adaylar = [v for v in adaylar if v and v != 0]
+            if adaylar:
+                kdv = adaylar[-1]
+        if kdv is None or kdv == 0:
+            continue
+
+        unvan = ""
+        if kolonlar.get("unvan") is not None and kolonlar["unvan"] < len(satir):
+            unvan = str(satir[kolonlar["unvan"]] or "")[:80]
+        if not unvan:
+            unvan = _genel_unvan_cikar(list(satir), belge)
+
+        notlar = []
+        if aktif_hesap:
+            notlar.append(f"Hesap: {aktif_hesap}")
+        sonuc["kayitlar"].append({
+            "vkn": "", "belge_no": belge,
+            "tarih": tarih if tarih else None,
+            "matrah": None, "kdv": kdv, "unvan": unvan,
+            "notlar": notlar,
+        })
+        kayit_sayisi += 1
+
+    sonuc["kayitlar"] = _muavin_birlestir(sonuc["kayitlar"])
+    if not sonuc["kayitlar"]:
+        sonuc["notlar"].append("Genel otomatik tanıma da satır bulamadı")
+    else:
+        mod = "başlıklı" if baslik_i is not None else "başlıksız"
+        sonuc["notlar"].append(
+            f"Genel format otomatik tanındı ({mod}, {len(sonuc['kayitlar'])} kayıt)")
     return sonuc

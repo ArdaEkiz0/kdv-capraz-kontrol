@@ -4,7 +4,8 @@ import zipfile
 from cetvel import cetvel_parse
 from efatura import efatura_parse
 from excel_oku import (cetvel_excel_parse, fatura_excel_parse, fatura_gelen_parse,
-                       muavin_excel_parse, muavin_191_parse, muavin_391_parse)
+                       muavin_excel_parse, muavin_191_parse, muavin_391_parse,
+                       muavin_genel_parse)
 from fis_listesi import fis_listesi_cetvel_parse, fis_listesi_parse
 from xml_oku import fatura_xml_parse
 
@@ -126,23 +127,55 @@ def fatura_birlestir(faturalar):
     return sonuc
 
 
+def _guvenli_parse(parse_fn, dosya_yolu):
+    """Parser çökerse uygulama durmasın; notla boş sonuç dönsün."""
+    try:
+        return parse_fn(dosya_yolu)
+    except Exception as hata:
+        return {"dosya": dosya_yolu, "kayitlar": [], "notlar": [
+            f"{parse_fn.__name__} hata verdi: {hata}"]}
+
+
+def _kullanilabilir_mi(sonuc):
+    """Parser sonucu gerçekten eşleşmede kullanılabilir mi?
+
+    Belge numarası ve tutarı olan en az bir kayıt ararız; yoksa o parser
+    bu dosyayı tanımamış sayılır ve sıradaki denemeye geçilir.
+    """
+    if not sonuc or not sonuc.get("kayitlar"):
+        return False
+    for k in sonuc["kayitlar"]:
+        if k.get("belge_no") and k.get("kdv"):
+            return True
+    return False
+
+
 def cetvel_dosya_parse(dosya_yolu):
     uzanti = os.path.splitext(dosya_yolu)[1].lower()
     if uzanti in EXCEL_UZANTILARI:
-        d191 = muavin_191_parse(dosya_yolu)
-        if d191["kayitlar"]:
+        d191 = _guvenli_parse(muavin_191_parse, dosya_yolu)
+        if _kullanilabilir_mi(d191):
             return d191
-        d391 = muavin_391_parse(dosya_yolu)
-        if d391["kayitlar"]:
+        d391 = _guvenli_parse(muavin_391_parse, dosya_yolu)
+        if _kullanilabilir_mi(d391):
             return d391
-        sonuc = cetvel_excel_parse(dosya_yolu)
-        if not sonuc["kayitlar"]:
-            muavin = muavin_excel_parse(dosya_yolu)
-            if muavin["kayitlar"]:
+        sonuc = _guvenli_parse(cetvel_excel_parse, dosya_yolu)
+        if not _kullanilabilir_mi(sonuc):
+            muavin = _guvenli_parse(muavin_excel_parse, dosya_yolu)
+            if _kullanilabilir_mi(muavin):
                 return muavin
+        if not _kullanilabilir_mi(sonuc):
+            # Bilinen formatlardan hiçbiri tanımadıysa genel otomatik
+            # tanıma devreye girer (yeni cetvel türleri için).
+            genel = _guvenli_parse(muavin_genel_parse, dosya_yolu)
+            if _kullanilabilir_mi(genel):
+                return genel
         return sonuc
     if uzanti in PDF_UZANTILARI:
-        sonuc = fis_listesi_cetvel_parse(dosya_yolu)
-        if sonuc is not None:
-            return sonuc
+        try:
+            sonuc = fis_listesi_cetvel_parse(dosya_yolu)
+            if sonuc is not None:
+                return sonuc
+        except Exception:
+            pass
     return cetvel_parse(dosya_yolu)

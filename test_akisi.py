@@ -461,5 +461,62 @@ if __name__ == "__main__":
     kontrol("çift tarih: fark yok", cift_ozet["tutar_farki"] == 0 and cift_ozet["mukerrer"] == 0,
             f"-> {cift_ozet}")
 
+    print("\n== YENİ CETVEL FORMATI OTOMATİK TANIMA ==")
+    import tempfile as _tmp3
+    from datetime import datetime as _dt
+    from openpyxl import Workbook
+    from dosya import cetvel_dosya_parse as _cdp
+    from excel_oku import muavin_genel_parse as _mgp
+
+    def _yeni_format_xlsx(yol, baslikli=True):
+        wb = Workbook()
+        ws = wb.active
+        if baslikli:
+            ws.append(["ŞİRKET XYZ HESAP DEFTERİ"])
+            ws.append(["Hesap Kodu: 191 01 005"])
+            ws.append([])
+            ws.append(["İŞLEM TARİHİ", "YAPILAN İŞLEM", "REFERANS", "BORÇ TUTARI", "ALACAK TUTARI"])
+            ws.append([_dt(2026, 7, 5), "Akaryakıt Alımı FT.NIZ NO:XYZ2026000000777 KDVSI", "", 500.0, 0])
+            ws.append([_dt(2026, 7, 6), "Telekom Hizmeti FT.NIZ NO:ABC2026000000888 KDVSI", "", 0, 123.5])
+            ws.append([_dt(2026, 7, 31), "GENEL TOPLAM", "", 500.0, 123.5])
+        else:
+            ws.append(["FİRMA ABC TAHHÜT KAYITLARI"])
+            ws.append([_dt(2026, 7, 10), "Alım Fatura No: QQQ2026000000888 KDVSI", 250.25])
+            ws.append([_dt(2026, 7, 11), "Alım Fatura No: QQQ2026000000899 KDVSI", "1.234,56"])
+        wb.save(yol)
+
+    tmp_k = _tmp3.mkdtemp()
+    try:
+        y1 = os.path.join(tmp_k, "yeni_defter.xlsx")
+        _yeni_format_xlsx(y1, baslikli=True)
+        g1 = _cdp(y1)
+        kontrol("yeni format (başlıklı) kayıt", len(g1["kayitlar"]) == 2, f"-> {len(g1['kayitlar'])}")
+        b1 = next((k for k in g1["kayitlar"] if k["belge_no"] == "XYZ2026000000777"), None)
+        kontrol("yeni format belge+borç", b1 is not None and float(b1["kdv"]) == 500.0
+                and b1["tarih"] == "2026-07-05", f"-> {b1}")
+        a1 = next((k for k in g1["kayitlar"] if k["belge_no"] == "ABC2026000000888"), None)
+        kontrol("yeni format alacak kolonu", a1 is not None and float(a1["kdv"]) == 123.5, f"-> {a1}")
+        kontrol("yeni format toplam satırı atlandı",
+                all(k["belge_no"] != "GENELTOPLAM" for k in g1["kayitlar"]))
+        kontrol("yeni format otomatik tanındı notu",
+                any("otomatik tanındı" in n for n in g1["notlar"]), f"-> {g1['notlar']}")
+
+        y2 = os.path.join(tmp_k, "basliksiz_defter.xlsx")
+        _yeni_format_xlsx(y2, baslikli=False)
+        g2 = _mgp(y2)
+        kontrol("başlıksız format 2 kayıt", len(g2["kayitlar"]) == 2, f"-> {len(g2['kayitlar'])}")
+        q2 = next((k for k in g2["kayitlar"] if k["belge_no"] == "QQQ2026000000899"), None)
+        kontrol("başlıksız TR formatlı tutar", q2 is not None and float(q2["kdv"]) == 1234.56,
+                f"-> {q2}")
+
+        y3 = os.path.join(tmp_k, "bozuk.xlsx")
+        with open(y3, "wb") as fh:
+            fh.write(b"bu bir excel degil, rastgele icerik")
+        g3 = _cdp(y3)
+        kontrol("bozuk dosya çökmedi", isinstance(g3.get("kayitlar"), list), "-> güvenli dönüş")
+    finally:
+        import shutil as _sh
+        _sh.rmtree(tmp_k, ignore_errors=True)
+
     print("\nSONUÇ:", "TÜM TESTLER TAMAM" if BASARILI else "HATALAR VAR")
     sys.exit(0 if BASARILI else 1)
