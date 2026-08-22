@@ -93,7 +93,24 @@ def _tarih_araligi(faturalar, cetvel_kayitlari):
     return f"{min(tarihler)} - {max(tarihler)}"
 
 
+OZET_VARSAYILANLARI = {
+    "fatura_adet": 0, "cetvel_adet": 0, "eslesen": 0, "tutar_farki": 0,
+    "vkn_farki": 0, "kdv_sifir": 0, "cetvelde_yok": 0, "faturada_yok": 0,
+    "mukerrer": 0, "parse_sorunu": 0, "tevkifatli": 0, "indirimli": 0,
+    "fark_toplami": 0,
+}
+
+
+def _ozet_tamamla(ozet):
+    """Eksik özet anahtarlarını varsayılanla doldurur (kısmi özetlerde çökmesin)."""
+    tamam = dict(OZET_VARSAYILANLARI)
+    if ozet:
+        tamam.update({k: v for k, v in ozet.items() if v is not None})
+    return tamam
+
+
 def rapor_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol, gecmis_bilgi=None):
+    ozet = _ozet_tamamla(ozet)
     wb = Workbook()
 
     def durum_toplamlar():
@@ -302,44 +319,8 @@ def rapor_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol,
         sayi_kolonlari={6, 7},
     )
 
-    # ---------- 6) Satıcı Özeti ----------
-    ws6 = wb.create_sheet("SaticiOzeti")
-    saticilar = {}
-    for f in faturalar:
-        anahtar = (f.get("satici_vkn") or "", f.get("satici_unvan") or "")
-        g = saticilar.setdefault(anahtar, {"adet": 0, "matrah": 0, "kdv": 0, "eslesen": 0, "eksik": 0, "eksik_kdv": 0})
-        g["adet"] += 1
-        g["matrah"] += f["matrah"] or 0
-        g["kdv"] += f["kdv"] or 0
-    eslesen_belge = {}
-    for r in sonuc_satirlari:
-        if r["durum"] == DURUM_OK:
-            eslesen_belge[r["belge_no"]] = True
-    for f in faturalar:
-        anahtar = (f.get("satici_vkn") or "", f.get("satici_unvan") or "")
-        g = saticilar.get(anahtar)
-        if g is None:
-            continue
-        if (f["belge_no"] or "") in eslesen_belge:
-            g["eslesen"] += 1
-        else:
-            g["eksik"] += 1
-            g["eksik_kdv"] += f["kdv"] or 0
-    basliklar = ["VKN", "Satıcı Ünvanı", "Fatura Adedi", "Eşleşen", "Muavinde Yok", "Toplam Matrah", "Toplam KDV", "Eksik KDV (TL)"]
-    satirlar = []
-    for (vkn, unvan), g in sorted(saticilar.items(), key=lambda x: -x[1]["eksik_kdv"]):
-        if not vkn and not unvan:
-            continue
-        satirlar.append([
-            vkn or "", unvan or "", g["adet"], g["eslesen"], g["eksik"],
-            g["matrah"], g["kdv"], g["eksik_kdv"],
-        ])
-    tablo_yaz(
-        ws6, basliklar, satirlar,
-        genislikler=[14, 40, 13, 10, 14, 14, 14, 14],
-        renk_kurali=lambda s: SORUN_DOLGU if (s[4] if isinstance(s[4], int) else 0) else None,
-        sayi_kolonlari={6, 7, 8},
-    )
+    # ---------- 6) Satıcı Özeti (fatura + kontrol sonucu kırılımı) ----------
+    satici_ozet_sayfasi_ekle(wb, sonuc_satirlari, faturalar)
 
     # ---------- 7) Faturalar (tümü) ----------
     ws7 = wb.create_sheet("Faturalar")
@@ -517,61 +498,178 @@ def rapor_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol,
         grafik2.height = 12
         ws11.add_chart(grafik2, "E20")
 
+    # ---------- 12) KDV oran kontrolü ----------
+    oran_kontrol_sayfasi_ekle(wb, faturalar)
+
     wb.save(hedef_yol)
     return hedef_yol
 
 
 # ============================================================================
-# ORAN DOĞRULAMA SAYFASI (YENİ)
+# ORAN DOĞRULAMA SAYFASI
 # ============================================================================
 
-def oran_kontrol_sayfasi_ekle(wb, sonuc_satirlari, faturalar):
-    """Matrah × oran = KDV doğrulaması raporu."""
+def oran_kontrol_sayfasi_ekle(wb, faturalar):
+    """Matrah × oran = KDV doğrulaması raporu (tüm faturalar, uyumsuzlar önce)."""
     if "KDV Oran Kontrolü" in wb.sheetnames:
         return
-    ws = wb.create_sheet("KDV Oran Kontrolü")
+    from oran_kontrol import oran_dogrula
 
-    basliklar = ["Belge No", "VKN", "Tarih", "Matrah", "KDV", "Oranlar", "Beklenen KDV", "Fark", "Uyum", "Mesaj"]
+    kontroller = []
+    for f in faturalar:
+        if not f.get("belge_no") or f.get("matrah") is None or f.get("kdv") is None:
+            continue
+        k = oran_dogrula(f)
+        k["_f"] = f
+        kontroller.append(k)
+    if not kontroller:
+        return
+
+    # Belirsizler (fark None) ortada, uyumsuzlar en üstte
+    kontroller.sort(key=lambda k: (k["uyumlu"], k["fark"] is None))
+
+    ws = wb.create_sheet("KDV Oran Kontrolü")
     INCE = Border(left=Side(style="thin"), right=Side(style="thin"),
                   top=Side(style="thin"), bottom=Side(style="thin"))
     BASLIK = Font(bold=True, color="FFFFFF", size=11)
     DOLGU = PatternFill("solid", fgColor="4472C4")
+
+    uyumlu_adet = sum(1 for k in kontroller if k["uyumlu"])
+    belirsiz_adet = sum(1 for k in kontroller if not k["uyumlu"] and k["fark"] is None)
+    uyumsuz_adet = len(kontroller) - uyumlu_adet - belirsiz_adet
+    ws.cell(row=1, column=1, value=f"Toplam {len(kontroller)} fatura | "
+            f"Uyumlu: {uyumlu_adet} | Uyumsuz: {uyumsuz_adet} | Belirsiz: {belirsiz_adet}").font = Font(bold=True, size=11)
+
+    basliklar = ["Belge No", "VKN", "Tarih", "Ünvan", "Matrah", "KDV",
+                 "Oranlar", "Beklenen KDV", "Fark", "Uyum", "Mesaj"]
     for j, b in enumerate(basliklar, 1):
-        h = ws.cell(row=1, column=j, value=b)
+        h = ws.cell(row=3, column=j, value=b)
         h.font = BASLIK
         h.fill = DOLGU
         h.border = INCE
 
-    fatura_haritasi = {f.get("belge_no"): f for f in faturalar if f.get("belge_no")}
+    satir_no = 4
+    for k in kontroller:
+        f = k["_f"]
+        if k["uyumlu"]:
+            isaret, renk = "✓", PatternFill("solid", fgColor="C6EFCE")
+        elif k["fark"] is None:
+            isaret, renk = "?", PatternFill("solid", fgColor="FFEB9C")
+        else:
+            isaret, renk = "✗", PatternFill("solid", fgColor="FFC7CE")
 
-    satir_no = 2
-    for r in sonuc_satirlari:
-        belge = r.get("belge_no")
-        fatura = fatura_haritasi.get(belge)
-        if not fatura:
-            continue
-        from oran_kontrol import oran_dogrula
-        kontrol = oran_dogrula(fatura)
-
-        ws.cell(row=satir_no, column=1, value=belge or "")
-        ws.cell(row=satir_no, column=2, value=fatura.get("satici_vkn") or "")
-        ws.cell(row=satir_no, column=3, value=fatura.get("tarih") or "")
-        ws.cell(row=satir_no, column=4, value=float(fatura.get("matrah") or 0))
-        ws.cell(row=satir_no, column=5, value=float(fatura.get("kdv") or 0))
-        ws.cell(row=satir_no, column=6, value=", ".join(f"%{o}" for o in fatura.get("oranlar") or []))
-        ws.cell(row=satir_no, column=7, value=float(kontrol["beklenen_kdv"]) if kontrol["beklenen_kdv"] is not None else "")
-        ws.cell(row=satir_no, column=8, value=float(kontrol["fark"]) if kontrol["fark"] is not None else "")
-        ws.cell(row=satir_no, column=9, value="✅" if kontrol["uyumlu"] else "❌")
-        ws.cell(row=satir_no, column=10, value=kontrol["mesaj"])
-
-        for j in range(1, 11):
-            ws.cell(row=satir_no, column=j).border = INCE
-            if j in (4, 5, 7, 8):
-                ws.cell(row=satir_no, column=j).number_format = "#,##0.00"
-            if j == 9:
-                renk = PatternFill("solid", fgColor="C6EFCE") if kontrol["uyumlu"] else PatternFill("solid", fgColor="FFC7CE")
-                ws.cell(row=satir_no, column=j).fill = renk
+        hucreler = [
+            f.get("belge_no") or "",
+            f.get("satici_vkn") or "",
+            f.get("tarih") or "",
+            f.get("unvan") or "",
+            float(f.get("matrah") or 0),
+            float(f.get("kdv") or 0),
+            ", ".join(f"%{o}" for o in f.get("oranlar") or []),
+            float(k["beklenen_kdv"]) if k["beklenen_kdv"] is not None else "",
+            float(k["fark"]) if k["fark"] is not None else "",
+            isaret,
+            k["mesaj"],
+        ]
+        for j, deger in enumerate(hucreler, 1):
+            c = ws.cell(row=satir_no, column=j, value=deger)
+            c.border = INCE
+            if j in (5, 6, 8, 9):
+                c.number_format = "#,##0.00"
+            if j == 10:
+                c.fill = renk
+                c.alignment = Alignment(horizontal="center")
         satir_no += 1
 
-    for j, w in enumerate([20, 13, 11, 14, 14, 14, 14, 12, 7, 35], 1):
+    for j, w in enumerate([20, 13, 11, 34, 14, 14, 12, 14, 12, 7, 40], 1):
         ws.column_dimensions[get_column_letter(j)].width = w
+
+
+def satici_ozet_sayfasi_ekle(wb, sonuc_satirlari, faturalar):
+    """Satıcı bazında özet: fatura toplamları + kontrol sonucu kırılımı.
+
+    Sorunlu satıcılar (tutar farkı / muavinde yok / faturalarda yok) en üstte.
+    """
+    if "SaticiOzeti" in wb.sheetnames:
+        return
+    ws = wb.create_sheet("SaticiOzeti")
+
+    # Fatura bazlı toplamlar
+    gruplar = {}
+    for f in faturalar:
+        anahtar = (str(f.get("satici_vkn") or ""), str(f.get("satici_unvan") or ""))
+        g = gruplar.setdefault(anahtar, {
+            "adet": 0, "matrah": 0.0, "kdv": 0.0,
+            DURUM_OK: 0, DURUM_TUTAR_FARKI: 0, DURUM_CETVELDE_YOK: 0,
+            DURUM_FATURADA_YOK: 0, "diger": 0, "fark_toplam": 0.0,
+        })
+        g["adet"] += 1
+        g["matrah"] += float(f.get("matrah") or 0)
+        g["kdv"] += float(f.get("kdv") or 0)
+
+    # Kontrol sonucu kırılımı
+    for r in sonuc_satirlari:
+        anahtar = (str(r.get("vkn") or ""), str(r.get("unvan") or ""))
+        g = gruplar.get(anahtar)
+        if g is None:
+            g = gruplar[anahtar] = {
+                "adet": 0, "matrah": 0.0, "kdv": 0.0,
+                DURUM_OK: 0, DURUM_TUTAR_FARKI: 0, DURUM_CETVELDE_YOK: 0,
+                DURUM_FATURADA_YOK: 0, "diger": 0, "fark_toplam": 0.0,
+            }
+        d = r.get("durum")
+        if d in g and isinstance(g[d], int):
+            g[d] += 1
+        else:
+            g["diger"] += 1
+        if d in (DURUM_TUTAR_FARKI, DURUM_VKN_FARKI) and r.get("fark"):
+            try:
+                g["fark_toplam"] += abs(float(r["fark"]))
+            except (TypeError, ValueError):
+                pass
+
+    def _sirala(item):
+        g = item[1]
+        sorun = g[DURUM_TUTAR_FARKI] + g[DURUM_CETVELDE_YOK] + g[DURUM_FATURADA_YOK]
+        return (-sorun, -g["adet"])
+
+    basliklar = ["VKN", "Satıcı Ünvanı", "Fatura Adedi", "Eşleşti",
+                 "Tutar Farkı", "Muavinde Yok", "Faturalarda Yok", "Diğer",
+                 "Toplam Matrah", "Toplam KDV", "Fark Tutarı"]
+    tablo_yaz(
+        ws, basliklar, [],
+        genislikler=[14, 42, 11, 9, 11, 13, 14, 8, 15, 15, 13],
+        sayi_kolonlari={9, 10, 11},
+    )
+
+    INCE = INCE_KENAR
+    satir_no = 2
+    for (vkn, unvan), g in sorted(gruplar.items(), key=_sirala):
+        if not vkn and not unvan:
+            continue
+        sorun = g[DURUM_TUTAR_FARKI] + g[DURUM_CETVELDE_YOK] + g[DURUM_FATURADA_YOK]
+        hucreler = [vkn, unvan, g["adet"], g[DURUM_OK], g[DURUM_TUTAR_FARKI],
+                    g[DURUM_CETVELDE_YOK], g[DURUM_FATURADA_YOK], g["diger"],
+                    g["matrah"], g["kdv"], g["fark_toplam"] or ""]
+        for j, deger in enumerate(hucreler, 1):
+            c = ws.cell(row=satir_no, column=j, value=deger)
+            c.border = INCE
+            if j in (9, 10, 11):
+                c.number_format = "#,##0.00"
+            if sorun:
+                if j <= 2:
+                    c.font = Font(bold=True, color="9C0006")
+                if j == 2:
+                    c.fill = SORUN_DOLGU
+        satir_no += 1
+
+    toplam_sorunlu = sum(
+        min(1, g[DURUM_TUTAR_FARKI] + g[DURUM_CETVELDE_YOK] + g[DURUM_FATURADA_YOK])
+        for g in gruplar.values())
+    ws.cell(row=satir_no + 1, column=2,
+            value=f"Toplam {len(gruplar)} satıcı, {toplam_sorunlu} tanesinde sorun").font = Font(bold=True)
+
+
+# ============================================================================
+# ORAN DOĞRULAMA SAYFASI
+# ============================================================================

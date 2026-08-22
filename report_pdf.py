@@ -90,6 +90,8 @@ def _satir_kdv_tl(r):
 
 
 def rapor_pdf_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol, gecmis_bilgi=None):
+    from report import _ozet_tamamla
+    ozet = _ozet_tamamla(ozet)
     normal_yol, kalin_yol = _font_bul()
     pdf = KdvRaporPDF(orientation="P", unit="mm", format="A4")
     pdf.set_left_margin(12)

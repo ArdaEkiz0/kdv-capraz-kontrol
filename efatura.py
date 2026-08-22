@@ -76,7 +76,7 @@ def sayfa_parse(sayfa_metni):
         else:
             sonuc["satici_vkn"] = vkn_listesi[0]
 
-    matrah = eslesme_bul(metin, r"Mal\s*Hizmet\s*(?:Toplam\s*)?Tutar\w*\s*:?\s*([\d\.\,]+)")
+    matrah = eslesme_bul(metin, r"(?:Mal\s*/?\s*Hizmet\s*(?:Toplam\s*)?Tutar\w*|Vergi\s*Matrah\w*|KDV\s*Matrah\w*|Ara\s*Toplam)\s*:?\s*([\d\.\,]+)")
     if matrah:
         sonuc["matrah"] = tutar_parse(matrah)
 

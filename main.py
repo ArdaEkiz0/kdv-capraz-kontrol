@@ -197,6 +197,7 @@ class KdvKontrolApp:
         ttk.Button(satir2, text="🔧 Veriyi İncele", command=self.veri_incele_ac).pack(side="left", padx=(0, 6))
         ttk.Button(satir2, text="📊 Dashboard", command=self.dashboard_goster).pack(side="left", padx=(0, 6))
         ttk.Button(satir2, text="🔎 Gelişmiş Filtre", command=self.gelismis_filtre_ac).pack(side="left", padx=(0, 6))
+        ttk.Button(satir2, text="🧾 Beyanname", command=self.beyanname_ac).pack(side="left", padx=(0, 6))
         ttk.Button(satir2, text="📂 Klasör Cetvel", command=self.cetvel_klasor_ac).pack(side="left", padx=(0, 6))
         ttk.Button(satir2, text="Excel Raporunu Kaydet", command=self.rapor_kaydet).pack(side="left", padx=(0, 6))
         ttk.Button(satir2, text="PDF Raporunu Kaydet", command=self.rapor_pdf_kaydet).pack(side="left", padx=(0, 6))
@@ -759,6 +760,14 @@ class KdvKontrolApp:
         for durum, renk in DURUM_RENKLER.items():
             self.tablo.tag_configure(durum, background=renk)
 
+    def beyanname_ac(self):
+        """Beyanname kutuları ile defter 191/391 toplamlarını karşılaştırır."""
+        from beyanname_dialog import BeyannameDialog
+        if not self.cetvel_kayitlari:
+            messagebox.showwarning("Uyarı", "Önce kontrol çalıştırın (cetvel kayıtları gerekli).")
+            return
+        BeyannameDialog(self.kok, self.cetvel_kayitlari)
+
     def dashboard_goster(self):
         if not self.ozet:
             messagebox.showwarning("Uyarı", "Önce kontrol çalıştırın.")
@@ -988,8 +997,14 @@ class KdvKontrolApp:
         try:
             if self.ayarlar:
                 self.ayarlar.kaydet("son_rapor_klasor", os.path.dirname(hedef))
-            rapor_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
-                          self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
+            self._log_yaz("Excel raporu oluşturuluyor...")
+            self.kok.configure(cursor="watch")
+            self.kok.update_idletasks()
+            try:
+                rapor_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
+                              self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
+            finally:
+                self.kok.configure(cursor="")
             messagebox.showinfo("Başarılı", f"Rapor kaydedildi:\n{hedef}")
             self._log_yaz(f"Excel raporu kaydedildi: {hedef}")
         except Exception as hata:
@@ -1008,8 +1023,14 @@ class KdvKontrolApp:
         try:
             if self.ayarlar:
                 self.ayarlar.kaydet("son_rapor_klasor", os.path.dirname(hedef))
-            rapor_pdf_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
-                              self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
+            self._log_yaz("PDF raporu oluşturuluyor...")
+            self.kok.configure(cursor="watch")
+            self.kok.update_idletasks()
+            try:
+                rapor_pdf_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
+                                  self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
+            finally:
+                self.kok.configure(cursor="")
             messagebox.showinfo("Başarılı", f"PDF raporu kaydedildi:\n{hedef}")
             self._log_yaz(f"PDF raporu kaydedildi: {hedef}")
             if messagebox.askyesno("Aç", "PDF dosyası şimdi açılsın mı?"):
