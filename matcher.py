@@ -60,6 +60,14 @@ def duplikat_bul(liste, anahtar_fonksiyonu):
     return {a: n for a, n in sayac.items() if n > 1}
 
 
+def _tutar_esit(a, b):
+    if a is None and b is None:
+        return True
+    if a is None or b is None:
+        return False
+    return abs(a - b) < TOLERANS
+
+
 def _oran_yaklasik(f_deger, c_deger, hedef):
     """f_deger'in c_deger'e oranı hedef tevkifat oranına yakın mı?"""
     if f_deger is None or c_deger is None:
@@ -180,10 +188,41 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
         c_listesi = c_grup.pop(anahtar, [])
         if not c_listesi:
             continue
-        eslenen = min(len(f_listesi), len(c_listesi))
-        for i in range(eslenen):
-            f = f_listesi[i]
-            c = c_listesi[i]
+
+        # Akıllı eşleştirme: aynı belge numarasında birden fazla fatura ve/veya
+        # cetvel kaydı olabilir (belge numarası çakışması). Sırayla değil,
+        # içerik uyumuna göre eşleştirilir:
+        #   1) tarih eşit + tutar uyumlu, 2) yalnız tutar uyumlu, 3) kalanlar sırayla.
+        c_kullanilan = set()
+        eslesmeler = []
+
+        def _bos_indeksler():
+            return [j for j in range(len(c_listesi)) if j not in c_kullanilan]
+
+        for f in f_listesi:
+            for j in _bos_indeksler():
+                c = c_listesi[j]
+                if f.get("tarih") and f["tarih"] == c.get("tarih") and tutarlar_uyumlu(f, c):
+                    eslesmeler.append((f, j))
+                    c_kullanilan.add(j)
+                    break
+        eslenen_f = {id(f) for f, _ in eslesmeler}
+        for f in f_listesi:
+            if id(f) in eslenen_f:
+                continue
+            for j in _bos_indeksler():
+                if tutarlar_uyumlu(f, c_listesi[j]):
+                    eslesmeler.append((f, j))
+                    c_kullanilan.add(j)
+                    break
+        eslenen_f = {id(f) for f, _ in eslesmeler}
+        kalan_f = [f for f in f_listesi if id(f) not in eslenen_f]
+        for f, j in zip(kalan_f, sorted(_bos_indeksler())):
+            eslesmeler.append((f, j))
+            c_kullanilan.add(j)
+
+        for f, j in eslesmeler:
+            c = c_listesi[j]
             kullanilan_c.add((id(c), anahtar))
             kullanilan_f.add(id(f))
             if not vkn_uyumlu(f, c):
@@ -213,14 +252,32 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
                     durum = DURUM_INDIRIMLI
                     detay = f"Fatura özel indirim içerir (≈{f['indirim_toplam']:,.2f})"
             durum_ekle(durum, f, c, detay)
-        if len(f_listesi) > eslenen:
-            for f in f_listesi[eslenen:]:
+
+        # Artan faturalar: eşleşen bir faturanın birebir kopyasıysa mükerrer,
+        # değilse muavindefterinde hiç yoktur → CETVELDE YOK.
+        eslesen_f = {id(f) for f, _ in eslesmeler}
+        eslesen_icerik = [(p.get("tarih"), p.get("matrah"), p.get("kdv")) for p, _ in eslesmeler]
+        for f in f_listesi:
+            if id(f) in eslesen_f:
+                continue
+            kullanilan_f.add(id(f))
+            if any(f.get("tarih") == t and _tutar_esit(f.get("matrah"), m)
+                   and _tutar_esit(f.get("kdv"), kdv)
+                   for t, m, kdv in eslesen_icerik):
                 ozet["mukerrer"] += 1
                 durum_ekle(DURUM_MUKERRER, f, None, "Aynı fatura birden fazla kayıt halinde")
-        if len(c_listesi) > eslenen:
-            for c in c_listesi[eslenen:]:
-                ozet["mukerrer"] += 1
-                durum_ekle(DURUM_MUKERRER, None, c, "Cetvelde aynı fatura birden fazla satır halinde")
+            else:
+                ozet["cetvelde_yok"] += 1
+                detay = []
+                if f["matrah"] is None or f["kdv"] is None:
+                    detay.append("Tutarlar okunamadı")
+                durum_ekle(DURUM_CETVELDE_YOK, f, None, " / ".join(detay) if detay else "Cetvelde kaydı yok")
+        # Artan cetvel satırları: defterde mükerrer kayıt.
+        for j, c in enumerate(c_listesi):
+            if j in c_kullanilan:
+                continue
+            ozet["mukerrer"] += 1
+            durum_ekle(DURUM_MUKERRER, None, c, "Cetvelde aynı fatura birden fazla satır halinde")
 
     kalan_f = []
     for f in faturalar:
@@ -393,9 +450,15 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
             DURUM_MUKERRER: "İADE MÜKERRER",
             DURUM_TEVKIFATLI: "İADE TEVKİFATLI",
         }
-        # İade fatura kdv/matrah negatif oldığdan muavin pozitif'le eşleşmek
-        # için mutlak değerle kopyamayıp capraz kontrol edilir.
+        # İade kontrolü SADECE iade belge numaralarına uyan muavin satırlarıyla
+        # yapılır. Tüm liste verilirse, normal geçişte eşleşmiş muavin kayıtları
+        # iade geçişinde tekrar "FATURALARDA YOK" olarak raporlanıyordu.
         import copy as _cpy
+        iade_belge_kumesi = {(f["belge_no"] or "").upper() for f in iade_faturalar}
+        iade_cetvel = [
+            c for c in cetvel_kayitlari
+            if (c.get("belge_no") or "").upper() in iade_belge_kumesi
+        ]
         iade_abs = []
         for f in iade_faturalar:
             f2 = _cpy.deepcopy(f)
@@ -404,7 +467,7 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
             if f2.get("matrah") is not None:
                 f2["matrah"] = abs(f2["matrah"])
             iade_abs.append(f2)
-        iade_sonuc, iade_ozet2 = capraz_kontrol(iade_abs, cetvel_kayitlari)
+        iade_sonuc, iade_ozet2 = capraz_kontrol(iade_abs, iade_cetvel)
         for r, f in zip(iade_sonuc, iade_faturalar):
             r["durum"] = durum_cevir.get(r["durum"], r["durum"])
             if r["kdv"] is not None:

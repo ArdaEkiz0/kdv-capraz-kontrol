@@ -781,10 +781,22 @@ def muavin_satis_parse(dosya_yolu):
 
 
 def _muavin_birlestir(kayitlar):
+    """Aynı faturanın hesap defterindeki parça satırlarını tek kayıtta toplar.
+
+    Birleştirme anahtarı belge_no + tarih + unvan'dır: aynı faturanın
+    bölünmüş KDV satırları (örn. 191-01 indirilecek + 191-03 tevkifat)
+    aynı tarih ve unvanla geçer. Aynı belge numarasını farklı tarih veya
+    unvanda kullanan FARKLI faturalar (belge numarası çakışması) ise ayrı
+    kayıt olarak kalır; toplansalardı yanlış eşleşme oluşuyordu.
+    """
     from decimal import Decimal
     gruplar = {}
     for k in kayitlar:
-        anahtar = k["belge_no"]
+        anahtar = (
+            k["belge_no"] or "",
+            str(k.get("tarih") or ""),
+            str(k.get("unvan") or ""),
+        )
         if anahtar in gruplar:
             g = gruplar[anahtar]
             g["kdv"] = (g["kdv"] or Decimal("0")) + (k["kdv"] or Decimal("0"))

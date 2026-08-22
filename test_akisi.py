@@ -406,5 +406,60 @@ if __name__ == "__main__":
     kontrol("iade eslesti (negatif kdv, pozitif muavin)", iade_durum == "İADE EŞLEŞTİ", f"-> {iade_durum}")
     kontrol("iade muavinde yok sayaci 0", iade_ozet.get("iade_muavinde_yok", -1) == 0)
 
+    print("\n== BELGE NO ÇAKIŞMASI (aynı belge farklı faturalar) ==")
+    from dosya import fatura_birlestir
+    from excel_oku import _muavin_birlestir
+
+    def _f(belge, tarih, vkn, matrah, kdv):
+        return {"belge_no": belge, "tarih": tarih, "satici_vkn": vkn,
+                "satici_unvan": "", "matrah": Decimal(matrah), "kdv": Decimal(kdv),
+                "toplam": Decimal(matrah) + Decimal(kdv), "oranlar": [20],
+                "fatura_tipi": "", "oran_kontrol": "OK", "notlar": [], "dosya": "t.xml"}
+
+    def _c(belge, tarih, vkn, kdv):
+        return {"belge_no": belge, "vkn": vkn, "tarih": tarih,
+                "matrah": None, "kdv": Decimal(kdv), "unvan": "X", "notlar": []}
+
+    # 1) Gerçek kopya tekilleşir (iki kez indirme)
+    a = _f("GIB2026000000099", "2026-07-01", "11111111111", "13000.00", "2600.00")
+    kontrol("kopya tekillşti", len(fatura_birlestir([a, dict(a)])) == 1)
+    # 2) Aynı belge farklı tarihli İKİ FARKLI fatura ayrı kalır
+    b2 = _f("GIB2026000000099", "2026-07-10", "22222222222", "6500.00", "1300.00")
+    kontrol("farklı içerik ayrı kaldı", len(fatura_birlestir([a, dict(a), b2])) == 2)
+
+    # 3) Muavin parça satırları (191-01 + 191-03) birleşir; farklı tarih ayrı kalır
+    parcalar = [
+        _c("GIB2026000000011", "2026-07-01", "33333333333", "2080.00"),
+        _c("GIB2026000000011", "2026-07-01", "33333333333", "520.00"),
+        _c("GIB2026000000011", "2026-07-10", "44444444444", "2080.00"),
+        _c("GIB2026000000011", "2026-07-10", "44444444444", "520.00"),
+    ]
+    birlesik = _muavin_birlestir(parcalar)
+    kontrol("muavin parça satır birleşti",
+            len(birlesik) == 2 and all(float(r["kdv"]) == 2600 for r in birlesik),
+            f"-> {[(r['tarih'], str(r['kdv'])) for r in birlesik]}")
+
+    # 4) GIB0013 senaryosu: 2600 eşleşir + 2166.67 cetvelde yok (TUTAR FARKI DEĞİL)
+    cak_f = [
+        _f("GIB2026000000013", "2026-07-03", "55555555555", "13000.00", "2600.00"),
+        _f("GIB2026000000013", "2026-08-10", "66666666666", "10833.33", "2166.67"),
+    ]
+    cak_c = [_c("GIB2026000000013", "2026-07-03", "55555555555", "2600.00")]
+    cak_sonuc, cak_ozet = capraz_kontrol_iade_destekli(cak_f, cak_c)
+    kontrol("çakışma: 2600 eşleşti", cak_ozet["eslesen"] == 1, f"-> {cak_ozet['eslesen']}")
+    kontrol("çakışma: tutar farkı 0", cak_ozet["tutar_farki"] == 0, f"-> {cak_ozet['tutar_farki']}")
+    kontrol("çakışma: fazlalık CETVELDE YOK", cak_ozet["cetvelde_yok"] == 1, f"-> {cak_ozet['cetvelde_yok']}")
+
+    # 5) Aynı belgede iki tarihli iki fatura ↔ muavin iki kayıt (GIB0011 senaryosu)
+    cift_f = [
+        _f("GIB2026000000011", "2026-07-01", "33333333333", "13000.00", "2600.00"),
+        _f("GIB2026000000011", "2026-07-10", "44444444444", "13000.00", "2600.00"),
+    ]
+    cift_sonuc, cift_ozet = capraz_kontrol_iade_destekli(
+        fatura_birlestir(cift_f), _muavin_birlestir(parcalar))
+    kontrol("çift tarih: ikisi de eşleşti", cift_ozet["eslesen"] == 2, f"-> {cift_ozet['eslesen']}")
+    kontrol("çift tarih: fark yok", cift_ozet["tutar_farki"] == 0 and cift_ozet["mukerrer"] == 0,
+            f"-> {cift_ozet}")
+
     print("\nSONUÇ:", "TÜM TESTLER TAMAM" if BASARILI else "HATALAR VAR")
     sys.exit(0 if BASARILI else 1)

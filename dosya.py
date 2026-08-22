@@ -76,45 +76,53 @@ def _zip_mi(dosya_yolu):
 
 
 def fatura_birlestir(faturalar):
-    """Aynı belge numarasına sahip faturaları tek kayıtta birleştirir.
+    """Gerçek mükerrer fatura kopyalarını tek kayıda indirir.
 
-    Muavin tarafında (_muavin_birlestir) aynı belge numarası tek satıra
-    toplanırken, fatura XML'lerinde aynı belge birden fazla dosyada
-    (düzeltme/zeyil/parça) bulunabildığı için burada da kdv/matrah/toplam
-    toplanıp tek faturaya indirilir. Böylece çapraz kontrolde "iki kez
-    taranıp" mükerrer/tutar farkı gösterilmesinin önüne geçilir.
+    Aynı faturanın birden fazla XML dosyasında bulunması (iki kez indirme /
+    düzeltme kopyası) "iki kez taranıp mükerrer gösterimi" yaratıyordu.
+    İçeriği birebir aynı olan kopyalar (belge + tarih + VKN + matrah + kdv +
+    toplam) tekilleştirilir.
+
+    Aynı belge numarasını farklı tarih/tutarda kullanan FARKLI faturalar
+    (belge numarası çakışması) ise ayrı kalır; bunları toplamak yanlış
+    eşleşmeye yol açıyordu. Her biri kendi muavin kaydıyla eşleşir.
     """
     from decimal import Decimal
+
+    def _esit(a, b):
+        if a is None and b is None:
+            return True
+        if a is None or b is None:
+            return False
+        try:
+            return abs(a - b) < Decimal("0.005")
+        except TypeError:
+            return str(a) == str(b)
+
     gruplar = {}
+    sonuc = []
     for k in faturalar:
         anahtar = (k["belge_no"] or "").upper()
         if not anahtar:
-            gruplar[id(k)] = k
+            sonuc.append(k)
             continue
-        if anahtar in gruplar:
-            g = gruplar[anahtar]
-            for alan in ("matrah", "kdv", "toplam"):
-                gd = g.get(alan)
-                kd = k.get(alan)
-                if gd is None:
-                    g[alan] = kd
-                elif kd is not None:
-                    g[alan] = gd + kd
-            for n in k.get("notlar") or []:
-                if n not in g["notlar"]:
-                    g["notlar"].append(n)
-            if g.get("tarih") is None and k.get("tarih"):
-                g["tarih"] = k["tarih"]
+        imza = (k.get("tarih") or "", k.get("satici_vkn") or "")
+        liste = gruplar.setdefault(anahtar, [])
+        for kayit in liste:
+            g = kayit["g"]
+            if imza == kayit["imza"] \
+                    and _esit(g.get("matrah"), k.get("matrah")) \
+                    and _esit(g.get("kdv"), k.get("kdv")) \
+                    and _esit(g.get("toplam"), k.get("toplam")):
+                for n in k.get("notlar") or []:
+                    if n not in g["notlar"]:
+                        g["notlar"].append(n)
+                break
         else:
             g = dict(k)
             g["notlar"] = list(k.get("notlar") or [])
-            gruplar[anahtar] = g
-    sonuc = []
-    for g in gruplar.values():
-        for alan in ("matrah", "kdv", "toplam"):
-            if g.get(alan) is not None:
-                g[alan] = g[alan].quantize(Decimal("0.01"))
-        sonuc.append(g)
+            liste.append({"g": g, "imza": imza})
+            sonuc.append(g)
     return sonuc
 
 
