@@ -285,8 +285,15 @@ class KdvKontrolApp:
             self.guncelleme_bilgisi = bilgi
             if bilgi:
                 self.guncelleme_butonu.configure(text=f"🔄 Güncelleme (v{bilgi['surum']})")
-                self._log_yaz(f"Yeni sürüm mevcut: v{bilgi['surum']} — Güncelleme butonuna basın.")
-                if not otomatik:
+                if otomatik:
+                    if getattr(self, "_islem_devam", False):
+                        self._log_yaz(f"Yeni sürüm mevcut: v{bilgi['surum']} — "
+                                      "kontrol sürerken otomatik kurulmaz, Güncelleme butonundan kurun.")
+                    else:
+                        self._log_yaz(f"Yeni sürüm bulundu: v{bilgi['surum']} — otomatik indirilip kuruluyor...")
+                        self._guncelleme_otomatik_kur(bilgi)
+                else:
+                    self._log_yaz(f"Yeni sürüm mevcut: v{bilgi['surum']} — Güncelleme butonuna basın.")
                     self.guncelleme_penceresi_ac(bilgi)
             elif not otomatik:
                 messagebox.showinfo("Güncelleme", f"Güncel sürüm kullanıyorsunuz: v{SURUM}")
@@ -305,6 +312,57 @@ class KdvKontrolApp:
 
     def guncelleme_kontrol_ac(self):
         self._guncelleme_kontrol_arka_planda()
+
+    def _guncelleme_otomatik_kur(self, bilgi):
+        """Yeni sürümü arka planda indirip kurar; bitince uygulamayı
+        yeni sürümle otomatik yeniden başlatır. Hata olursa elle buton kalır."""
+        import threading
+        if getattr(self, "otomatik_guncelleme_kuruyor", False):
+            return
+        self.otomatik_guncelleme_kuruyor = True
+        self.guncelleme_butonu.configure(text=f"⏳ v{bilgi['surum']} indiriliyor...", state="disabled")
+        proje_yolu = os.path.dirname(os.path.abspath(__file__))
+        kutu = {}
+
+        def kur():
+            try:
+                kutu["sonuc"] = guncellemeyi_kur(bilgi["indirme_url"], proje_yolu)
+            except Exception as hata:
+                kutu["hata"] = hata
+
+        t = threading.Thread(target=kur, daemon=True)
+        t.start()
+
+        # UI işlemleri yalnızca ana thread'de: thread bitişini yoklayarak bekle
+        def izle():
+            if t.is_alive():
+                self.kok.after(200, izle)
+                return
+            if kutu.get("hata") is not None:
+                self._otomatik_kur_hata(bilgi, kutu["hata"])
+            else:
+                self._otomatik_kur_bitti(bilgi, kutu.get("sonuc"))
+
+        self.kok.after(200, izle)
+
+    def _otomatik_kur_bitti(self, bilgi, sonuc):
+        if not sonuc or not sonuc.get("kopyalanan"):
+            self._otomatik_kur_hata(bilgi, Exception("Kurulacak dosya bulunamadı"))
+            return
+        self._log_yaz(f"v{bilgi['surum']} kuruldu ({sonuc['kopyalanan']} dosya). "
+                      "Uygulama 3 saniye içinde yeni sürümle yeniden açılacak...")
+        self.guncelleme_butonu.configure(text=f"✓ v{bilgi['surum']} kuruldu")
+        self.kok.update_idletasks()
+        self.otomatik_guncelleme_kuruyor = False
+        self.kok.after(3000, uygulamayi_yeniden_baslat)
+
+    def _otomatik_kur_hata(self, bilgi, hata):
+        self.otomatik_guncelleme_kuruyor = False
+        self.guncelleme_butonu.configure(
+            text=f"🔄 Güncelleme (v{bilgi['surum']}) — tekrar dene", state="normal")
+        self.guncelleme_butonu.configure(command=lambda: self._guncelleme_otomatik_kur(bilgi))
+        self._log_yaz(f"Otomatik güncelleme başarısız: {hata} — "
+                      "Güncelleme butonundan tekrar deneyebilirsiniz.")
 
     def guncelleme_penceresi_ac(self, bilgi):
         pencere = tk.Toplevel(self.kok)
@@ -350,19 +408,36 @@ class KdvKontrolApp:
         import threading
         self.guncelleme_durum.configure(text="Güncelleme indiriliyor...")
         proje_yolu = os.path.dirname(os.path.abspath(__file__))
+        kutu = {}
 
         def kur():
             try:
-                sonuc = guncellemeyi_kur(
+                kutu["sonuc"] = guncellemeyi_kur(
                     bilgi["indirme_url"], proje_yolu,
-                    ilerleme_callback=lambda m: self.kok.after(0, lambda: self.guncelleme_durum.configure(text=m)),
+                    ilerleme_callback=lambda m: kutu.update({"durum": m}),
                 )
-                self.kok.after(0, lambda: self._guncelleme_kur_bitti(sonuc))
             except Exception as hata:
-                self.kok.after(0, lambda: self.guncelleme_durum.configure(
-                    text=f"Kurulum başarısız: {hata}", foreground="#B00000"))
+                kutu["hata"] = hata
 
-        threading.Thread(target=kur, daemon=True).start()
+        t = threading.Thread(target=kur, daemon=True)
+        t.start()
+
+        # UI işlemleri yalnızca ana thread'de: thread bitişini yoklayarak bekle
+        def izle():
+            durum = kutu.get("durum")
+            if durum:
+                self.guncelleme_durum.configure(text=durum)
+                kutu["durum"] = None
+            if t.is_alive():
+                self.kok.after(200, izle)
+                return
+            if kutu.get("hata") is not None:
+                self.guncelleme_durum.configure(
+                    text=f"Kurulum başarısız: {kutu['hata']}", foreground="#B00000")
+            else:
+                self._guncelleme_kur_bitti(kutu.get("sonuc"))
+
+        self.kok.after(200, izle)
 
     def _guncelleme_kur_bitti(self, sonuc):
         if not sonuc["kopyalanan"]:
