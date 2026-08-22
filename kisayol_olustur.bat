@@ -3,7 +3,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo Masaustune "KDV Capraz Kontrol" kisayolu olusturuluyor...
-powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $masaustu = [Environment]::GetFolderPath('Desktop'); $lnk = $ws.CreateShortcut((Join-Path $masaustu 'KDV Capraz Kontrol.lnk')); $lnk.TargetPath = '%~dp0calistir.bat'; $lnk.WorkingDirectory = '%~dp0'; $lnk.IconLocation = '%~dp0logo.ico'; $lnk.Description = 'KDV Capraz Kontrol'; $lnk.Save()"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0kisayol_olustur.ps1"
 if errorlevel 1 (
     echo Kisayol olusturulamadi.
 ) else (
