@@ -13,7 +13,7 @@ Farkları, eksikleri ve hataları saniyeler içinde bulun.
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://microsoft.com)
 [![Lisans](https://img.shields.io/badge/Lisans-MIT-16A34A?style=for-the-badge)](LICENSE)
 
-<img src="screenshot.png" width="100%" alt="KDV Çapraz Kontrol ana ekran">
+
 
 </div>
 
