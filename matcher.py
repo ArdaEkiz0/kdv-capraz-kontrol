@@ -96,8 +96,15 @@ def tevkifat_detay(f, c, oran):
         c_deger = c.get(alan)
         if f_deger is not None and c_deger is not None:
             parcalar.append(alan.capitalize() + ": " + fark_metni(f_deger, c_deger))
-    yuzde = int(round((1 - oran) * 100))
-    return " | ".join(parcalar) + f" | Muavin KDV tevkifatlı (≈%{yuzde} düşülmüş, oran {oran})"
+    f_kdv = f.get("kdv")
+    c_kdv = c.get("kdv")
+    bant_yuzde = int(round((1 - oran) * 100))
+    if f_kdv and c_kdv is not None:
+        kayitli = float(c_kdv / f_kdv * 100)
+        return (" | ".join(parcalar)
+                + f" | Muavin'de fatura KDV'sinin %{kayitli:.1f}'i kayıtlı"
+                + f" (tevkifat/kısmi kayıt bandı: %{bant_yuzde})")
+    return " | ".join(parcalar) + f" | Muavin KDV tevkifatlı (≈%{bant_yuzde} düşülmüş)"
 
 
 def capraz_kontrol(faturalar, cetvel_kayitlari):
