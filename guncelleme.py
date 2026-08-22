@@ -137,7 +137,7 @@ def guncellemeyi_kur(indirme_url, hedef_yol, ilerleme_callback=None):
     os.makedirs(hedef_yol, exist_ok=True)
     for kok_ad, _, dosyalar in os.walk(kok):
         for dosya in dosyalar:
-            if not dosya.lower().endswith((".py", ".bat")):
+            if not dosya.lower().endswith((".py", ".bat", ".ico", ".png")):
                 continue
             kaynak = os.path.join(kok_ad, dosya)
             hedef = os.path.join(hedef_yol, dosya)

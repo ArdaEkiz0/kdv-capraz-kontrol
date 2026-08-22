@@ -39,6 +39,8 @@ DESTEKLENEN_DOSYALAR = [("Desteklenen Dosyalar", "*.pdf *.xlsx *.xlsm *.xls *.xm
                         ("XML Dosyaları", "*.xml"),
                         ("Zip Arşiv (XML Fatura Listesi)", "*.zip")]
 
+PROJE_YOLU = os.path.dirname(os.path.abspath(__file__))
+
 # ---- Arayüz renk paleti (web sitesiyle uyumlu) ----
 RENK_PRIMER = "#2563eb"
 RENK_PRIMER_KOYU = "#1d4ed8"
@@ -97,6 +99,20 @@ class KdvKontrolApp:
         kok.geometry("1280x780")
         kok.minsize(1000, 600)
         kok.configure(bg=RENK_BG)
+        ico_yolu = os.path.join(PROJE_YOLU, "logo.ico")
+        if os.path.exists(ico_yolu):
+            try:
+                kok.iconbitmap(ico_yolu)
+            except Exception:
+                pass
+        try:
+            png_yolu = os.path.join(PROJE_YOLU, "logo.png")
+            if os.path.exists(png_yolu):
+                from PIL import Image, ImageTk
+                self._ikon_gorsel = ImageTk.PhotoImage(Image.open(png_yolu))
+                kok.iconphoto(True, self._ikon_gorsel)
+        except Exception:
+            pass
 
         self.fatura_dosyalari = []
         self.cetvel_dosyalari = []
@@ -207,6 +223,15 @@ class KdvKontrolApp:
         serit.pack(fill="x")
         serit_ic = tk.Frame(serit, bg=RENK_PRIMER)
         serit_ic.pack(fill="x", padx=14, pady=8)
+        try:
+            from PIL import Image, ImageTk
+            png_yolu = os.path.join(PROJE_YOLU, "logo.png")
+            if os.path.exists(png_yolu):
+                self._logo_gorsel = ImageTk.PhotoImage(Image.open(png_yolu))
+                tk.Label(serit_ic, image=self._logo_gorsel,
+                         bg=RENK_PRIMER).pack(side="left", padx=(0, 10))
+        except Exception:
+            pass
         tk.Label(serit_ic, text="KDV Çapraz Kontrol", font=("Segoe UI", 15, "bold"),
                  bg=RENK_PRIMER, fg="#ffffff").pack(side="left")
         tk.Label(serit_ic, text=f" v{SURUM} ", font=("Segoe UI", 9, "bold"),
