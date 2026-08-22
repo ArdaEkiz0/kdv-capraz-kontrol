@@ -28,8 +28,8 @@ SORUNLU_DURUMLAR = (
 
 
 def vkn_uyumlu(f, c):
-    f_vkn = f["satici_vkn"] or ""
-    c_vkn = c["vkn"] or ""
+    f_vkn = f.get("satici_vkn") or ""
+    c_vkn = c.get("vkn") or ""
     if not f_vkn or not c_vkn:
         return True
     return f_vkn == c_vkn
@@ -112,7 +112,7 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
         return (f["belge_no"] or "").upper()
 
     def anahtar_cetvel(c):
-        return (c["belge_no"] or "").upper()
+        return (c.get("belge_no") or "").upper()
 
     def _kdv0_fatura(f):
         f_kdv = f.get("kdv")
@@ -149,18 +149,18 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
 
     c_grup = defaultdict(list)
     for c in cetvel_kayitlari:
-        if c["belge_no"]:
+        if c.get("belge_no"):
             c_grup[anahtar_cetvel(c)].append(c)
 
     kullanilan_c = set()
     kullanilan_f = set()
 
     def durum_ekle(durum, f, c, detay=""):
-        f_belge = f["belge_no"] if f else (c["belge_no"] if c else "")
-        f_vkn = f["satici_vkn"] if f else (c["vkn"] if c else "")
-        f_tarih = f["tarih"] if f else (c["tarih"] if c else "")
-        f_matrah = f["matrah"] if f else (c["matrah"] if c else "")
-        f_kdv = f["kdv"] if f else (c["kdv"] if c else "")
+        f_belge = (f or {}).get("belge_no") if f else ((c or {}).get("belge_no") if c else "")
+        f_vkn = (f or {}).get("satici_vkn") if f else ((c or {}).get("vkn") if c else "")
+        f_tarih = (f or {}).get("tarih") if f else ((c or {}).get("tarih") if c else "")
+        f_matrah = (f or {}).get("matrah") if f else ((c or {}).get("matrah") if c else "")
+        f_kdv = (f or {}).get("kdv") if f else ((c or {}).get("kdv") if c else "")
         f_unvan = f.get("satici_unvan") if f else (c.get("unvan") if c else "")
         f_toplam = f.get("toplam") if f else None
         f_oranlar = f.get("oranlar") if f else []
@@ -249,7 +249,7 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
                     durum = DURUM_TUTAR_FARKI
                     ozet["tutar_farki"] += 1
                     detay = " | ".join(fark_parcalari(f, c))
-                    if f["tarih"] and c["tarih"] and f["tarih"] != c["tarih"]:
+                    if f.get("tarih") and c.get("tarih") and f["tarih"] != c["tarih"]:
                         detay += f" | Tarih: {f['tarih']} vs {c['tarih']}"
             else:
                 durum = DURUM_OK
