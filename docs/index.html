@@ -809,11 +809,40 @@
         }
 
         .feature-card:nth-child(1) { animation-delay: 0.1s; }
-        .feature-card:nth-child(2) { animation-delay: 0.2s; }
-        .feature-card:nth-child(3) { animation-delay: 0.3s; }
-        .feature-card:nth-child(4) { animation-delay: 0.4s; }
-        .feature-card:nth-child(5) { animation-delay: 0.5s; }
-        .feature-card:nth-child(6) { animation-delay: 0.6s; }
+        .feature-card:nth-child(2) { animation-delay: 0.15s; }
+        .feature-card:nth-child(3) { animation-delay: 0.2s; }
+        .feature-card:nth-child(4) { animation-delay: 0.25s; }
+        .feature-card:nth-child(5) { animation-delay: 0.3s; }
+        .feature-card:nth-child(6) { animation-delay: 0.35s; }
+        .feature-card:nth-child(7) { animation-delay: 0.4s; }
+        .feature-card:nth-child(8) { animation-delay: 0.45s; }
+        .feature-card:nth-child(9) { animation-delay: 0.5s; }
+
+        /* Screenshot Section */
+        .screenshot-section {
+            padding: 6rem 2rem;
+            background: var(--bg-primary);
+        }
+
+        .screenshot-frame {
+            max-width: 1100px;
+            margin: 0 auto;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            box-shadow: 0 25px 60px -12px rgba(37, 99, 235, 0.25);
+            transition: transform 0.4s ease, box-shadow 0.4s ease;
+        }
+
+        .screenshot-frame:hover {
+            transform: translateY(-6px) scale(1.01);
+            box-shadow: 0 35px 70px -12px rgba(124, 58, 237, 0.35);
+        }
+
+        .screenshot-frame img {
+            width: 100%;
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -821,27 +850,12 @@
     <nav class="navbar">
         <div class="nav-content">
             <a href="#" class="nav-logo">
-                <div class="logo-icon">
-                    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                        <defs>
-                            <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                                <stop offset="0%" style="stop-color:#2563eb"/>
-                                <stop offset="100%" style="stop-color:#7c3aed"/>
-                            </linearGradient>
-                        </defs>
-                        <rect x="5" y="5" width="90" height="90" rx="20" fill="url(#logoGrad)"/>
-                        <path d="M30 65 L45 45 L55 55 L70 35" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-                        <circle cx="70" cy="35" r="5" fill="white"/>
-                        <path d="M25 75 L75 75" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
-                        <rect x="28" y="58" width="8" height="17" rx="2" fill="white" opacity="0.7"/>
-                        <rect x="46" y="48" width="8" height="27" rx="2" fill="white" opacity="0.85"/>
-                        <rect x="64" y="38" width="8" height="37" rx="2" fill="white"/>
-                    </svg>
-                </div>
+                <div class="logo-icon"><img src="logo.png" alt="KDV Çapraz Kontrol logosu" style="width:100%;height:100%;border-radius:10px;"></div>
                 <span>KDV Çapraz Kontrol</span>
             </a>
             <div class="nav-links">
                 <a href="#ozellikler">Özellikler</a>
+                <a href="#ekran-goruntusu">Ekran Görüntüsü</a>
                 <a href="#nasil-calisir">Nasıl Çalışır?</a>
                 <a href="#formatlar">Formatlar</a>
                 <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" target="_blank">
@@ -864,9 +878,9 @@
                 <h1>KDV Kontrolünüzü <span>Otomatikleştiren</span> Program</h1>
                 <p>e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile saniyeler içinde karşılaştırın. Farkları, eksikleri ve hataları otomatik bulun.</p>
                 <div class="hero-buttons">
-                    <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest/download/kdv-kontrol.zip" class="btn btn-primary" download>
+                    <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest" class="btn btn-primary" target="_blank">
                         <i class="fas fa-download"></i>
-                        Ücretsiz İndir <span class="version-badge" id="hero-version"></span>
+                        Ücretsiz İndir <span class="version-badge" id="hero-version">v2.8.2</span>
                     </a>
                     <a href="#nasil-calisir" class="btn btn-secondary">
                         <i class="fas fa-play-circle"></i>
@@ -894,43 +908,50 @@
                         </div>
                         <div>
                             <div class="hero-card-title">Kontrol Paneli</div>
-                            <div class="hero-card-subtitle">171 Fatura • 154 Cetvel</div>
+                            <div class="hero-card-subtitle">441 Fatura • 290 Cetvel</div>
                         </div>
                     </div>
                     <div class="hero-card-stats">
                         <div class="stat-item">
-                            <div class="stat-value">156</div>
+                            <div class="stat-value" style="color: #10b981;">244</div>
                             <div class="stat-label">Eşleşen</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-value" style="color: #f59e0b;">3</div>
-                            <div class="stat-label">Fark Var</div>
+                            <div class="stat-value" style="color: #f59e0b;">62</div>
+                            <div class="stat-label">İade/Tevkifat</div>
                         </div>
                         <div class="stat-item">
-                            <div class="stat-value" style="color: #ef4444;">2</div>
-                            <div class="stat-label">Eksik</div>
+                            <div class="stat-value" style="color: #ef4444;">159</div>
+                            <div class="stat-label">Sorunlu</div>
                         </div>
                     </div>
                     <div class="hero-card-items">
                         <div class="card-item">
                             <div class="card-item-status status-ok"><i class="fas fa-check"></i></div>
                             <div class="card-item-info">
-                                <div class="card-item-title">GFE202400000001</div>
-                                <div class="card-item-subtitle">ABC Ticaret • 1.200 ₺</div>
+                                <div class="card-item-title">FTR2026000001044</div>
+                                <div class="card-item-subtitle">Tam eşleşme • 6.000,00 ₺ KDV</div>
+                            </div>
+                        </div>
+                        <div class="card-item">
+                            <div class="card-item-status status-ok"><i class="fas fa-percent"></i></div>
+                            <div class="card-item-info">
+                                <div class="card-item-title">FTR2026000001066</div>
+                                <div class="card-item-subtitle">Tevkifatlı %70 • Muavinle uyumlu</div>
                             </div>
                         </div>
                         <div class="card-item">
                             <div class="card-item-status status-warning"><i class="fas fa-exclamation"></i></div>
                             <div class="card-item-info">
-                                <div class="card-item-title">GFE202400000003</div>
-                                <div class="card-item-subtitle">Tutar Farkı • 50 ₺</div>
+                                <div class="card-item-title">FTR2026000001011</div>
+                                <div class="card-item-subtitle">Tutar Farkı • 18 ₺ ↔ 984,16 ₺</div>
                             </div>
                         </div>
                         <div class="card-item">
                             <div class="card-item-status status-error"><i class="fas fa-times"></i></div>
                             <div class="card-item-info">
-                                <div class="card-item-title">GFE202400000004</div>
-                                <div class="card-item-subtitle">Cetvelde Kaydı Yok</div>
+                                <div class="card-item-title">4OT2026000021973</div>
+                                <div class="card-item-subtitle">Cetvelde kaydı yok</div>
                             </div>
                         </div>
                     </div>
@@ -989,6 +1010,27 @@
                 <h3>Veritabanı Geçmişi</h3>
                 <p>Kontrol geçmişinizi saklayın, önceki dönemlerle karşılaştırma yapın.</p>
             </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-orange">
+                    <i class="fas fa-calculator"></i>
+                </div>
+                <h3>KDV Oran Kontrolü</h3>
+                <p>Faturadaki KDV oranı ile cetvel tutarının matematiksel uyumunu ayrıca doğrular; yanlış oranla kesilen faturaları yakalar.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-green">
+                    <i class="fas fa-percent"></i>
+                </div>
+                <h3>Tevkifat &amp; İade Desteği</h3>
+                <p>KDV tevkifatlı kayıtları muavinle oran bazında karşılaştırır; iade faturalarını otomatik ayrıştırır.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-purple">
+                    <i class="fas fa-file-invoice-dollar"></i>
+                </div>
+                <h3>Beyanname Karşılaştırma</h3>
+                <p>2 Beyanname dönem toplamlarını kontrol sonuçlarıyla karşılaştırır; beyannameye girmeyen KDV'yi gösterir.</p>
+            </div>
         </div>
     </section>
 
@@ -1020,6 +1062,18 @@
                 <h3>Rapor Alın</h3>
                 <p>Excel veya PDF rapor oluşturun. Mail ile gönderin.</p>
             </div>
+        </div>
+    </section>
+
+    <!-- Screenshot -->
+    <section class="screenshot-section" id="ekran-goruntusu">
+        <div class="section-header">
+            <span class="section-badge">📸 Ekran Görüntüsü</span>
+            <h2>Temiz ve Anlaşılır Arayüz</h2>
+            <p>Sonuçlar renk kodlarıyla anında ayırt edilir: yeşil eşleşen, mavi tevkifatlı, kırmızı sorunlu</p>
+        </div>
+        <div class="screenshot-frame">
+            <img src="screenshot.png" alt="KDV Çapraz Kontrol ana ekran görüntüsü" loading="lazy">
         </div>
     </section>
 
@@ -1069,9 +1123,9 @@
         <h2>Hemen Başlayın</h2>
         <p>KDV kontrol sürecinizi otomatikleştirin. Ücretsiz indirin, hemen kullanmaya başlayın.</p>
         <div class="cta-buttons">
-            <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest/download/kdv-kontrol.zip" class="btn btn-primary" download>
+            <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest" class="btn btn-primary" target="_blank">
                 <i class="fas fa-download"></i>
-                Ücretsiz İndir <span class="version-badge" id="cta-version"></span>
+                Ücretsiz İndir <span class="version-badge" id="cta-version">v2.8.2</span>
             </a>
             <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" class="btn btn-secondary" target="_blank">
                 <i class="fas fa-code"></i>
@@ -1085,23 +1139,7 @@
         <div class="footer-content">
             <div class="footer-brand">
                 <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
-                    <div class="logo-icon">
-                        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                            <defs>
-                                <linearGradient id="footerLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                                    <stop offset="0%" style="stop-color:#2563eb"/>
-                                    <stop offset="100%" style="stop-color:#7c3aed"/>
-                                </linearGradient>
-                            </defs>
-                            <rect x="5" y="5" width="90" height="90" rx="20" fill="url(#footerLogoGrad)"/>
-                            <path d="M30 65 L45 45 L55 55 L70 35" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-                            <circle cx="70" cy="35" r="5" fill="white"/>
-                            <path d="M25 75 L75 75" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
-                            <rect x="28" y="58" width="8" height="17" rx="2" fill="white" opacity="0.7"/>
-                            <rect x="46" y="48" width="8" height="27" rx="2" fill="white" opacity="0.85"/>
-                            <rect x="64" y="38" width="8" height="37" rx="2" fill="white"/>
-                        </svg>
-                    </div>
+                    <div class="logo-icon"><img src="logo.png" alt="KDV Çapraz Kontrol logosu" style="width:100%;height:100%;border-radius:10px;"></div>
                     <h3 style="margin: 0;">KDV Çapraz Kontrol</h3>
                 </div>
                 <p>Muhasebe sürecinizi kolaylaştıran akıllı çözüm.</p>
@@ -1124,8 +1162,8 @@
                 <h4>Dokümantasyon</h4>
                 <ul>
                     <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#readme" target="_blank">Kurulum Rehberi</a></li>
-                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#-nasıl-kullanılır" target="_blank">Kullanım Kılavuzu</a></li>
-                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#-sık-sorulan-sorular" target="_blank">SSS</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#-kullan%C4%B1m" target="_blank">Kullanım Kılavuzu</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#readme" target="_blank">SSS</a></li>
                 </ul>
             </div>
             <div class="footer-links">
