@@ -22,13 +22,23 @@ class FaturaDetayPencere(tk.Toplevel):
         ana = ttk.Frame(self, padding=12)
         ana.pack(fill="both", expand=True)
 
+        baslik_satir = ttk.Frame(ana)
+        baslik_satir.pack(fill="x", pady=(0, 8))
+        belge_no = str(self.sonuc.get("belge_no") or self.fatura.get("belge_no") or "")
         baslik = ttk.Label(
-            ana,
-            text=f"📄 {self.sonuc.get('belge_no') or 'Belge Yok'}",
+            baslik_satir,
+            text=f"📄 {belge_no or 'Belge Yok'}",
             font=("Segoe UI", 14, "bold"),
             foreground="#4472C4",
         )
-        baslik.pack(anchor="w", pady=(0, 8))
+        baslik.pack(side="left")
+        if belge_no:
+            kopyala_buton = ttk.Button(
+                baslik_satir, text="📋 Numarayı Kopyala",
+                command=lambda: self._panoya_kopyala(belge_no, kopyala_buton))
+            kopyala_buton.pack(side="left", padx=(12, 0))
+            baslik.configure(cursor="hand2")
+            baslik.bind("<Button-1>", lambda e: self._panoya_kopyala(belge_no, kopyala_buton))
 
         bilgi = ttk.LabelFrame(ana, text="📋 Temel Bilgiler", padding=8)
         bilgi.pack(fill="x", pady=(0, 8))
@@ -107,3 +117,11 @@ class FaturaDetayPencere(tk.Toplevel):
             ttk.Label(detay_frame, text=detay_metin, wraplength=550).pack(anchor="w")
 
         ttk.Button(ana, text="Kapat", command=self.destroy).pack(pady=(8, 0))
+
+    def _panoya_kopyala(self, metin, buton=None):
+        self.clipboard_clear()
+        self.clipboard_append(metin)
+        if buton is not None:
+            eski_metin = buton.cget("text")
+            buton.configure(text="✓ Kopyalandı")
+            self.after(1500, lambda: buton.configure(text=eski_metin))
