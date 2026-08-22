@@ -1,189 +1,197 @@
 <div align="center">
 
-# 📊 KDV Çapraz Kontrol Programı
+<img src="logo.png" width="88" alt="KDV Çapraz Kontrol logosu">
 
-**e-Fatura, MAHSUP Fişi ve Excel faturalarınızı KDV kontrol cetveli ile otomatik karşılaştırın.**
+# KDV Çapraz Kontrol
 
+**e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile otomatik karşılaştırın.**
 Farkları, eksikleri ve hataları saniyeler içinde bulun.
 
+[![Sürüm](https://img.shields.io/github/v/release/ArdaEkiz0/kdv-capraz-kontrol?style=for-the-badge&label=s%C3%BCr%C3%BCm&color=7C3AED)](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest)
+[![İndirme](https://img.shields.io/github/downloads/ArdaEkiz0/kdv-capraz-kontrol/total?style=for-the-badge&label=indirme&color=2563EB)](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![License](https://img.shields.io/badge/License-MIT-00FF00?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-v2.2.2-FF6B00?style=for-the-badge)](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases)
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://microsoft.com)
+[![Lisans](https://img.shields.io/badge/Lisans-MIT-16A34A?style=for-the-badge)](LICENSE)
 
----
+<img src="screenshot.png" width="100%" alt="KDV Çapraz Kontrol ana ekran">
 
 </div>
+
+---
 
 ## ✨ Özellikler
 
 | Özellik | Açıklama |
 |---------|----------|
-| 📄 **Çoklu Format** | e-Fatura XML, PDF, MAHSUP fişi, Excel ve taranmış belgeleri destekler |
-| 🔍 **Akıllı Eşleştirme** | VKN, belge no ve tutar ile otomatik çapraz kontrol |
-| 📊 **Dashboard** | KPI kartları ve grafiklerle görsel özet |
-| 📧 **Mail Gönderimi** | Outlook veya SMTP ile tek tıkla muhasebecinize gönderin |
-| 🔄 **Otomatik Güncelleme** | GitHub'dan yeni sürümü otomatik kontrol eder |
-| 📱 **Gelişmiş Filtreleme** | Tarih, VKN, tutar aralığı ile detaylı arama |
-| 💾 **Veritabanı** | Kontrol geçmişinizi saklayın ve karşılaştırın |
-| 📋 **Rapor Üretimi** | Excel ve PDF formatında detaylı raporlar |
+| 📄 **Çoklu Format** | e-Fatura XML (UBL), e-Fatura/e-Arşiv PDF, MAHSUP fişi, Excel fatura listeleri ve taranmış belgeler (OCR) |
+| 🔍 **Akıllı Eşleştirme** | VKN + belge no + tutar ile çapraz kontrol; iade faturaları otomatik ayristirma |
+| 🧮 **KDV Oran Kontrolü** | Faturadaki KDV oranı ↔ cetvel tutarlılığını ayrıca doğrular (%1 / %5 / %10 / %20) |
+| ✂️ **Tevkifat Desteği** | KDV tevkifatlı kayıtları muavin ile oran bazında karşılaştırır |
+| 📊 **Dashboard** | KPI kartları, KDV dağılım grafiği ve aylık trend analizi |
+| 🏪 **Satıcı Özeti** | Satıcı bazında toplam matrah/KDV kırılımı |
+| 🧾 **Beyanname Karşılaştırma** | Kontrol sonuçlarını 2 Beyanname dönem toplamlarıyla karşılaştırır |
+| 📑 **Ba/Bs Formu** | Muhtasar Ba-Bs formu üretimi |
+| 💾 **Veritabanı Geçmişi** | Her kontrol otomatik saklanır; eski kontrollerle karşılaştırın |
+| 🔎 **Gelişmiş Filtre** | Tarih aralığı, VKN, tutar aralığı ve duruma göre filtreleme |
+| 📋 **Rapor Üretimi** | Detaylı Excel ve PDF raporları |
+| ✉️ **Mail Gönderimi** | Outlook veya SMTP ile tek tıkla muhasebecinize gönderin |
+| 🖥️ **Komut Satırı Modu** | Toplu işlerde GUI olmadan çalıştırın (`cli.py`) |
+| 🔄 **Otomatik Güncelleme** | Program açılışta yeni sürümü kontrol eder, tek tıkla güncellenir |
 
 ---
 
 ## 🚀 Hızlı Kurulum
 
-### 1️⃣ Python'u Kurun
+### Tek Tıkla (Önerilen)
 
-Klavyeden **Windows + R** → `cmd` yazın → Enter:
+1. Son sürümü indirin: [**Releases → Latest**](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest) → `kdv-kontrol-vX.X.X.zip` → klasöre çıkartın
+2. **`calistir.bat`** dosyasını çift tıklayın — hepsi bu!
 
-```cmd
-py -3.12 --version
-```
+> `calistir.bat` gerekirse Python'u otomatik indirip kurar, tüm kütüphaneleri yükler ve programı başlatır. İlk kurulumdan sonra masaüstünde logolu kısayol oluşturulur.
 
-- ✅ **"Python 3.12.x"** yazıyorsa → 2. adıma geçin
-- ❌ **"Python bulunamadı"** yazıyorsa → [Python'u buradan indirin](https://www.python.org/downloads/release/python-31210/)
+### Manuel Kurulum (Alternatif)
 
-> ⚠️ Kurulumda **"Add python.exe to PATH"** kutusunu işaretlemeyi unutmayın!
-
-### 2️⃣ Gerekli Kütüphaneleri Kurun
+Python 3.12+ zaten kuruluysa:
 
 ```cmd
-py -3.12 -m pip install pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2
-```
-
-### 3️⃣ Programı Çalıştırın
-
-```cmd
+git clone https://github.com/ArdaEkiz0/kdv-capraz-kontrol.git
 cd kdv-capraz-kontrol
-py -3.12 -m pip install -r requirements.txt
+py -3 -m pip install -r requirements.txt
 calistir.bat
 ```
 
 ---
 
-## 📖 Kullanım Kılavuzu
+## 📖 Kullanım
 
-### 1️⃣ Faturalarınızı Seçin
+### 1️⃣ Faturaları Seçin
+- **Fatura Dosyaları Seç** → tek tek dosya seçin (XML / PDF / Excel)
+- **Fatura Klasörü Seç** → klasördeki tüm faturaları bir kerede yükleyin
 
-**"Fatura Dosyaları Seç"** veya **"Fatura Klasörü Seç"** ile faturalarınızı yükleyin.
-
-Desteklenen formatlar:
-- 📄 **XML** → e-Fatura (UBL formatı)
-- 📄 **PDF** → E-Fatura, E-Arşiv, MAHSUP fişi
-- 📊 **Excel** → Fatura listesi (.xlsx, .xlsm, .xls)
-
-### 2️⃣ KDV Cetvelinizi Seçin
-
-**"Klasör Cetvel"** ile kontrol cetvelinizi seçin.
-
-💡 **İpucu:** Satış muavininizi de (ör. `muavin_gokkusagi.xlsx`) seçerseniz, MAHSUP fişindeki hesap kayıtları otomatik olarak muavinle karşılaştırılır.
+### 2️⃣ Cetveli Seçin
+- **Kontrol Cetveli Seç** → KDV kontrol cetvelinizi seçin (.xlsx)
+- Birden fazla cetvel dosyasını birlikte seçebilirsiniz
+- 💡 Satış muavinini de seçerseniz MAHSUP fişleri muavinle karşılaştırılır
 
 ### 3️⃣ Kontrolü Başlatın
+Sonuçlar renk kodlarıyla anında listelenir:
 
-**"Kontrolü Başlat"** butonuna tıklayın.
-
-Sonuçlar otomatik olarak renk kodlarıyla gösterilecek:
-
-| Renk | Anlam |
-|------|-------|
-| 🟢 **Yeşil** | Eşleşen (sorun yok) |
-| 🟡 **Sarı** | Dikkat (VKN farkı, mükerrer) |
-| 🔴 **Kırmızı** | Sorunlu (tutar farkı, eksik belge) |
+| Durum | Renk | Anlam |
+|-------|------|-------|
+| **EŞLEŞTİ** | 🟢 Yeşil | Fatura ↔ cetvel tam uyumlu |
+| **TEVKİFATLI** | 🔵 Mavi | Tevkifat sonrası muavinle uyumlu |
+| **İNDİRİMLİ** | 🔵 Mavi | İndirimli orandan hesaplandı |
+| **TUTAR FARKI** | 🔴 Kırmızı | Matrah/KDV tutarları farklı |
+| **VKN FARKI** | 🔴 Kırmızı | Aynı belge no, farklı VKN |
+| **MÜKERRER** | 🔴 Kırmızı | Aynı belge iki kez kayıtlı |
+| **CETVELDE YOK** | 🔴 Kırmızı | Fatura cetvele işlenmemiş |
+| **FATURALARDA YOK** | 🔴 Kırmızı | Cetvelde kayıt var, fatura yok |
 
 ### 4️⃣ Rapor Alın
-
-- **"Excel Raporunu Kaydet"** → Detaylı Excel raporu
-- **"PDF Raporunu Kaydet"** → PDF raporu
-- **"📧 Mail Gönder"** → Muhasebecinize tek tıkla gönderin
-
----
-
-## 📸 Ekran Görüntüsü
-
-<div align="center">
-
-![Ekran Görüntüsü](screenshot.png)
-
-</div>
+- **Excel Raporu** / **PDF Raporu** → detaylı rapor kaydedin
+- **Mail** → raporu doğrudan gönderin
+- Herhangi bir satıra çift tıklayın → belge detay penceresi açılır; belge numarasını tek tıkla kopyalayabilirsiniz
 
 ---
 
-## 🔧 Gelişmiş Özellikler
+## 🔧 Gelişmiş Araçlar
 
-### 🎯 Akıllı Filtreleme
+<details>
+<summary><b>📊 Dashboard</b> — KPI kartları, KDV dağılım grafiği, aylık trend</summary>
 
-**"🔎 Gelişmiş Filtre"** butonu ile:
-- Tarih aralığı filtreleme
-- VKN bazlı arama
-- Tutar aralığı filtreleme
-- Durum bazlı filtreleme (Eşleşen, Sorunlu, vb.)
+Kontrol sonuçlarınızı görsel olarak özetler; geçmiş kontrollerle karşılaştırma yapabilirsiniz.
+</details>
 
-### 📊 Dashboard
+<details>
+<summary><b>🧮 Oran Kontrolü</b> — KDV oranı tutarlılık denetimi</summary>
 
-**"📊 Dashboard"** butonu ile:
-- KPI kartları (Toplam fatura, eşleşen, sorunlu)
-- KDV dağılım grafiği
-- Aylık trend analizi
-- Veritabanı geçmişi
+Her eşleşen kayıt için faturadaki KDV oranı ile cetvel tutarının matematiksel uyumunu ayrıca doğrular. Yanlış oranla kesilmiş faturaları yakalar.
+</details>
 
-### 💾 Veritabanı Geçmişi
+<details>
+<summary><b>🏪 Satıcı Özeti</b> — satıcı bazlı kırılım</summary>
 
-Kontrol sonuçlarınız otomatik olarak veritabanına kaydedilir. Önceki kontrollerinizle karşılaştırma yapabilirsiniz.
+VKN başına toplam fatura adedi, matrah ve KDV toplamları.
+</details>
+
+<details>
+<summary><b>🧾 Beyanname Karşılaştırma</b></summary>
+
+2 Beyanname dönem toplamlarını kontrol sonuçlarınızla karşılaştırır; beyannameye girmeyen KDV'yi gösterir.
+</details>
+
+<details>
+<summary><b>📑 Muhtasar Ba/Bs Formu</b></summary>
+
+Muavin verisinden Ba-Bs formu taslağı üretir.
+</details>
+
+<details>
+<summary><b>✉️ Mail Gönderimi</b></summary>
+
+Outlook veya SMTP (Gmail için [Uygulama Şifresi](https://myaccount.google.com/apppasswords)) ile raporu tek tıkla gönderin.
+</details>
+
+---
+
+## 🖥️ Komut Satırı Modu
+
+GUI açmadan, toplu işlerde veya zamanlanmış görevlerde kullanın:
+
+```cmd
+py -3 cli.py --fatura C:\faturalar\ --cetvel C:\cetvel\191.xlsx --cikti rapor.xlsx --donem 2026-07
+```
+
+| Argüman | Açıklama |
+|---------|----------|
+| `--fatura` | Fatura dosya/klasör yolları (birden fazla verilebilir) |
+| `--cetvel` | Cetvel dosya yolları (birden fazla verilebilir) |
+| `--cikti` | Excel rapor çıktı yolu (isteğe bağlı) |
+| `--donem` | Sadece belirli dönem, örn. `2026-07` |
+
+---
+
+## 🔄 Otomatik Güncelleme
+
+Program her açılışta GitHub'daki son sürümü kontrol eder:
+
+1. Yeni sürüm varsa üst şeritte **Güncelleme** butonu görünür
+2. Butona tıklayın → sürüm notlarını okuyun → **İndir & Kur**
+3. Program kendini günceller ve yeniden başlar — masaüstü kısayolu da otomatik korunur
 
 ---
 
 ## ❓ Sık Sorulan Sorular
 
 <details>
-<summary><b>Program açılmıyor, hata veriyor?</b></summary>
+<summary><b>Program açılmıyor?</b></summary>
 
-`py -3.12 -m pip install pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2` komutunu tekrar çalıştırın.
+`calistir.bat` dosyasını tekrar çift tıklayın; eksik bileşen varsa otomatik tamamlanır. Sorun sürüyorsa `py -3 denetim.py` komutuyla sistem denetimi çalıştırabilirsiniz.
 </details>
 
 <details>
 <summary><b>"Python bulunamadı" hatası alıyorum?</b></summary>
 
-Python'u kurarken **"Add to PATH"** kutusunu işaretlemeyi unutmuşsunuz. Python'u kaldırıp tekrar kurun.
+`calistir.bat` Python'u otomatik indirir. Elle kurmak isterseniz [Python 3.12](https://www.python.org/downloads/release/python-31210/) kurulumunda **"Add python.exe to PATH"** kutusunu işaretleyin.
 </details>
 
 <details>
-<summary><b>Mail gönder butonu çalışmıyor?</b></summary>
+<summary><b>Taranmış (fotoğraf) fatura okunuyor mu?</b></summary>
 
-Gmail kullanıyorsanız [Uygulama Şifresi](https://myaccount.google.com/apppasswords) oluşturmanız gerekir.
-</details>
-
-<details>
-<summary><b>Türkçe karakterler bozuk görünüyor?</b></summary>
-
-Bilgisayarınızın bölgesel ayarlarından **"Türkiye"** seçili olduğundan emin olun.
+Evet — OCR desteğiyle taranmış PDF/görsel faturalar da işlenebilir ([Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) kurulu olmalıdır).
 </details>
 
 <details>
 <summary><b>500+ fatura yükledim, yavaşladı?</b></summary>
 
-**Dönem filtresi** kullanın ("Tümü" yerine belirli bir ay seçin). 500+ fatura için optimizedir.
+**Dönem filtresini** kullanın ("Tümü" yerine belirli ay). 500+ fatura için optimize edilmiştir.
 </details>
 
----
+<details>
+<summary><b>Türkçe karakterler bozuk görünüyor?</b></summary>
 
-## 💡 İpuçları
-
-- **Ayarlar hatırlanır** → Son kullandığınız klasörler otomatik kaydedilir
-- **Gelişmiş Filtre** → Tarih, VKN, tutar aralığı ile detaylı arama
-- **Dashboard** → KPI kartları ve grafiklerle özet görün
-- **Aylık Trend** → Eski kontrollerinizle karşılaştırma yapabilirsiniz
-- **Otomatik Güncelleme** → Program açılışta GitHub'daki yeni sürümü kontrol eder
-
----
-
-## 🔄 Güncelleme
-
-Program her açılışta GitHub'daki son sürümü otomatik kontrol eder.
-
-1. Yeni sürüm varsa **"🔄 Güncelleme (vX.X.X)"** butonu görünür
-2. Butona tıklayın → sürüm notlarını okuyun
-3. **"İndir & Kur"** deyin
-4. Program otomatik güncellenir ve yeniden başlar
+Bilgisayarınızın bölgesel ayarlarında **"Türkiye"** seçili olduğundan emin olun.
+</details>
 
 ---
 
@@ -191,35 +199,31 @@ Program her açılışta GitHub'daki son sürümü otomatik kontrol eder.
 
 ```
 kdv-capraz-kontrol/
-├── main.py                    # Ana uygulama (GUI)
-├── dosya.py                   # Dosya yönlendirme
-├── efatura.py                 # E-Fatura PDF parse
-├── cetvel.py                  # KDV kontrol cetveli parse
-├── xml_oku.py                 # UBL XML parse
-├── excel_oku.py               # Excel okuma
-├── fis_listesi.py             # MAHSUP fişi parse
-├── matcher.py                 # Çapraz kontrol motoru
-├── report.py                  # Excel rapor üretimi
-├── report_pdf.py              # PDF rapor üretimi
-├── ozetler.py                 # KDV dağılımı, BA formu
-├── db.py                      # Veritabanı işlemleri
-├── config.py                  # Yapılandırma
-├── ayarlar.py                 # Kullanıcı ayarları
-├── guncelleme.py              # Otomatik güncelleme
-├── dashboard.py               # Dashboard grafiği
-├── utils.py                   # Yardımcı fonksiyonlar
-├── surum.py                   # Sürüm bilgisi
-├── calistir.bat               # Çalıştırma dosyası
-├── requirements.txt           # Python kütüphaneleri
-├── test_akisi.py              # Test dosyası
-└── test_veri/                 # Test verileri
+├── main.py                # Ana uygulama (GUI)
+├── cli.py                 # Komut satırı modu
+├── matcher.py             # Çapraz kontrol motoru
+├── xml_oku.py             # UBL XML parse
+├── efatura.py             # E-Fatura/E-Arşiv PDF parse
+├── fis_listesi.py         # MAHSUP fişi parse
+├── excel_oku.py           # Excel fatura/cetvel okuma
+├── cetvel.py              # KDV cetvel parse
+├── ocr.py                 # OCR desteği
+├── iade_ayristirici.py    # İade faturası ayrıştırma
+├── oran_kontrol.py        # KDV oranı tutarlılık denetimi
+├── beyanname.py           # 2 Beyanname karşılaştırma
+├── ozetler.py             # Satıcı özeti, KDV dağılımı, BA/Bs
+├── report.py / report_pdf.py   # Excel / PDF rapor
+├── dashboard.py           # Dashboard grafikleri
+├── db.py                  # Veritabanı (kontrol geçmişi)
+├── guncelleme.py          # Otomatik güncelleme
+├── denetim.py             # Sistem denetim aracı (py -3 denetim.py)
+├── calistir.bat           # Tek tıkla kurulum + çalıştırma
+└── logo.ico / logo.png    # Uygulama logosu
 ```
 
 ---
 
 ## 🛠️ Teknik Detaylar
-
-### Desteklenen Formatlar
 
 | Kaynak | Format | Açıklama |
 |--------|--------|----------|
@@ -228,20 +232,14 @@ kdv-capraz-kontrol/
 | E-Arşiv | PDF | Bireysel faturalar |
 | MAHSUP Fişi | PDF | Hesap bazlı kayıtlar |
 | Fatura Listesi | Excel | VKN, matrah, KDV sütunları |
-| KDV Cetveli | PDF/Excel | Kontrol cetveli formatı |
+| KDV Cetveli | Excel | Kontrol cetveli formatı |
 | Satış Muavini | Excel | Hesap bazlı satış kayıtları |
 
-### KDV Hesaplama
-
-- **Matrah** = KDV Tutarı × 100 / KDV Oranı
-- **Toplam** = Matrah + KDV
-- **Oranlar** %1, %10, %20 desteklenir
+**KDV hesaplama:** Matrah = KDV × 100 / Oran · Toplam = Matrah + KDV · Oranlar: %1, %5, %10, %20
 
 ---
 
 ## 📞 İletişim
-
-Sorun mu yaşıyorsunuz? Bana ulaşın:
 
 | Platform | Link |
 |----------|------|
@@ -254,31 +252,7 @@ Sorun mu yaşıyorsunuz? Bana ulaşın:
 
 ## ⚖️ Lisans
 
-Bu program MIT Lisansı ile korunmaktadır.
-
-```
-MIT License
-
-Copyright (c) 2026 Arda M. Ekiz
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+[MIT License](LICENSE) © 2026 Arda M. Ekiz
 
 ---
 

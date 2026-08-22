@@ -1,0 +1,8 @@
+pymupdf
+openpyxl
+pytesseract
+pillow
+xlrd
+matplotlib
+fpdf2
+pdfminer.six
