@@ -65,7 +65,8 @@ def son_surum_bilgisi():
         assetler = veri.get("assets") or []
         for a in assetler:
             if (a.get("name") or "").endswith(".zip"):
-                indirme_url = a.get("browser_download_url") or ""
+                # Özel repo için API uç noktası gerekli (browser linki 404 verir)
+                indirme_url = a.get("url") or a.get("browser_download_url") or ""
                 break
         return {
             "surum": surum,
@@ -90,7 +91,7 @@ def guncelleme_kontrol(mevcut_surum=SURUM):
 
 
 def _indir(url, hedef):
-    """URL'den dosya indirir (https veya yerel dosya yolu desteklenir)."""
+    """URL'den dosya indirir (https, API asset veya yerel dosya yolu desteklenir)."""
     context = ssl.create_default_context()
     if url.lower().startswith("file:"):
         yerel_yol = url.replace("file://", "").replace("file:", "")
@@ -98,7 +99,11 @@ def _indir(url, hedef):
             yerel_yol = os.path.abspath(yerel_yol)
         shutil.copy2(yerel_yol, hedef)
         return
-    istek = urllib.request.Request(url, headers=_basliklar())
+    basliklar = _basliklar()
+    if "api.github.com" in url and "/assets/" in url:
+        # Release asset ikili içeriği
+        basliklar["Accept"] = "application/octet-stream"
+    istek = urllib.request.Request(url, headers=basliklar)
     with urllib.request.urlopen(istek, timeout=120, context=context) as yanit:
         with open(hedef, "wb") as f:
             shutil.copyfileobj(yanit, f)
