@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo.png" width="88" alt="KDV Çapraz Kontrol logosu">
+
 
 # KDV Çapraz Kontrol
 
