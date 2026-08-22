@@ -13,6 +13,28 @@ from surum import REPO, SURUM
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 
 
+def _token_oku():
+    """Özel repo için GitHub erişim anahtarı (ortam değişkeni veya github_token.txt)."""
+    tok = os.environ.get("GITHUB_TOKEN")
+    if tok and tok.strip():
+        return tok.strip()
+    yol = os.path.join(os.path.dirname(os.path.abspath(__file__)), "github_token.txt")
+    try:
+        with open(yol, "r", encoding="utf-8") as f:
+            icerik = f.read().strip()
+        return icerik.splitlines()[0].strip() if icerik else None
+    except Exception:
+        return None
+
+
+def _basliklar():
+    basliklar = {"User-Agent": "kdv-capraz-kontrol", "Accept": "application/vnd.github+json"}
+    tok = _token_oku()
+    if tok:
+        basliklar["Authorization"] = f"Bearer {tok}"
+    return basliklar
+
+
 def versiyon_karsilastir(mevcut, yeni):
     """'2.1.0' vs '2.10.0' gibi sürümleri karşılaştırır. yeni > mevcut ise True."""
     def parcala(v):
@@ -25,7 +47,7 @@ def versiyon_karsilastir(mevcut, yeni):
 
 def _istek_yap(url, zaman_asimi=8):
     context = ssl.create_default_context()
-    istek = urllib.request.Request(url, headers={"User-Agent": "kdv-capraz-kontrol", "Accept": "application/vnd.github+json"})
+    istek = urllib.request.Request(url, headers=_basliklar())
     with urllib.request.urlopen(istek, timeout=zaman_asimi, context=context) as yanit:
         return json.loads(yanit.read().decode("utf-8"))
 
@@ -76,7 +98,7 @@ def _indir(url, hedef):
             yerel_yol = os.path.abspath(yerel_yol)
         shutil.copy2(yerel_yol, hedef)
         return
-    istek = urllib.request.Request(url, headers={"User-Agent": "kdv-capraz-kontrol"})
+    istek = urllib.request.Request(url, headers=_basliklar())
     with urllib.request.urlopen(istek, timeout=120, context=context) as yanit:
         with open(hedef, "wb") as f:
             shutil.copyfileobj(yanit, f)

@@ -72,3 +72,10 @@ gecmis.json
 # Test çıktıları
 test_rapor.*
 
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/
+
+# GitHub erişim anahtarı (özel repo güncellemeleri)
+github_token.txt
+
