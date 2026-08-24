@@ -5,6 +5,7 @@ from cetvel import cetvel_parse
 from efatura import efatura_parse
 from excel_oku import (cetvel_excel_parse, fatura_excel_parse, fatura_gelen_parse,
                        muavin_excel_parse, muavin_191_parse, muavin_391_parse,
+                       muavin_zenom_parse,
                        muavin_genel_parse)
 from fis_listesi import fis_listesi_cetvel_parse, fis_listesi_parse
 from xml_oku import fatura_xml_parse
@@ -153,6 +154,9 @@ def _kullanilabilir_mi(sonuc):
 def cetvel_dosya_parse(dosya_yolu):
     uzanti = os.path.splitext(dosya_yolu)[1].lower()
     if uzanti in EXCEL_UZANTILARI:
+        dzenom = _guvenli_parse(muavin_zenom_parse, dosya_yolu)
+        if _kullanilabilir_mi(dzenom):
+            return dzenom
         d191 = _guvenli_parse(muavin_191_parse, dosya_yolu)
         if _kullanilabilir_mi(d191):
             return d191

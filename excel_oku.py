@@ -65,7 +65,55 @@ def _kolon_bul(basliklar, alan):
     return None
 
 
+def _spreadsheetml_satirlar(dosya_yolu):
+    """Excel 2003 XML (SpreadsheetML) biçimini satır listesine çevirir.
+
+    ZENOM gibi bazı programlar .xls uzantıyla bu biçimi dışa aktarır;
+    xlrd/openpyxl bu dosyaları açamaz. Sayı tipindeki hücreler doğrudan
+    Decimal'e çevrilir (binlik/ondalık karışıklığı olmasın).
+    """
+    import xml.etree.ElementTree as ET
+    ns = "{urn:schemas-microsoft-com:office:spreadsheet}"
+    agac = ET.parse(dosya_yolu)
+    kok = agac.getroot()
+    tumu = []
+    for tablo in kok.iter(ns + "Table"):
+        for satir in tablo.iter(ns + "Row"):
+            hucreler = []
+            for hucre in satir.findall(ns + "Cell"):
+                idx = hucre.get(ns + "Index")
+                try:
+                    hedef = int(idx) - 1 if idx else len(hucreler)
+                except (TypeError, ValueError):
+                    hedef = len(hucreler)
+                while len(hucreler) < hedef:
+                    hucreler.append(None)
+                veri = hucre.find(ns + "Data")
+                deger = None
+                if veri is not None and veri.text is not None:
+                    metin = str(veri.text).strip()
+                    if metin:
+                        if veri.get(ns + "Type") == "Number":
+                            try:
+                                deger = Decimal(metin.replace(",", ""))
+                            except Exception:
+                                deger = metin
+                        else:
+                            deger = metin
+                hucreler.append(deger)
+            tumu.append(hucreler)
+    return tumu
+
+
 def excel_satirlar(dosya_yolu):
+    try:
+        with open(dosya_yolu, "rb") as fh:
+            bas = fh.read(2048)
+    except OSError:
+        bas = b""
+    if bas.lstrip().startswith(b"<?xml") and (
+            b"SpreadsheetML" in bas or b"office:spreadsheet" in bas):
+        return _spreadsheetml_satirlar(dosya_yolu)
     if dosya_yolu.lower().endswith(".xls"):
         import xlrd
         wb = xlrd.open_workbook(dosya_yolu)
@@ -778,6 +826,85 @@ def muavin_satis_parse(dosya_yolu):
         sonuc["notlar"].append("Muavin'de belge satırı bulunamadı")
     else:
         sonuc["notlar"].append("Satış muavini olarak okundu")
+    return sonuc
+
+
+def muavin_zenom_parse(dosya_yolu):
+    """Zenom 'MUAVİN RAPORU' çıktısını okur (.xls görünümlü SpreadsheetML).
+
+    Sütunları: R.No | Tarih | Fiş Açıklaması | E.Trh | E.No | E.Açıklama |
+    Borç | Alacak | Bakiye. Hesap başlıkları '391.01.001 - 1Lİ HESAPLANAN KDV'
+    biçimindedir. E.No belge numarası, E.Açıklama firma unvanı, Borç KDV
+    tutarıdır; Tarih iki haneli yıl içerebilir (01.07.26).
+    """
+    sonuc = {"dosya": dosya_yolu, "kayitlar": [], "notlar": []}
+    satirlar = excel_satirlar(dosya_yolu)
+
+    baslik_i = None
+    kolonlar = {}
+    for i, satir in enumerate(satirlar):
+        normlar = [_norm_baslik(c) for c in satir]
+        if ("E NO" in normlar and "TARIH" in normlar
+                and "BORC" in normlar and "E ACIKLAMA" in normlar):
+            baslik_i = i
+            for ad, anahtar in (("R NO", "rno"), ("TARIH", "tarih"),
+                                ("E TRH", "etarih"), ("E NO", "belge"),
+                                ("E ACIKLAMA", "unvan"), ("BORC", "borc"),
+                                ("ALACAK", "alacak")):
+                kolonlar[anahtar] = normlar.index(ad) if ad in normlar else None
+            break
+    if baslik_i is None:
+        sonuc["notlar"].append("Zenom muavin başlığı yok (R.No/Tarih/E.No/E.Açıklama/Borç)")
+        return sonuc
+
+    hesap_deseni = re.compile(r"^\d{3}\.\d{1,2}\.\d{1,3}\b")
+    aktif_hesap = ""
+    for i in range(baslik_i + 1, len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        ilk = next((str(c).strip() for c in satir
+                    if c is not None and str(c).strip()), "")
+        if hesap_deseni.match(ilk):
+            aktif_hesap = ilk
+            continue
+
+        def hucre(ad, _satir=satir):
+            j = kolonlar.get(ad)
+            return _satir[j] if j is not None and j < len(_satir) else None
+
+        belge = fatura_no_temizle(str(hucre("belge") or "").strip())
+        unvan = str(hucre("unvan") or "").strip()
+        tarih_metin = str(hucre("tarih") or "").strip()
+        borc = tutar_parse(hucre("borc"))
+        if borc is None:
+            borc = tutar_parse(hucre("alacak"))
+        if not belge or borc is None:
+            continue
+
+        m = re.match(r"^(\d{1,2})[./](\d{1,2})[./](\d{2}|\d{4})$", tarih_metin)
+        if m:
+            gun, ay, yil = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if yil < 100:
+                yil += 2000
+            tarih = ""
+            if 1 <= ay <= 12 and 1 <= gun <= 31:
+                tarih = f"{yil:04d}-{ay:02d}-{gun:02d}"
+        else:
+            tarih = tarih_parse(tarih_metin) or ""
+
+        kayit = {
+            "vkn": "", "belge_no": belge, "tarih": tarih,
+            "matrah": None, "kdv": borc, "unvan": unvan[:80],
+            "notlar": [f"Hesap: {aktif_hesap}"] if aktif_hesap else [],
+        }
+        sonuc["kayitlar"].append(kayit)
+
+    sonuc["kayitlar"] = _muavin_birlestir(sonuc["kayitlar"])
+    if not sonuc["kayitlar"]:
+        sonuc["notlar"].append("Zenom raporunda belge satırı bulunamadı")
+    else:
+        sonuc["notlar"].append("Zenom Muavin Raporu olarak okundu")
     return sonuc
 
 
