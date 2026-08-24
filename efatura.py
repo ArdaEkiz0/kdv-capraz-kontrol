@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 from decimal import Decimal
 
 from utils import fatura_no_temizle, tarih_parse, tutar_parse, vkn_temizle
@@ -12,6 +13,8 @@ except ImportError:
     except Exception:
         fitz = None
 
+PDF_KILIDI = threading.RLock()
+
 
 def _pdfminer_metni(dosya_yolu):
     from pdfminer.high_level import extract_text
@@ -21,11 +24,12 @@ def _pdfminer_metni(dosya_yolu):
 def pdf_metni_al(dosya_yolu):
     if fitz is not None:
         try:
-            doc = fitz.open(dosya_yolu)
-            parcalar = []
-            for sayfa in doc:
-                parcalar.append(sayfa.get_text())
-            doc.close()
+            with PDF_KILIDI:
+                doc = fitz.open(dosya_yolu)
+                parcalar = []
+                for sayfa in doc:
+                    parcalar.append(sayfa.get_text())
+                doc.close()
             return "\n".join(parcalar)
         except Exception:
             pass
@@ -126,7 +130,8 @@ def sayfa_parse(sayfa_metni):
 def efatura_parse(dosya_yolu):
     sonuc_listesi = []
     try:
-        doc = fitz.open(dosya_yolu)
+        with PDF_KILIDI:
+            doc = fitz.open(dosya_yolu)
     except Exception as hata:
         try:
             tam_metin = _pdfminer_metni(dosya_yolu)
@@ -154,14 +159,16 @@ def efatura_parse(dosya_yolu):
 
     sayfa_sayisi = len(doc)
     for i in range(sayfa_sayisi):
-        sayfa_metni = doc[i].get_text()
+        with PDF_KILIDI:
+            sayfa_metni = doc[i].get_text()
         fatura = sayfa_parse(sayfa_metni)
         if fatura is None:
             continue
         fatura["dosya"] = dosya_yolu
         fatura["sayfa"] = i + 1
         sonuc_listesi.append(fatura)
-    doc.close()
+    with PDF_KILIDI:
+        doc.close()
 
     if not sonuc_listesi:
         from ocr import ocr_metin, tesseract_mevcut_mi

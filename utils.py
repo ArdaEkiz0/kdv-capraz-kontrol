@@ -88,6 +88,36 @@ def tl_format(deger):
     return f"{deger:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def tckn_gecerli_mi(tckn):
+    tckn = str(tckn or "").strip()
+    if len(tckn) != 11 or not tckn.isdigit() or tckn[0] == "0":
+        return False
+    h = [int(x) for x in tckn]
+    if (sum(h[0:9:2]) * 7 - sum(h[1:8:2])) % 10 != h[9]:
+        return False
+    return sum(h[0:10]) % 10 == h[10]
+
+
+def vkn_gecerli_mi(vkn):
+    deger = rakamlara_cevir(str(vkn or "").strip())
+    if not deger.isdigit():
+        return True
+    if len(deger) == 11:
+        return tckn_gecerli_mi(deger)
+    if len(deger) != 10:
+        return True
+    h = [int(x) for x in deger]
+    toplam = 0
+    for i in range(9):
+        tmp = (h[i] + 9 - i) % 10
+        carpim = (tmp * (2 ** (9 - i))) % 9
+        if tmp != 0 and carpim == 0:
+            carpim = 9
+        toplam += carpim
+    kontrol = 0 if toplam % 10 == 0 else 10 - (toplam % 10)
+    return kontrol == h[9]
+
+
 _RAKAM_BENZER = r"[0-9OoIilıİ]"
 _SAYI_TOKEN = re.compile(
     rf"{_RAKAM_BENZER}{{1,3}}(?:\.{_RAKAM_BENZER}{{3}})+(?:,{_RAKAM_BENZER}{{1,2}})?"

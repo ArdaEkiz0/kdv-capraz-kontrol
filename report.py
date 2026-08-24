@@ -501,6 +501,44 @@ def rapor_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol,
     # ---------- 12) KDV oran kontrolü ----------
     oran_kontrol_sayfasi_ekle(wb, faturalar)
 
+    # ---------- 13) Veri (düz tablo - pivot/filtre için) ----------
+    veri = wb.create_sheet("Veri")
+    veri_basliklar = ["Tarih", "Durum", "Kaynak", "VKN", "Unvan", "Belge No",
+                      "Matrah", "KDV", "Toplam", "Oranlar", "Detay"]
+    veri.append(veri_basliklar)
+    for c in range(1, len(veri_basliklar) + 1):
+        hucre = veri.cell(row=1, column=c)
+        hucre.font = BASLIK_FONT
+        hucre.fill = BASLIK_DOLGU
+        hucre.border = INCE_KENAR
+    for r in sonuc_satirlari:
+        oranlar = r.get("oranlar") or []
+        veri.append([
+            r.get("tarih") or "",
+            r.get("durum") or "",
+            r.get("kaynak") or "",
+            r.get("vkn") or "",
+            r.get("unvan") or "",
+            r.get("belge_no") or "",
+            float(r["matrah"]) if r.get("matrah") is not None else None,
+            float(r["kdv"]) if r.get("kdv") is not None else None,
+            float(r["toplam"]) if r.get("toplam") is not None else None,
+            ", ".join(str(o) for o in oranlar),
+            r.get("detay") or "",
+        ])
+    for kolon, genislik in zip("ABCDEFGHIJK",
+                               (11, 17, 13, 13, 32, 20, 12, 12, 12, 10, 70)):
+        veri.column_dimensions[kolon].width = genislik
+    for satir in veri.iter_rows(min_row=2):
+        for h in (7, 8, 9):
+            satir[h - 1].number_format = "#,##0.00"
+        durum_hucre = satir[1]
+        dolgu = DURUM_RENK.get(durum_hucre.value)
+        if dolgu is not None:
+            durum_hucre.fill = dolgu
+    veri.freeze_panes = "A2"
+    veri.auto_filter.ref = f"A1:K{veri.max_row}"
+
     wb.save(hedef_yol)
     return hedef_yol
 

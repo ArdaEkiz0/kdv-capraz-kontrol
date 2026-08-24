@@ -179,3 +179,63 @@ def cetvel_dosya_parse(dosya_yolu):
         except Exception:
             pass
     return cetvel_parse(dosya_yolu)
+
+def faturalari_toplu_parse(dosyalar, ilerleme=None, iptal=None,
+                           isci_sayisi=None, fis_parse_fn=None):
+    """Fatura listesini paralel okur. Donus:
+    {"faturalar": [...], "fis_hesap_kayitlari": [...], "hatalar": [(yol, hata)]}
+
+    ilerleme(tamamlanan, toplam, dosya_adi, hata) her dosya bitisinde cagrilir.
+    iptal (threading.Event) set edilir kalan isler dusurulur.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    dosyalar = list(dosyalar)
+    toplam = len(dosyalar)
+    fatura_sonuclari = [None] * toplam
+    fis_sonuclari = [None] * toplam
+    hata_listesi = [None] * toplam
+
+    def tek_is(indeks, yol):
+        fatura = []
+        fis = None
+        try:
+            fatura = fatura_dosya_parse(yol)
+        except Exception as hata:
+            hata_listesi[indeks] = (yol, str(hata))
+        if fis_parse_fn is not None and yol.lower().endswith(".pdf"):
+            try:
+                fis = fis_parse_fn(yol) or None
+            except Exception:
+                fis = None
+        return indeks, fatura, fis
+
+    isci = max(1, isci_sayisi or min(4, os.cpu_count() or 4))
+    tamamlanan = 0
+    with ThreadPoolExecutor(max_workers=isci) as havuz:
+        gelecekler = [havuz.submit(tek_is, i, y) for i, y in enumerate(dosyalar)]
+        for g in as_completed(gelecekler):
+            indeks, fatura, fis = g.result()
+            fatura_sonuclari[indeks] = fatura or []
+            fis_sonuclari[indeks] = fis
+            tamamlanan += 1
+            if ilerleme is not None:
+                try:
+                    ilerleme(tamamlanan, toplam,
+                             os.path.basename(dosyalar[indeks]), hata_listesi[indeks])
+                except Exception:
+                    pass
+            if iptal is not None and iptal.is_set():
+                for kalan in gelecekler:
+                    kalan.cancel()
+                break
+
+    faturalar = []
+    for liste in fatura_sonuclari:
+        faturalar.extend(liste or [])
+    fisler = []
+    for liste in fis_sonuclari:
+        if liste:
+            fisler.extend(liste)
+    return {"faturalar": faturalar, "fis_hesap_kayitlari": fisler,
+            "hatalar": [h for h in hata_listesi if h]}

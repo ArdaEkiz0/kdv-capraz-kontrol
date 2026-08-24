@@ -1,5 +1,9 @@
 from decimal import Decimal
 from collections import defaultdict
+from datetime import datetime
+from difflib import SequenceMatcher
+
+from utils import tl_format, vkn_gecerli_mi
 
 TOLERANS = Decimal("0.02")
 
@@ -105,6 +109,120 @@ def tevkifat_detay(f, c, oran):
                 + f" | Muavin'de fatura KDV'sinin %{kayitli:.1f}'i kayıtlı"
                 + f" (tevkifat/kısmi kayıt bandı: %{bant_yuzde})")
     return " | ".join(parcalar) + f" | Muavin KDV tevkifatlı (≈%{bant_yuzde} düşülmüş)"
+
+
+def _tarih_gun_farki(a, b):
+    try:
+        da = datetime.strptime(str(a or "")[:10], "%Y-%m-%d")
+        db = datetime.strptime(str(b or "")[:10], "%Y-%m-%d")
+        return abs((da - db).days)
+    except Exception:
+        return None
+
+
+def _aday_puani(a_vkn, a_belge, a_tarih, a_matrah, a_kdv,
+                b_vkn, b_belge, b_tarih, b_matrah, b_kdv):
+    puan = 0
+    vkn_esit = bool(a_vkn and b_vkn and str(a_vkn) == str(b_vkn))
+    if vkn_esit:
+        puan += 3
+    benzerlik = 0.0
+    if a_belge and b_belge:
+        benzerlik = SequenceMatcher(None, str(a_belge).upper(), str(b_belge).upper()).ratio()
+        if benzerlik >= 0.85:
+            puan += 3
+        elif benzerlik >= 0.65:
+            puan += 2
+        elif benzerlik >= 0.50:
+            puan += 1
+    if _tutar_esit(a_matrah, b_matrah):
+        puan += 1
+    if _tutar_esit(a_kdv, b_kdv):
+        puan += 1
+    gun = _tarih_gun_farki(a_tarih, b_tarih)
+    if gun is not None and gun <= 7:
+        puan += 1
+    return puan, benzerlik, vkn_esit
+
+
+OLASI_ESLESME_ESIK = 6
+
+
+def olasilari_isaretle(sonuc_satirlari, faturalar, cetvel_kayitlari):
+    """Sorunlu satirlara 'olası eşleşme' önerisi ve VKN kontrol hanesi uyarısı ekler."""
+    for r in sonuc_satirlari:
+        vkn = str(r.get("vkn") or "").strip()
+        detay = r.get("detay") or ""
+        if len(vkn) in (10, 11) and vkn.isdigit() and not vkn_gecerli_mi(vkn) \
+                and "kontrol hanesi" not in detay:
+            uyarı = "⚠ VKN kontrol hanesi geçersiz (yanlış okunmuş olabilir)"
+            r["detay"] = (detay + " | " + uyarı) if detay else uyarı
+
+    eksik_faturalar = [r for r in sonuc_satirlari if "CETVELDE YOK" in r["durum"]]
+    eksik_cetveller = [r for r in sonuc_satirlari if r["durum"] == DURUM_FATURADA_YOK]
+    if not eksik_faturalar and not eksik_cetveller:
+        return
+    if len(eksik_faturalar) * max(1, len(cetvel_kayitlari)) > 500000 \
+            or len(eksik_cetveller) * max(1, len(faturalar)) > 500000:
+        return
+
+    cetvel_veriler = [
+        (str(c.get("vkn") or ""), c.get("belge_no"), c.get("tarih"),
+         c.get("matrah"), c.get("kdv"), c)
+        for c in cetvel_kayitlari if c.get("belge_no")
+    ]
+    for r in eksik_faturalar:
+        en_iyi = None
+        adet = 0
+        for v, belge, tarih, matrah, kdv, c in cetvel_veriler:
+            puan, sim, ve = _aday_puani(
+                r.get("vkn"), r.get("belge_no"), r.get("tarih"), r.get("matrah"), r.get("kdv"),
+                v, belge, tarih, matrah, kdv)
+            if en_iyi is None or puan > en_iyi[0]:
+                en_iyi = (puan, sim, ve, belge, tarih, kdv, c)
+                adet = 1
+            elif puan == en_iyi[0]:
+                adet += 1
+        if not en_iyi or en_iyi[0] < OLASI_ESLESME_ESIK:
+            continue
+        if not (en_iyi[2] or en_iyi[1] >= 0.50):
+            continue
+        c = en_iyi[6]
+        metin = (f"Olası eşleşme: {en_iyi[3]} / {(c.get('unvan') or '?')[:40]}"
+                 f" ({en_iyi[4] or 'tarih yok'}, KDV {tl_format(en_iyi[5])})")
+        if adet > 1:
+            metin += f" (+{adet - 1} benzer aday)"
+        ek = " | " + metin
+        r["detay"] = (r.get("detay") or "") + ek if r.get("detay") else metin
+
+    fatura_veriler = [
+        (str(f.get("satici_vkn") or ""), f.get("belge_no"), f.get("tarih"),
+         f.get("matrah"), f.get("kdv"), f)
+        for f in faturalar if f.get("belge_no")
+    ]
+    for r in eksik_cetveller:
+        en_iyi = None
+        adet = 0
+        for v, belge, tarih, matrah, kdv, f in fatura_veriler:
+            puan, sim, ve = _aday_puani(
+                r.get("vkn"), r.get("belge_no"), r.get("tarih"), r.get("matrah"), r.get("kdv"),
+                v, belge, tarih, matrah, kdv)
+            if en_iyi is None or puan > en_iyi[0]:
+                en_iyi = (puan, sim, ve, belge, tarih, kdv, f)
+                adet = 1
+            elif puan == en_iyi[0]:
+                adet += 1
+        if not en_iyi or en_iyi[0] < OLASI_ESLESME_ESIK:
+            continue
+        if not (en_iyi[2] or en_iyi[1] >= 0.50):
+            continue
+        f = en_iyi[6]
+        metin = (f"Olası eşleşme: {en_iyi[3]} / {(f.get('satici_unvan') or '?')[:40]}"
+                 f" ({en_iyi[4] or 'tarih yok'}, KDV {tl_format(en_iyi[5])})")
+        if adet > 1:
+            metin += f" (+{adet - 1} benzer aday)"
+        ek = " | " + metin
+        r["detay"] = (r.get("detay") or "") + ek if r.get("detay") else metin
 
 
 def capraz_kontrol(faturalar, cetvel_kayitlari):
@@ -313,6 +431,11 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
         if f["belge_no"] is None and f["satici_vkn"] is None and f["matrah"] is None:
             ozet["parse_sorunu"] += 1
             durum_ekle(DURUM_PARSE_SORUNU, f, None, "PDF'den veri çıkarılamadı (taranmış PDF olabilir)")
+
+    try:
+        olasilari_isaretle(sonuc_satirlari, faturalar, cetvel_kayitlari)
+    except Exception:
+        pass
 
     ozet["fark_toplami"] = sum((r["durum"] == DURUM_TUTAR_FARKI) for r in sonuc_satirlari)
     sonuc_satirlari.sort(key=lambda r: (SORUNLU_DURUMLAR.index(r["durum"]) if r["durum"] in SORUNLU_DURUMLAR else 99, r["belge_no"] or ""))

@@ -26,14 +26,16 @@ def tesseract_mevcut_mi():
 def sayfa_gorsel(dosya_yolu, sayfa_no, cozunurluk=COZUNURLUK):
     if fitz is None:
         raise RuntimeError("pymupdf yüklenemedi (DLL sorunu)")
+    from efatura import PDF_KILIDI
     doc = fitz.open(dosya_yolu)
     try:
-        sayfa = doc[sayfa_no]
-        matris = fitz.Matrix(cozunurluk / 72, cozunurluk / 72)
-        pix = sayfa.get_pixmap(matrix=matris, alpha=False)
-        gecici = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-        gecici.close()
-        pix.save(gecici.name)
+        with PDF_KILIDI:
+            sayfa = doc[sayfa_no]
+            matris = fitz.Matrix(cozunurluk / 72, cozunurluk / 72)
+            pix = sayfa.get_pixmap(matrix=matris, alpha=False)
+            gecici = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+            gecici.close()
+            pix.save(gecici.name)
         gorsel = Image.open(gecici.name)
         gorsel.load()
         os.unlink(gecici.name)
@@ -79,9 +81,11 @@ def cizgileri_temizle(img):
 
 
 def ocr_metin(dosya_yolu, sayfa_no=None):
-    doc = fitz.open(dosya_yolu)
-    sayfalar = range(len(doc)) if sayfa_no is None else [sayfa_no]
-    doc.close()
+    from efatura import PDF_KILIDI
+    with PDF_KILIDI:
+        doc = fitz.open(dosya_yolu)
+        sayfalar = range(len(doc)) if sayfa_no is None else [sayfa_no]
+        doc.close()
     parcalar = []
     for i in sayfalar:
         gorsel = sayfa_gorsel(dosya_yolu, i)

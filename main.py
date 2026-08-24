@@ -9,7 +9,7 @@ from cetvel import cetvel_parse
 from config import gecmis_ekle, gecmis_karsilastir
 from dashboard import DashboardFrame
 from db import db_al
-from dosya import cetvel_dosya_parse, fatura_birlestir, fatura_dosya_parse
+from dosya import cetvel_dosya_parse, fatura_birlestir, fatura_dosya_parse, faturalari_toplu_parse
 from efatura import efatura_parse
 from email_gonder import mail_icerigi_olustur, outlook_ile_gonder, smtp_ile_gonder
 from excel_oku import muavin_satis_parse
@@ -686,24 +686,23 @@ class KdvKontrolApp:
             muavin_hesap_kayitlari = []
             toplam = len(self.fatura_dosyalari) + len(self.cetvel_dosyalari)
 
-            for i, dosya in enumerate(self.fatura_dosyalari, start=1):
-                if self._iptal.is_set():
-                    self.kok.after(0, lambda: self._log_yaz("İşlem iptal edildi."))
-                    return
-                ad = os.path.basename(dosya)
-                self.kok.after(0, lambda a=ad, s=i, t=toplam: self._log_yaz(f"[{s}/{t}] Fatura okunuyor: {a}"))
-                try:
-                    f = fatura_dosya_parse(dosya)
-                    faturalar.extend(f)
-                except Exception as hata:
-                    self.kok.after(0, lambda d=ad, h=hata: self._log_yaz(f"[Hata] {d}: {hata}"))
-                if dosya.lower().endswith(".pdf"):
-                    try:
-                        fis_hesap = fis_listesi_hesap_parse(dosya)
-                        if fis_hesap:
-                            fis_hesap_kayitlari.extend(fis_hesap)
-                    except Exception:
-                        pass
+            def _fatura_ilerleme(s, t, ad, hata_paketi):
+                if hata_paketi:
+                    self.kok.after(0, lambda a=ad, h=hata_paketi[1]: self._log_yaz(f"[Hata] {a}: {h}"))
+                else:
+                    self.kok.after(0, lambda a=ad, ss=s, tt=t: self._log_yaz(f"[{ss}/{tt}] Fatura okundu: {a}"))
+
+            paket = faturalari_toplu_parse(
+                self.fatura_dosyalari,
+                ilerleme=_fatura_ilerleme,
+                iptal=self._iptal,
+                fis_parse_fn=fis_listesi_hesap_parse,
+            )
+            if self._iptal.is_set():
+                self.kok.after(0, lambda: self._log_yaz("İşlem iptal edildi."))
+                return
+            faturalar = paket["faturalar"]
+            fis_hesap_kayitlari = paket["fis_hesap_kayitlari"]
 
             faturalar = fatura_birlestir(faturalar)
 
