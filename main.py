@@ -18,10 +18,12 @@ from fatura_detay_pencere import FaturaDetayPencere
 from filtre_dialog import GelismisFiltreDialog, filtre_uygula
 from guncelleme import guncelleme_kontrol, guncellemeyi_kur, uygulamayi_yeniden_baslat
 from iade_ayristirici import iade_ayristirici_ozet
+from kurallar import kurallari_oku
+from kurallar_pencere import KurallarPenceresi
 from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_KDV_SIFIR,
-                     DURUM_INDIRIMLI, DURUM_MUKERRER, DURUM_OK, DURUM_PARSE_SORUNU,
-                     DURUM_TEVKIFATLI, DURUM_TUTAR_FARKI, DURUM_VKN_FARKI,
-                     SORUNLU_DURUMLAR,
+                     DURUM_INDIRIMLI, DURUM_MUKERRER, DURUM_OK, DURUM_ONAYLI,
+                     DURUM_PARSE_SORUNU, DURUM_TEVKIFATLI, DURUM_TUTAR_FARKI,
+                     DURUM_VKN_FARKI, SORUNLU_DURUMLAR,
                      capraz_kontrol, capraz_kontrol_iade_destekli,
                      z_raporu_hesap_kontrol)
 from muavin_coklu import cetvel_klasor_dialog
@@ -83,6 +85,7 @@ DURUM_RENKLER = {
     DURUM_PARSE_SORUNU: "#FFC7CE",
     DURUM_TEVKIFATLI: "#DDEBF7",
     DURUM_INDIRIMLI: "#DDEBF7",
+    DURUM_ONAYLI: "#E2E8F0",
 }
 
 KOLONLAR = ("durum", "belge_no", "vkn", "tarih", "tip", "matrah", "kdv", "kaynak", "detay")
@@ -122,6 +125,8 @@ class KdvKontrolApp:
         self.cetvel_kayitlari = []
         self.fis_hesap_kayitlari = []
         self.muavin_hesap_kayitlari = []
+        self.kurallar = kurallari_oku()
+        self.elle_eklenen_cetvel = []
         self.filtre = "Tumu"
         self.aktif_filtre = None
         self.gecmis_bilgi = None
@@ -323,7 +328,7 @@ class KdvKontrolApp:
         araclar.pack(fill="x")
         araclar_gruplari = [
             [("🔧 Veri İncele", self.veri_incele_ac), ("📊 Dashboard", self.dashboard_goster),
-             ("🔎 Filtre", self.gelismis_filtre_ac)],
+             ("🔎 Filtre", self.gelismis_filtre_ac), ("📏 Kurallar", self.kurallar_pencere_ac)],
             [("🧾 Beyanname", self.beyanname_ac), ("📂 Klasör Cetvel", self.cetvel_klasor_ac)],
             [("Ba/Bs Formu", self.muhtasar_kaydet), ("Excel Raporu", self.rapor_kaydet),
              ("PDF Raporu", self.rapor_pdf_kaydet), ("✉ Mail", self.mail_gonder_ac)],
@@ -368,6 +373,7 @@ class KdvKontrolApp:
             self.tablo.column(kolon, width=genislik, anchor="w" if kolon in ("detay", "belge_no") else "center")
 
         self.tablo.bind("<Double-1>", self._satir_detay_goster)
+        self.tablo.bind("<Button-3>", self._tablo_sag_tik)
 
         kaydirma_y = ttk.Scrollbar(tablo_alan, orient="vertical", command=self.tablo.yview)
         kaydirma_x = ttk.Scrollbar(tablo_alan, orient="horizontal", command=self.tablo.xview)
@@ -582,6 +588,73 @@ class KdvKontrolApp:
             mevcut = [p for p in self.son_cetveller if os.path.exists(p)]
             if mevcut:
                 self.cetvel_dosyalari = mevcut
+
+    def kurallar_pencere_ac(self):
+        def kaydedildi(yeni_liste):
+            self.kurallar = yeni_liste
+            if self.faturalar or self.cetvel_kayitlari:
+                self._log_yaz(f"[Kurallar] {len(yeni_liste)} kural kaydedildi — kontrol yeniden hesaplanıyor...")
+                try:
+                    self._kontrol_hesapla()
+                except Exception:
+                    pass
+        KurallarPenceresi(self.kok, self.kurallar, kaydet_callback=kaydedildi)
+
+    # ---------- Sonuç tablosu sağ tık menüsü ----------
+    def _tablo_sag_tik(self, event):
+        iid = self.tablo.identify_row(event.y)
+        if not iid:
+            return
+        self.tablo.selection_set(iid)
+        degerler = self.tablo.item(iid)["values"]
+        if not degerler:
+            return
+        durum = str(degerler[0])
+        belge_no = str(degerler[1]) if len(degerler) > 1 else ""
+
+        menu = tk.Menu(self.kok, tearoff=0)
+        if belge_no and (durum == DURUM_CETVELDE_YOK or "MUAVİNDE YOK" in durum):
+            menu.add_command(label="➕ Cetvel kaydı olarak ekle",
+                             command=lambda: self._satirdan_cetvele(belge_no))
+            menu.add_separator()
+        menu.add_command(label="🔍 Detayı göster",
+                         command=lambda: self._satir_detay_goster(None))
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _satirdan_cetvele(self, belge_no):
+        fatura = next((f for f in self.faturalar
+                       if (f.get("belge_no") or "").upper() == belge_no.upper()), None)
+        if not fatura:
+            messagebox.showinfo("Bilgi", "Bu belgeye ait fatura bulunamadı.")
+            return
+        iade = (fatura.get("fatura_tipi") or fatura.get("tip") or "").upper() == "IADE"
+        matrah = fatura.get("matrah")
+        kdv = fatura.get("kdv")
+        if iade:
+            matrah = abs(matrah) if matrah is not None else None
+            kdv = abs(kdv) if kdv is not None else None
+        cevap = messagebox.askyesno(
+            "Cetvele Ekle",
+            f"'{belge_no}' bu oturumluk cetvel kaydı olarak eklenecek.\n"
+            "Kalıcı olması için muavin Excel dosyanıza da işlemeniz gerekir.\n\n"
+            "Devam edilsin mi?")
+        if not cevap:
+            return
+        kayit = {
+            "belge_no": fatura.get("belge_no"),
+            "vkn": fatura.get("satici_vkn"),
+            "unvan": fatura.get("satici_unvan"),
+            "tarih": fatura.get("tarih"),
+            "matrah": matrah,
+            "kdv": kdv,
+            "notlar": ["Sonuç tablosundan elle eklendi"],
+        }
+        self.cetvel_kayitlari.append(kayit)
+        self.elle_eklenen_cetvel.append(kayit)
+        self._log_yaz(f"[Manuel] {belge_no} cetvel kaydı olarak eklendi "
+                      f"(Matrah {tl_format(matrah)}, KDV {tl_format(kdv)}). "
+                      "Kalıcı olması için muavin Excel'inize de ekleyin.")
+        self._kontrol_hesapla()
 
     def veri_incele_ac(self):
         if not self.faturalar and not self.cetvel_kayitlari:
@@ -799,7 +872,7 @@ class KdvKontrolApp:
                     self.ayarlar.kaydet("son_donem", ay)
 
             self.sonuc_satirlari, self.ozet = capraz_kontrol_iade_destekli(
-                faturalar, cetvel_kayitlari
+                faturalar, cetvel_kayitlari, kurallar=self.kurallar
             )
             self._muavin_hesap_kontrol(ay)
             self.aktif_filtre = None

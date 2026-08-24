@@ -4,6 +4,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 
 from utils import tl_format, vkn_gecerli_mi
+from kurallar import beklenen_oran, kural_bul
 
 TOLERANS = Decimal("0.02")
 
@@ -17,6 +18,7 @@ DURUM_MUKERRER = "MÜKERRER"
 DURUM_PARSE_SORUNU = "PARSE SORUNU"
 DURUM_TEVKIFATLI = "TEVKİFATLI"
 DURUM_INDIRIMLI = "İNDİRİMLİ"
+DURUM_ONAYLI = "ONAYLI FARK"
 
 # Faturanın KDV/matrahının muavin defterine tevkifat sonrası düşülen oranları.
 # Örn. %30 tevkifat -> muavinde %70 (0.70) kayıtlı; akaryakıt %5 -> 0.95.
@@ -82,12 +84,16 @@ def _oran_yaklasik(f_deger, c_deger, hedef):
     return abs(oran - hedef) <= Decimal("0.02")
 
 
-def tevkifat_kes(f, c):
-    """Fatura ile cetvel KDV/matrahı tevkifat oranıyla ilişkiliyse oranı döndürür, yoksa None."""
+def tevkifat_kes(f, c, ek_oran=None):
+    """Fatura ile cetvel KDV/matrahı tevkifat oranıyla ilişkiliyse oranı döndürür, yoksa None.
+
+    ek_oran: firma kuralından gelen özel kabul oranı (varsayılanların yanında denenir).
+    """
     f_kdv = f.get("kdv")
     c_kdv = c.get("kdv")
     if f_kdv is not None and c_kdv is not None and f_kdv != 0:
-        for oran in TEVKIFAT_ORANLARI:
+        oranlar = TEVKIFAT_ORANLARI + ((ek_oran,) if ek_oran is not None else ())
+        for oran in oranlar:
             if _oran_yaklasik(f_kdv, c_kdv, oran):
                 return oran
     return None
@@ -225,7 +231,7 @@ def olasilari_isaretle(sonuc_satirlari, faturalar, cetvel_kayitlari):
         r["detay"] = (r.get("detay") or "") + ek if r.get("detay") else metin
 
 
-def capraz_kontrol(faturalar, cetvel_kayitlari):
+def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
     def anahtar_fatura(f):
         return (f["belge_no"] or "").upper()
 
@@ -258,6 +264,7 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
         "mukerrer": 0,
         "parse_sorunu": 0,
         "tevkifatli": 0,
+        "onayli_fark": 0,
     }
 
     f_grup = defaultdict(list)
@@ -358,11 +365,21 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
                 if farklar:
                     detay += " | " + " | ".join(farklar)
             elif not tutarlar_uyumlu(f, c):
-                tk_oran = tevkifat_kes(f, c)
+                ek_kesinti = None
+                if kurallar:
+                    kural = kural_bul(kurallar, unvan=f.get("satici_unvan"),
+                                      vkn=f.get("satici_vkn"), belge_no=f.get("belge_no"))
+                    # Kural kullanıcı diliyle KESİNTİ oranıdır (%90 tevkifat);
+                    # eşleşme muavinde KALAN oranla yapılır (1 - kesinti).
+                    ek_kesinti = beklenen_oran(kural)
+                ek_oran = (Decimal("1") - ek_kesinti) if ek_kesinti is not None else None
+                tk_oran = tevkifat_kes(f, c, ek_oran=ek_oran)
                 if tk_oran is not None:
                     durum = DURUM_TEVKIFATLI
                     ozet["tevkifatli"] += 1
                     detay = tevkifat_detay(f, c, tk_oran)
+                    if ek_kesinti is not None and tk_oran == ek_oran:
+                        detay += f" | Kural oranı: %{int(ek_kesinti * 100)}"
                 else:
                     durum = DURUM_TUTAR_FARKI
                     ozet["tutar_farki"] += 1
@@ -431,6 +448,20 @@ def capraz_kontrol(faturalar, cetvel_kayitlari):
         if f["belge_no"] is None and f["satici_vkn"] is None and f["matrah"] is None:
             ozet["parse_sorunu"] += 1
             durum_ekle(DURUM_PARSE_SORUNU, f, None, "PDF'den veri çıkarılamadı (taranmış PDF olabilir)")
+
+    # Firma kuralları: onaylı fark işaretlemesi
+    onay_kurallari = [k for k in (kurallar or []) if k.get("onayla")]
+    if onay_kurallari:
+        for r in sonuc_satirlari:
+            if r["durum"] not in SORUNLU_DURUMLAR:
+                continue
+            kural = kural_bul(onay_kurallari, unvan=r.get("unvan"),
+                              vkn=r.get("vkn"), belge_no=r.get("belge_no"))
+            if kural:
+                r["durum"] = DURUM_ONAYLI
+                ekle = f"[Kural: {kural.get('ad') or kural.get('eslesme')}] onaylı fark"
+                r["detay"] = (r["detay"] + " | " + ekle) if r.get("detay") else ekle
+                ozet["onayli_fark"] += 1
 
     try:
         olasilari_isaretle(sonuc_satirlari, faturalar, cetvel_kayitlari)
@@ -540,7 +571,7 @@ def z_raporu_hesap_kontrol(fis_kayitlari, muavin_kayitlari):
     return sonuc_satirlari, ozet
 
 
-def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
+def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari, kurallar=None):
     """İade faturalarını ayrı ele alarak çapraz kontrol yapar.
 
     capraz_kontrol ile aynı sonucu verir, ancak:
@@ -555,7 +586,7 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
 
     # Normal faturaları normal kontrol
     if normal_faturalar:
-        sonuc, ozet = capraz_kontrol(normal_faturalar, cetvel_kayitlari)
+        sonuc, ozet = capraz_kontrol(normal_faturalar, cetvel_kayitlari, kurallar=kurallar)
     else:
         sonuc = []
         ozet = {
@@ -597,7 +628,7 @@ def capraz_kontrol_iade_destekli(faturalar, cetvel_kayitlari):
             if f2.get("matrah") is not None:
                 f2["matrah"] = abs(f2["matrah"])
             iade_abs.append(f2)
-        iade_sonuc, iade_ozet2 = capraz_kontrol(iade_abs, iade_cetvel)
+        iade_sonuc, iade_ozet2 = capraz_kontrol(iade_abs, iade_cetvel, kurallar=kurallar)
         for r, f in zip(iade_sonuc, iade_faturalar):
             r["durum"] = durum_cevir.get(r["durum"], r["durum"])
             if r["kdv"] is not None:

@@ -7,8 +7,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_MUKERRER,
-                     DURUM_OK, DURUM_PARSE_SORUNU, DURUM_TUTAR_FARKI,
-                     DURUM_VKN_FARKI, SORUNLU_DURUMLAR)
+                     DURUM_OK, DURUM_ONAYLI, DURUM_PARSE_SORUNU,
+                     DURUM_TUTAR_FARKI, DURUM_VKN_FARKI, SORUNLU_DURUMLAR)
 from ozetler import ba_formu, kdv_dagilim_fatura, kdv_dagilim_muavin
 from utils import tl_format
 
@@ -18,6 +18,7 @@ OK_DOLGU = PatternFill("solid", fgColor="C6EFCE")
 SORUN_DOLGU = PatternFill("solid", fgColor="FFC7CE")
 UYARI_DOLGU = PatternFill("solid", fgColor="FFEB9C")
 TOPLAM_DOLGU = PatternFill("solid", fgColor="D9E1F2")
+ONAYLI_DOLGU = PatternFill("solid", fgColor="D9D9D9")
 INCE_KENAR = Border(
     left=Side(style="thin"), right=Side(style="thin"),
     top=Side(style="thin"), bottom=Side(style="thin"),
@@ -31,6 +32,7 @@ DURUM_RENK = {
     DURUM_CETVELDE_YOK: SORUN_DOLGU,
     DURUM_FATURADA_YOK: SORUN_DOLGU,
     DURUM_PARSE_SORUNU: SORUN_DOLGU,
+    DURUM_ONAYLI: ONAYLI_DOLGU,
 }
 
 DURUM_ADLARI = {
@@ -41,6 +43,7 @@ DURUM_ADLARI = {
     DURUM_FATURADA_YOK: "Faturalarda Yok",
     DURUM_MUKERRER: "Mükerrer",
     DURUM_PARSE_SORUNU: "Okunamadı",
+    DURUM_ONAYLI: "Onaylı Fark",
 }
 
 # Durum görünen adı -> renk (iade gibi harici durumlar için güvenli eşleme)

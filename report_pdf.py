@@ -5,8 +5,8 @@ from fpdf import FPDF
 from fpdf.fonts import FontFace
 
 from matcher import (DURUM_CETVELDE_YOK, DURUM_FATURADA_YOK, DURUM_MUKERRER,
-                     DURUM_OK, DURUM_PARSE_SORUNU, DURUM_TUTAR_FARKI,
-                     DURUM_VKN_FARKI)
+                     DURUM_OK, DURUM_ONAYLI, DURUM_PARSE_SORUNU,
+                     DURUM_TUTAR_FARKI, DURUM_VKN_FARKI)
 from ozetler import ba_formu, kdv_dagilim_fatura, kdv_dagilim_muavin
 from utils import tl_format
 
@@ -27,6 +27,7 @@ KIRMIZI = (255, 199, 206)
 SARI = (255, 235, 156)
 MAVI_ACIK = (217, 225, 242)
 SIRALAMA_GRISI = (242, 242, 242)
+GRI = (217, 217, 217)
 
 DURUM_RENK = {
     DURUM_OK: YESIL,
@@ -35,6 +36,7 @@ DURUM_RENK = {
     DURUM_MUKERRER: SARI,
     DURUM_CETVELDE_YOK: KIRMIZI,
     DURUM_FATURADA_YOK: KIRMIZI,
+    DURUM_ONAYLI: GRI,
 }
 
 DURUM_ADLARI = {
