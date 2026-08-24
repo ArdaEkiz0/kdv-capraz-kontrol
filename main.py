@@ -335,7 +335,8 @@ class KdvKontrolApp:
         araclar = ttk.Frame(self.kok, padding=(10, 4))
         araclar.pack(fill="x")
         araclar_gruplari = [
-            [("🔧 Veri İncele", self.veri_incele_ac), ("📊 Dashboard", self.dashboard_goster),
+            [("👥 Mükellefler", self.mukellefler_ac),
+             ("🔧 Veri İncele", self.veri_incele_ac), ("📊 Dashboard", self.dashboard_goster),
              ("🔎 Filtre", self.gelismis_filtre_ac), ("📏 Kurallar", self.kurallar_pencere_ac)],
             [("🧾 Beyanname", self.beyanname_ac), ("📂 Klasör Cetvel", self.cetvel_klasor_ac)],
             [("Ba/Bs Formu", self.muhtasar_kaydet), ("Excel Raporu", self.rapor_kaydet),
@@ -665,6 +666,11 @@ class KdvKontrolApp:
                       f"(Matrah {tl_format(matrah)}, KDV {tl_format(kdv)}). "
                       "Kalıcı olması için muavin Excel'inize de ekleyin.")
         self._kontrol_hesapla()
+
+    def mukellefler_ac(self):
+        """Mükellef panelini açar; şifreler yalnız yerelde saklanır."""
+        import mukellef_panel
+        mukellef_panel.ac(self)
 
     def veri_incele_ac(self):
         if not self.faturalar and not self.cetvel_kayitlari:

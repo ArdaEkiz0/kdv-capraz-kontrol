@@ -291,6 +291,98 @@ def fatura_excel_parse(dosya_yolu):
     return sonuc
 
 
+def fatura_gib_arsiv_liste_parse(dosya_yolu):
+    """GİB e-Arşiv portalı 'Excel'e Aktar' liste çıktısı.
+
+    Başlıklar: Sıra | Ünvanı/Adı Soyadı | Vergi Kimlik/T.C. Kimlik Numarası |
+    Fatura No | Düzenleme Tarihi | Toplam Tutar | Ödenecek Tutar |
+    Vergiler Toplamı | Para Birimi | ... (DVD 'e-Arşiv Faturalarım' ve
+    earsivportal liste dışa aktarımları). Her satır bir faturadır.
+    Toplam Tutar = KDV hariç matrah, Ödenecek Tutar = genel toplam,
+    Vergiler Toplamı = KDV.
+
+    Format tanınmazsa None döner.
+    """
+    satirlar = excel_satirlar(dosya_yolu)
+    baslik_i = None
+    kolon = {}
+    for i, satir in enumerate(satirlar):
+        normlar = [_norm_baslik(c) for c in satir]
+        if ("FATURA NO" in normlar and "VERGILER TOPLAMI" in normlar
+                and any(n.startswith("DUZENLEME TARIHI") for n in normlar)):
+            baslik_i = i
+            for j, n in enumerate(normlar):
+                if not n:
+                    continue
+                if n == "FATURA NO":
+                    kolon["belge"] = j
+                elif n.startswith("DUZENLEME TARIHI"):
+                    kolon["tarih"] = j
+                elif n.startswith("UNVANI"):
+                    kolon["unvan"] = j
+                elif n.startswith("VERGI KIMLIK"):
+                    kolon["vkn"] = j
+                elif n == "TOPLAM TUTAR":
+                    kolon["matrah"] = j
+                elif n == "ODENECEK TUTAR":
+                    kolon["toplam"] = j
+                elif n == "VERGILER TOPLAMI":
+                    kolon["kdv"] = j
+                elif n == "PARA BIRIMI":
+                    kolon["para"] = j
+            break
+    if baslik_i is None:
+        return None
+
+    sonuc = []
+    for i in range(baslik_i + 1, len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        belge_ham = satir[kolon["belge"]] if kolon["belge"] < len(satir) else None
+        if belge_ham is None or not str(belge_ham).strip():
+            continue
+        kayit = {
+            "dosya": dosya_yolu, "tip": "excel", "satir": i + 1,
+            "belge_no": fatura_no_temizle(str(belge_ham)),
+            "tarih": None, "satici_vkn": None, "alici_vkn": None,
+            "matrah": None, "kdv": None, "toplam": None,
+            "oranlar": [], "notlar": [], "unvan": None, "oran": None,
+        }
+        if "tarih" in kolon and kolon["tarih"] < len(satir):
+            tv = satir[kolon["tarih"]]
+            if tv is not None:
+                t = tarih_parse(str(tv).strip()) or _excel_seri_tarih(tv)
+                kayit["tarih"] = str(t) if t else None
+        if "vkn" in kolon and kolon["vkn"] < len(satir):
+            kayit["satici_vkn"] = vkn_temizle(str(satir[kolon["vkn"]] or ""))
+        if "unvan" in kolon and kolon["unvan"] < len(satir):
+            kayit["unvan"] = str(satir[kolon["unvan"]] or "").strip()[:80] or None
+        for alan in ("matrah", "kdv", "toplam"):
+            if alan in kolon and kolon[alan] < len(satir):
+                kayit[alan] = tutar_parse(satir[kolon[alan]])
+        para = None
+        if "para" in kolon and kolon["para"] < len(satir):
+            para = str(satir[kolon["para"]] or "").strip().upper()
+        if para and para not in ("TRY", "TL"):
+            kayit["notlar"].append(f"Para birimi TRY değil: {para}")
+        if kayit["matrah"] is None or kayit["kdv"] is None:
+            kayit["notlar"].append("Matrah/KDV bulunamadı, manuel kontrol edin")
+        elif kayit["toplam"] is not None \
+                and abs(kayit["matrah"] + kayit["kdv"] - kayit["toplam"]) > Decimal("0.02"):
+            kayit["notlar"].append("Matrah+KDV ≠ Toplam")
+        elif kayit["matrah"] > 0:
+            oran = (kayit["kdv"] / kayit["matrah"] * 100).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP)
+            tahmini = kayit["matrah"] * oran / 100
+            if abs(tahmini - kayit["kdv"]) <= Decimal("0.02") and 0 < oran <= 100:
+                kayit["oranlar"] = [int(oran)]
+        sonuc.append(kayit)
+    if not sonuc:
+        return None
+    return sonuc
+
+
 def fatura_gelen_parse(dosya_yolu):
     """Gelen faturalar Excel formatı (e-fatura portalinden indirilen gönderici faturaları listesi).
 

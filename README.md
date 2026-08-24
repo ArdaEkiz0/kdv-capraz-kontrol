@@ -24,6 +24,8 @@ Farkları, eksikleri ve hataları saniyeler içinde bulun.
 | Özellik | Açıklama |
 |---------|----------|
 | 📄 **Çoklu Format** | e-Fatura XML (UBL), e-Fatura/e-Arşiv PDF, MAHSUP fişi, Excel fatura listeleri ve taranmış belgeler (OCR) |
+| 🧾 **Zenom Muavin Desteği** | Zenom "MUAVİN RAPORU" çıktıları doğrudan cetvel olarak okunur |
+| 👥 **Mükellef Paneli** | Mükellefler arası geçiş; GİB'den e-Arşiv alış faturaları otomatik indirilir ve kontrol başlar. Şifreler yalnız bilgisayarda (DPAPI ile şifreli) saklanır |
 | 🔍 **Akıllı Eşleştirme** | VKN + belge no + tutar ile çapraz kontrol; iade faturaları otomatik ayristirma |
 | 🧮 **KDV Oran Kontrolü** | Faturadaki KDV oranı ↔ cetvel tutarlılığını ayrıca doğrular (%1 / %5 / %10 / %20) |
 | ✂️ **Tevkifat Desteği** | KDV tevkifatlı kayıtları muavin ile oran bazında karşılaştırır |

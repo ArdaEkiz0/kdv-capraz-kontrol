@@ -4,8 +4,8 @@ import zipfile
 from cetvel import cetvel_parse
 from efatura import efatura_parse
 from excel_oku import (cetvel_excel_parse, fatura_excel_parse, fatura_gelen_parse,
-                       muavin_excel_parse, muavin_191_parse, muavin_391_parse,
-                       muavin_zenom_parse,
+                       fatura_gib_arsiv_liste_parse, muavin_excel_parse,
+                       muavin_191_parse, muavin_391_parse, muavin_zenom_parse,
                        muavin_genel_parse)
 from fis_listesi import fis_listesi_cetvel_parse, fis_listesi_parse
 from xml_oku import fatura_xml_parse
@@ -56,6 +56,9 @@ def fatura_dosya_parse(dosya_yolu):
         if sonuc is not None:
             return sonuc
     if uzanti in EXCEL_UZANTILARI:
+        sonuc = fatura_gib_arsiv_liste_parse(dosya_yolu)
+        if sonuc is not None:
+            return sonuc
         sonuc = fatura_gelen_parse(dosya_yolu)
         if sonuc is not None:
             return sonuc
