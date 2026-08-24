@@ -41,6 +41,12 @@ def eslesme_bul(metin, pattern, sayi=1):
     return liste
 
 
+def _tutar_al(parca):
+    if parca and re.search(r"[0-9]", parca):
+        return tutar_parse(parca)
+    return None
+
+
 def sayfa_parse(sayfa_metni):
     sonuc = {
         "belge_no": None,
@@ -68,7 +74,7 @@ def sayfa_parse(sayfa_metni):
     if tarih:
         sonuc["tarih"] = tarih_parse(tarih)
 
-    vkn_listesi = eslesme_bul(metin, r"Vergi\s*Kimlik\s*No\s*:?\s*(\d{10,11})", sayi=0)
+    vkn_listesi = eslesme_bul(metin, r"Vergi\s*Kimlik\s*No\s*:?\s*([0-9OoIilıİ]{10,11})(?![0-9])", sayi=0)
     if vkn_listesi:
         if len(vkn_listesi) >= 2:
             sonuc["satici_vkn"] = vkn_listesi[0]
@@ -76,27 +82,28 @@ def sayfa_parse(sayfa_metni):
         else:
             sonuc["satici_vkn"] = vkn_listesi[0]
 
-    matrah = eslesme_bul(metin, r"(?:Mal\s*/?\s*Hizmet\s*(?:Toplam\s*)?Tutar\w*|Vergi\s*Matrah\w*|KDV\s*Matrah\w*|Ara\s*Toplam)\s*:?\s*([\d\.\,]+)")
+    matrah = eslesme_bul(metin, r"(?:Mal\s*/?\s*Hizmet\s*(?:Toplam\s*)?Tutar\w*|Vergi\s*Matrah\w*|KDV\s*Matrah\w*|Ara\s*Toplam)\s*:?\s*([0-9OolIİı\.\,]+)")
     if matrah:
-        sonuc["matrah"] = tutar_parse(matrah)
+        sonuc["matrah"] = _tutar_al(matrah)
 
-    kdv_listesi = eslesme_bul(metin, r"Hesaplanan\s*KDV\s*(?:\([^)]*\)\s*)?:?\s*([\d\.\,]+)", sayi=0)
+    kdv_listesi = eslesme_bul(metin, r"Hesaplanan\s*KDV\s*(?:\([^)]*\)\s*)?:?\s*([0-9OolIİı\.\,]+)", sayi=0)
     if kdv_listesi:
-        toplam_kdv = sum((tutar_parse(k) or Decimal("0")) for k in kdv_listesi)
+        toplam_kdv = sum((_tutar_al(k) or Decimal("0")) for k in kdv_listesi)
         if toplam_kdv:
             sonuc["kdv"] = toplam_kdv.quantize(Decimal("0.01"))
 
-    toplam = eslesme_bul(metin, r"(?:Ödenecek\s*Tutar|Tahsil\s*Edilecek\s*Tutar|Tahakkuk\s*Edilen)\s*:?\s*([\d\.\,]+)")
+    toplam = eslesme_bul(metin, r"(?:Ödenecek\s*Tutar|Tahsil\s*Edilecek\s*Tutar|Tahakkuk\s*Edilen)\s*:?\s*([0-9OolIİı\.\,]+)")
     if not toplam:
-        toplamlar = eslesme_bul(metin, r"Toplam\s*:?\s*([\d\.\,]+)", sayi=0)
+        toplamlar = eslesme_bul(metin, r"Toplam\s*:?\s*([0-9OolIİı\.\,]+)", sayi=0)
         if toplamlar:
             toplam = toplamlar[-1]
     if toplam:
-        sonuc["toplam"] = tutar_parse(toplam)
+        sonuc["toplam"] = _tutar_al(toplam)
 
-    oranlar = eslesme_bul(metin, r"KDV\s*Oran\w*\s*:?\s*%?\s*(\d{1,2})", sayi=0)
+    oranlar = eslesme_bul(metin, r"KDV\s*Oran\w*\s*:?\s*%?\s*([0-9OolI]{1,2})(?![0-9])", sayi=0)
     if oranlar:
-        sonuc["oranlar"] = sorted(set(int(o) for o in oranlar))
+        degerler = {int(_tutar_al(o) or 0) for o in oranlar if _tutar_al(o)}
+        sonuc["oranlar"] = sorted(d for d in degerler if d > 0)
 
     if sonuc["kdv"] is None and sonuc["toplam"] is not None and sonuc["matrah"] is not None:
         fark = sonuc["toplam"] - sonuc["matrah"]

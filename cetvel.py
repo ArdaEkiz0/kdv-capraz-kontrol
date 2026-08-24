@@ -1,6 +1,6 @@
 import re
 
-from utils import fatura_no_temizle, sayilari_bul, tarih_parse, tutar_parse, vkn_temizle
+from utils import fatura_no_temizle, rakamlara_cevir, sayilari_bul, tarih_parse, tutar_parse, vkn_temizle
 from efatura import pdf_metni_al
 
 HARFLI_RAKAM = r"A-Za-z0-9ÇĞİÖŞÜçğıöşü\-/"
@@ -16,11 +16,12 @@ def hucre_sinifla(hucre):
     h = hucre.strip()
     if not h:
         return None, None
-    if VKN_DESENI.fullmatch(h):
-        return "vkn", h
+    h_rakam = rakamlara_cevir(h)
+    if re.search(r"[0-9]", h_rakam) and VKN_DESENI.fullmatch(h_rakam):
+        return "vkn", h_rakam
     if TARIH_DESENI.fullmatch(h) and "," not in h:
         return "tarih", tarih_parse(h)
-    h_temiz = h.replace("(", "0").replace(")", "0").replace("O", "0").replace("l", "1")
+    h_temiz = rakamlara_cevir(h.replace("(", "0").replace(")", "0"))
     if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d{1,2})|\d+,\d{1,2}", h_temiz):
         return "tutar", tutar_parse(h_temiz)
     if BELGE_DESENI.fullmatch(h) and not SIRA_DESENI.fullmatch(h):
@@ -28,7 +29,7 @@ def hucre_sinifla(hucre):
         rakam = sum(1 for c in h if c.isdigit())
         if harf and rakam >= 4:
             return "belge", fatura_no_temizle(h)
-        if harf == 0 and 7 <= rakam <= 12 and not VKN_DESENI.fullmatch(h):
+        if harf == 0 and 7 <= rakam <= 12 and not VKN_DESENI.fullmatch(h_rakam):
             return "belge", fatura_no_temizle(h)
     if SIRA_DESENI.fullmatch(h) and len(h) <= 4:
         return "sira", None
@@ -100,15 +101,20 @@ def blob_parse_fallback(satir_metni):
         "unvan": None,
         "notlar": [],
     }
-    vkn_m = VKN_DESENI.search(satir_metni)
-    if vkn_m:
+    satir_rakam = rakamlara_cevir(satir_metni)
+    vkn_m = VKN_DESENI.search(satir_rakam)
+    if vkn_m and re.search(r"[0-9]", vkn_m.group(0)):
         kayit["vkn"] = vkn_m.group(0)
     tarih_m = TARIH_DESENI.search(satir_metni)
     if tarih_m:
         kayit["tarih"] = tarih_parse(tarih_m.group(0))
     temiz = re.sub(r"\d{1,2}[./\-]\d{1,2}[./\-]\d{4}", " ", satir_metni)
     if kayit["vkn"]:
-        temiz = re.sub(re.escape(kayit["vkn"]), " ", temiz)
+        vkn_kaliplari = "".join(
+            "[0Oo]" if c == "0" else "[1Ilıİi]" if c == "1" else re.escape(c)
+            for c in kayit["vkn"]
+        )
+        temiz = re.sub(r"(?<![0-9])" + vkn_kaliplari + r"(?![0-9])", " ", temiz)
     tutarlar = sayilari_bul(temiz)
     if len(tutarlar) >= 2:
         kayit["matrah"] = tutarlar[-2]
@@ -187,7 +193,7 @@ def _kayitlari_ayikla(metin):
     gruplar = []
     mevcut = []
     for satir in satirlar:
-        if VKN_DESENI.search(satir):
+        if VKN_DESENI.search(rakamlara_cevir(satir)):
             if mevcut:
                 gruplar.append(mevcut)
             mevcut = [satir]
