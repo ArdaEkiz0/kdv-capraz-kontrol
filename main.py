@@ -593,6 +593,7 @@ class KdvKontrolApp:
             self.cetvel_kayitlari,
             yeniden_kontrol_callback=self._kontrol_hesapla,
             log_callback=self._log_yaz,
+            sonuc_satirlari=getattr(self, "sonuc_satirlari", None),
         )
 
     def fatura_sec(self):
