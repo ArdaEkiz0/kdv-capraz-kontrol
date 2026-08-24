@@ -1,4 +1,6 @@
 """Bir sonuç satırına çift tıklandığında: ilgili faturanın tüm detayları."""
+import os
+import threading
 import tkinter as tk
 from tkinter import ttk
 from typing import Dict
@@ -7,15 +9,17 @@ from utils import tl_format
 
 
 class FaturaDetayPencere(tk.Toplevel):
-    """Bir sonuç satırının detaylı görüntüsü."""
+    """Bir sonuç satırının detaylı görüntüsü + PDF önizleme."""
 
     def __init__(self, parent, fatura: Dict, sonuc: Dict):
         super().__init__(parent)
         self.fatura = fatura
         self.sonuc = sonuc
         self.title(f"Fatura Detayı - {sonuc.get('belge_no') or '-'}")
-        self.geometry("600x500")
+        self.geometry("1020x600")
+        self.minsize(860, 520)
         self.transient(parent)
+        self._gorsel = None
         self._arayuz_kur()
 
     def _arayuz_kur(self):
@@ -40,7 +44,14 @@ class FaturaDetayPencere(tk.Toplevel):
             baslik.configure(cursor="hand2")
             baslik.bind("<Button-1>", lambda e: self._panoya_kopyala(belge_no, kopyala_buton))
 
-        bilgi = ttk.LabelFrame(ana, text="📋 Temel Bilgiler", padding=8)
+        govde = ttk.Frame(ana)
+        govde.pack(fill="both", expand=True)
+
+        # ---- Sol: metin detayları ----
+        sol = ttk.Frame(govde)
+        sol.pack(side="left", fill="both", expand=True, padx=(0, 10))
+
+        bilgi = ttk.LabelFrame(sol, text="📋 Temel Bilgiler", padding=8)
         bilgi.pack(fill="x", pady=(0, 8))
 
         f = self.fatura
@@ -77,7 +88,7 @@ class FaturaDetayPencere(tk.Toplevel):
 
         detay = f.get("vergi_detay") or []
         if detay:
-            detay_frame = ttk.LabelFrame(ana, text="📊 Oran Bazlı KDV Detayı", padding=8)
+            detay_frame = ttk.LabelFrame(sol, text="📊 Oran Bazlı KDV Detayı", padding=8)
             detay_frame.pack(fill="both", expand=True, pady=(0, 8))
 
             cols = ("ad", "oran", "matrah", "kdv", "muafiyet")
@@ -105,18 +116,87 @@ class FaturaDetayPencere(tk.Toplevel):
 
         notlar = f.get("notlar") or []
         if notlar:
-            not_frame = ttk.LabelFrame(ana, text="⚠️ Notlar", padding=8)
+            not_frame = ttk.LabelFrame(sol, text="⚠️ Notlar", padding=8)
             not_frame.pack(fill="x", pady=(0, 8))
             for n in notlar:
                 ttk.Label(not_frame, text="• " + n, foreground="#B00000").pack(anchor="w")
 
         detay_metin = self.sonuc.get("detay") or ""
         if detay_metin:
-            detay_frame = ttk.LabelFrame(ana, text="🔍 Eşleşme Detayı", padding=8)
-            detay_frame.pack(fill="x")
-            ttk.Label(detay_frame, text=detay_metin, wraplength=550).pack(anchor="w")
+            eslesme_frame = ttk.LabelFrame(sol, text="🔍 Eşleşme Detayı", padding=8)
+            eslesme_frame.pack(fill="x")
+            ttk.Label(eslesme_frame, text=detay_metin, wraplength=480).pack(anchor="w")
 
-        ttk.Button(ana, text="Kapat", command=self.destroy).pack(pady=(8, 0))
+        # ---- Sağ: PDF önizleme ----
+        onizleme = ttk.LabelFrame(govde, text="🖼 Fatura Görseli (sayfa 1)", padding=6)
+        onizleme.pack(side="left", fill="both", expand=False)
+        onizleme.configure(width=430)
+        onizleme.pack_propagate(False)
+
+        self._onizleme_etiket = tk.Label(onizleme, bg="#f1f5f9",
+                                         text="Yükleniyor...", fg="#64748b",
+                                         font=("Segoe UI", 9))
+        self._onizleme_etiket.pack(fill="both", expand=True)
+
+        kaynak = str(f.get("dosya") or "")
+        if kaynak.lower().endswith(".pdf") and os.path.exists(kaynak):
+            self._yuklenen = None
+            self._yukleme_hata = None
+            threading.Thread(target=self._onizleme_yukle, args=(kaynak,), daemon=True).start()
+            self._onizleme_yokle()
+        else:
+            sebep = "Excel/XML kaynağı — görsel yok" if not kaynak.lower().endswith(".pdf") \
+                else "PDF dosyası bulunamadı"
+            self._onizleme_etiket.configure(text=f"Önizleme yok\n({sebep})")
+
+        alt = ttk.Frame(ana)
+        alt.pack(fill="x", pady=(8, 0))
+        ttk.Button(alt, text="📂 Dosyayı Aç",
+                   command=lambda: self._dosya_ac(kaynak)).pack(side="left")
+        ttk.Button(alt, text="Kapat", command=self.destroy).pack(side="right")
+
+    def _onizleme_yokle(self):
+        """Ana thread'de çalışan yoklama döngüsü (işçi thread'i bekler)."""
+        if not self.winfo_exists():
+            return
+        if self._yuklenen is not None:
+            self._onizleme_uygula(self._yuklenen)
+            return
+        if self._yukleme_hata is not None:
+            self._onizleme_etiket.configure(text=f"Önizleme yüklenemedi\n({self._yukleme_hata})")
+            return
+        self.after(120, self._onizleme_yokle)
+
+    def _onizleme_yukle(self, pdf_yolu):
+        """İşçi thread: yalnızca hesaplar, hiçbir Tk çağrısı yapmaz."""
+        try:
+            from ocr import sayfa_gorsel
+            gorsel = sayfa_gorsel(pdf_yolu, 0)
+            if gorsel is None:
+                raise ValueError("görsel üretilemedi")
+            genislik, yukseklik = gorsel.size
+            olcek = min(400.0 / max(genislik, 1), 540.0 / max(yukseklik, 1), 1.0)
+            if olcek < 1.0:
+                gorsel = gorsel.resize((int(genislik * olcek), int(yukseklik * olcek)))
+            self._yuklenen = gorsel
+        except Exception as hata:
+            self._yukleme_hata = str(hata) or hata.__class__.__name__
+
+    def _onizleme_uygula(self, gorsel):
+        try:
+            from PIL import ImageTk
+            foto = ImageTk.PhotoImage(gorsel)
+            self._gorsel = foto
+            self._onizleme_etiket.configure(image=foto, text="")
+        except Exception as hata:
+            self._onizleme_etiket.configure(text=f"Önizleme yüklenemedi\n({hata})")
+
+    def _dosya_ac(self, yol):
+        if yol and os.path.exists(yol):
+            try:
+                os.startfile(yol)
+            except OSError:
+                pass
 
     def _panoya_kopyala(self, metin, buton=None):
         self.clipboard_clear()

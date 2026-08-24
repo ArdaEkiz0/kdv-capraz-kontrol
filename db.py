@@ -269,3 +269,32 @@ def db_al() -> KdvDatabase:
     if _db is None:
         _db = KdvDatabase()
     return _db
+
+
+YEDEK_ADET = 14
+
+
+def gunluk_yedek():
+    """Veritabanını günde bir kez ~/.kdv_kontrol/yedek/ altına kopyalar.
+
+    Aynı gün içinde tekrar çağrılırsa üzerine yazar (günde 1 yedek).
+    En eski {YEDEK_ADET} adetten fazlası silinir. Başarılıysa True döner.
+    """
+    import shutil
+    try:
+        kaynak = DB_YOLU
+        if not kaynak.exists():
+            return False
+        hedef_klasor = kaynak.parent / "yedek"
+        hedef_klasor.mkdir(parents=True, exist_ok=True)
+        bugun = datetime.now().strftime("%Y%m%d")
+        shutil.copy2(kaynak, hedef_klasor / f"history_{bugun}.db")
+        yedekler = sorted(hedef_klasor.glob("history_*.db"))
+        for eski in yedekler[:-YEDEK_ADET]:
+            try:
+                eski.unlink()
+            except OSError:
+                pass
+        return True
+    except Exception:
+        return False

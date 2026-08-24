@@ -60,7 +60,39 @@ class VeriIncelePenceresi(tk.Toplevel):
         self.title("Veriyi İncele & Düzelt")
         self.geometry("1150x680")
         self.transient(parent)
+        self._geri_yigin = []
         self._arayuz_kur()
+
+    # ---------- Geri alma ----------
+    def _anlik_yedek_al(self):
+        """Düzenleme öncesi tüm listelerin kopyasını yığına alır (en fazla 20)."""
+        import copy
+        self._geri_yigin.append(copy.deepcopy((self.faturalar, self.cetvel_kayitlari)))
+        if len(self._geri_yigin) > 20:
+            self._geri_yigin.pop(0)
+        if hasattr(self, "geri_buton"):
+            self.geri_buton.configure(
+                text=f"↩ Geri Al ({len(self._geri_yigin)})")
+
+    def _geri_al(self):
+        import copy
+        if not self._geri_yigin:
+            return
+        faturalar, cetvel = self._geri_yigin.pop()
+        self.faturalar[:] = copy.deepcopy(faturalar)
+        self.cetvel_kayitlari[:] = copy.deepcopy(cetvel)
+        if hasattr(self, "geri_buton"):
+            self.geri_buton.configure(
+                text=f"↩ Geri Al ({len(self._geri_yigin)})" if self._geri_yigin else "↩ Geri Al")
+        self._fatura_listesini_doldur()
+        self._muavin_listesini_doldur()
+        if self.yeniden_kontrol_callback:
+            try:
+                self.yeniden_kontrol_callback()
+            except Exception:
+                pass
+        if self.log_callback:
+            self.log_callback("Veri incele: son işlem geri alındı.")
 
     def _arayuz_kur(self):
         ana = ttk.Frame(self, padding=8)
@@ -82,7 +114,10 @@ class VeriIncelePenceresi(tk.Toplevel):
 
         alt = ttk.Frame(ana)
         alt.pack(fill="x", pady=(6, 0))
-        ttk.Button(alt, text="Kontrolü Yeniden Çalıştır", command=self._yeniden_kontrol).pack(side="left")
+        self.geri_buton = ttk.Button(alt, text="↩ Geri Al", command=self._geri_al)
+        self.geri_buton.pack(side="left")
+        ttk.Button(alt, text="Kontrolü Yeniden Çalıştır", command=self._yeniden_kontrol).pack(
+            side="left", padx=(6, 0))
         ttk.Label(alt, text="Değişiklikler bellek içinde uygulanır.", foreground="#666666").pack(
             side="left", padx=10)
 
@@ -246,6 +281,7 @@ class VeriIncelePenceresi(tk.Toplevel):
         self._fatura_dosya_buton.configure(state="normal" if f.get("dosya") else "disabled")
 
     def _fatura_kaydet(self):
+        self._anlik_yedek_al()
         f = self._secili_fatura()
         if f is None:
             messagebox.showwarning("Uyarı", "Önce bir fatura satırı seçin.", parent=self)
@@ -268,6 +304,7 @@ class VeriIncelePenceresi(tk.Toplevel):
         messagebox.showinfo("Tamam", "Fatura güncellendi.", parent=self)
 
     def _fatura_sil(self):
+        self._anlik_yedek_al()
         f = self._secili_fatura()
         if f is None:
             return
@@ -423,6 +460,7 @@ class VeriIncelePenceresi(tk.Toplevel):
             girdi.insert(0, str(c.get(anahtar) if c.get(anahtar) is not None else ""))
 
     def _muavin_kaydet(self):
+        self._anlik_yedek_al()
         c = self._secili_muavin()
         if c is None:
             messagebox.showwarning("Uyarı", "Önce bir muavin satırı seçin.", parent=self)
@@ -463,6 +501,7 @@ class VeriIncelePenceresi(tk.Toplevel):
         messagebox.showinfo("Tamam", "Muavin kaydı eklendi.", parent=self)
 
     def _muavin_sil(self):
+        self._anlik_yedek_al()
         c = self._secili_muavin()
         if c is None:
             return

@@ -1,6 +1,9 @@
 import os
+import shutil
+import tempfile
 import threading
 import tkinter as tk
+import zipfile
 from datetime import datetime
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -135,8 +138,13 @@ class KdvKontrolApp:
 
         try:
             self.db = db_al()
-        except Exception as hata:
+        except Exception:
             self.db = None
+        try:
+            from db import gunluk_yedek
+            self._db_yedek_durumu = gunluk_yedek()
+        except Exception:
+            self._db_yedek_durumu = False
             print(f"DB bağlanamadı: {hata}")
 
         try:
@@ -331,7 +339,8 @@ class KdvKontrolApp:
              ("🔎 Filtre", self.gelismis_filtre_ac), ("📏 Kurallar", self.kurallar_pencere_ac)],
             [("🧾 Beyanname", self.beyanname_ac), ("📂 Klasör Cetvel", self.cetvel_klasor_ac)],
             [("Ba/Bs Formu", self.muhtasar_kaydet), ("Excel Raporu", self.rapor_kaydet),
-             ("PDF Raporu", self.rapor_pdf_kaydet), ("✉ Mail", self.mail_gonder_ac)],
+             ("PDF Raporu", self.rapor_pdf_kaydet), ("📦 Muhasebeci Paketi", self.muhasebeci_paketi),
+             ("✉ Mail", self.mail_gonder_ac)],
         ]
         for i, grup in enumerate(araclar_gruplari):
             if i:
@@ -385,6 +394,7 @@ class KdvKontrolApp:
         tablo_alan.columnconfigure(0, weight=1)
 
         self.guncelleme_bilgisi = None
+        self.kok.after(1000, self._aylik_rutin_oner)
         self.kok.after(1500, self._otomatik_guncelleme_kontrol)
 
     def _log_yaz(self, metin):
@@ -1344,6 +1354,123 @@ class KdvKontrolApp:
                 os.startfile(hedef)
         except Exception as hata:
             messagebox.showerror("Hata", f"PDF raporu kaydedilemedi:\n{hata}")
+
+    # ---------- Muhasebeci paketi ----------
+    def muhasebeci_paketi(self):
+        if not self.sonuc_satirlari or not self.ozet:
+            messagebox.showwarning("Uyarı", "Önce kontrol çalıştırın.")
+            return
+        varsayilan = f"Muhasebeci_Paketi_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+        hedef = filedialog.asksaveasfilename(
+            title="Muhasebeci Paketi Kaydet", defaultextension=".zip",
+            initialfile=varsayilan, filetypes=[("Zip Arşiv", "*.zip")])
+        if not hedef:
+            return
+        calisma = None
+        try:
+            self._log_yaz("Muhasebeci paketi hazırlanıyor...")
+            self.kok.configure(cursor="watch")
+            self.kok.update_idletasks()
+
+            calisma = tempfile.mkdtemp(prefix="muhasebeci_")
+            excel_yolu = os.path.join(calisma, "KDV_Kontrol_Raporu.xlsx")
+            pdf_yolu = os.path.join(calisma, "KDV_Kontrol_Raporu.pdf")
+            rapor_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
+                          self.cetvel_kayitlari, excel_yolu, gecmis_bilgi=self.gecmis_bilgi)
+            try:
+                rapor_pdf_olustur(self.sonuc_satirlari, self.ozet, self.faturalar,
+                                  self.cetvel_kayitlari, pdf_yolu,
+                                  gecmis_bilgi=self.gecmis_bilgi)
+            except Exception as hata:
+                self._log_yaz(f"PDF rapor atlandı: {hata}")
+                if os.path.exists(pdf_yolu):
+                    os.remove(pdf_yolu)
+
+            sorunlu_klasor = os.path.join(calisma, "Sorunlu_Faturalar")
+            os.makedirs(sorunlu_klasor, exist_ok=True)
+            kullanilan = set()
+            kopyalanan = 0
+            for r in self.sonuc_satirlari:
+                if r["durum"] not in SORUNLU_DURUMLAR:
+                    continue
+                if not str(r.get("kaynak") or "").startswith("Fatura"):
+                    continue
+                fatura = next((f for f in self.faturalar
+                               if (f.get("belge_no") or "") == r.get("belge_no")), None)
+                yol = str((fatura or {}).get("dosya") or "")
+                if not yol or not os.path.exists(yol):
+                    continue
+                temiz = "".join(h if h.isalnum() or h in "-_" else "_"
+                                for h in (r.get("belge_no") or "belgesiz"))
+                uzanti = os.path.splitext(yol)[1] or ".pdf"
+                ad = f"{temiz}{uzanti}"
+                sayac = 2
+                while ad.lower() in kullanilan:
+                    ad = f"{temiz}_{sayac}{uzanti}"
+                    sayac += 1
+                kullanilan.add(ad.lower())
+                shutil.copy2(yol, os.path.join(sorunlu_klasor, ad))
+                kopyalanan += 1
+
+            bilgi_satirlari = [
+                "KDV Çapraz Kontrol - Muhasebeci Paketi",
+                f"Olusturma: {datetime.now().strftime('%d.%m.%Y %H:%M')} | Surum: {SURUM}",
+                "",
+                f"Toplam sonuc satiri: {len(self.sonuc_satirlari)}",
+            ]
+            for anahtar, etiket in (("eslesen", "Eslesen"), ("tutar_farki", "Tutar farki"),
+                                    ("cetvelde_yok", "Cetvelde yok"), ("faturada_yok", "Faturada yok"),
+                                    ("vkn_farki", "VKN farki"), ("mukerrer", "Mukerrer"),
+                                    ("tevkifatli", "Tevkifatli"), ("onayli_fark", "Onayli fark")):
+                bilgi_satirlari.append(f"{etiket}: {self.ozet.get(anahtar, 0)}")
+            bilgi_satirlari.append("")
+            bilgi_satirlari.append(f"Sorunlu fatura kopyasi: {kopyalanan} dosya (Sorunlu_Faturalar klasoru)")
+            with open(os.path.join(calisma, "BILGI.txt"), "w", encoding="utf-8") as fh:
+                fh.write("\n".join(bilgi_satirlari))
+
+            with zipfile.ZipFile(hedef, "w", zipfile.ZIP_DEFLATED) as zf:
+                for kok_dizin, _, dosyalar in os.walk(calisma):
+                    for d in dosyalar:
+                        tam = os.path.join(kok_dizin, d)
+                        zf.write(tam, os.path.relpath(tam, calisma))
+            messagebox.showinfo(
+                "Başarılı",
+                f"Muhasebeci paketi kaydedildi:\n{hedef}\n\n"
+                f"• Excel + PDF rapor\n• {kopyalanan} sorunlu fatura kopyası")
+            self._log_yaz(f"Muhasebeci paketi kaydedildi: {hedef} ({kopyalanan} sorunlu fatura kopyası)")
+            if messagebox.askyesno("Aç", "Paketin klasörü açılsın mı?"):
+                os.startfile(os.path.dirname(os.path.abspath(hedef)))
+        except Exception as hata:
+            messagebox.showerror("Hata", f"Paket oluşturulamadı:\n{hata}")
+        finally:
+            self.kok.configure(cursor="")
+            if calisma:
+                shutil.rmtree(calisma, ignore_errors=True)
+
+    # ---------- Aylık rutin ----------
+    def _aylik_rutin_oner(self):
+        try:
+            if getattr(self, "_db_yedek_durumu", False):
+                self._log_yaz("Veritabanı günlük yedeği alındı (~/.kdv_kontrol/yedek).")
+                self._db_yedek_durumu = False
+            if self.fatura_dosyalari or self.cetvel_dosyalari:
+                return
+            dosyalar = [p for p in (getattr(self, "son_faturalar", []) or []) if os.path.exists(p)]
+            cetveller = [p for p in (getattr(self, "son_cetveller", []) or []) if os.path.exists(p)]
+            if not dosyalar and not cetveller:
+                return
+            cevap = messagebox.askyesno(
+                "Aylık Kontrol",
+                "Son kontrolde kullanılan dosyalar hazır:\n"
+                f"• {len(dosyalar)} fatura dosyası\n• {len(cetveller)} cetvel dosyası\n\n"
+                "Kontrolü şimdi başlatmak ister misiniz?")
+            if cevap:
+                self.fatura_dosyalari = dosyalar
+                self.cetvel_dosyalari = cetveller
+                self._dosya_etiketi_guncelle()
+                self.kontrol_baslat()
+        except Exception:
+            pass
 
 
 def main():
