@@ -128,6 +128,17 @@ def giris_yap(sayfa, uye_no, kullanici, parola, bildir):
         f"doğrulama isteniyor olabilir.{detay}")
 
 
+def _aktif_sayfa(oturum, mevcut):
+    """Yeni sekme/pop-up açıldıysa ona geçer; aksi halde mevcudu döndürür."""
+    try:
+        sayfalar = [s for s in oturum.pages if not s.is_closed()]
+        if sayfalar and sayfalar[-1] is not mevcut:
+            return sayfalar[-1]
+    except Exception:
+        pass
+    return mevcut
+
+
 def _menu_elemani_tikla(sayfa, desen, aciklama, bildir, zaman_asimi=6):
     """Metni desene uyan ilk görünür öğeye tıklar; başarıda True döner."""
     derleme = re.compile(desen, re.IGNORECASE)
@@ -214,20 +225,29 @@ def _indir_butonu_tikla(sayfa, desenler, zaman_asimi=8):
     return False
 
 
-def _hesap_alanini_doldur(sayfa, hesap_kodu):
+def _hesap_alanlarini_doldur(sayfa, hesap_kodu):
+    """Başlangıç ve Bitiş hesap kodu alanlarını aynı kodla doldurur.
+
+    Luca muavin raporunda aralık iki alandır; her ikisine de aynı kodu
+    yazmak (örn. 191 -> 191) yalnız o hesabın dökümünü verir.
+    """
+    doldurulan = 0
     for secici in ("input[name*='Hesap' i]", "input[id*='Hesap' i]",
                    "input[name*='hesap']", "input[id*='hesap']"):
         try:
-            for oge in sayfa.query_selector_all(secici):
-                try:
-                    if oge.is_visible() and not (oge.input_value() or "").strip():
-                        oge.fill(hesap_kodu, force=True)
-                        return True
-                except Exception:
-                    continue
+            ogeler = sayfa.query_selector_all(secici)
         except Exception:
             continue
-    return False
+        for oge in ogeler:
+            try:
+                if oge.is_visible() and not (oge.input_value() or "").strip():
+                    oge.fill(hesap_kodu, force=True)
+                    doldurulan += 1
+                    if doldurulan >= 2:
+                        return True
+            except Exception:
+                continue
+    return doldurulan > 0
 
 
 def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
@@ -251,19 +271,27 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                                       accept_downloads=True)
         sayfa = oturum.new_page()
         try:
-            giris_yap(sayfa, uye_no, kullanici, parola, bildir)
+            sayfa = giris_yap(sayfa, uye_no, kullanici, parola, bildir)
             sayfa.wait_for_timeout(2500)
 
-            if not _menu_elemani_tikla(sayfa, r"muavin", "Menü",
-                                       bildir, zaman_asimi=8):
+            # Modul/menu gezinmesi: Genel Muhasebe -> Raporlar -> Muavin
+            if _menu_elemani_tikla(sayfa, r"genel\s*muhasebe", "Modül",
+                                   bildir, zaman_asimi=4):
+                sayfa = _aktif_sayfa(oturum, sayfa)
+                sayfa.wait_for_timeout(1500)
+            if _menu_elemani_tikla(sayfa, r"^raporlar?\b", "Menü", bildir,
+                                   zaman_asimi=3):
+                sayfa = _aktif_sayfa(oturum, sayfa)
+                sayfa.wait_for_timeout(1000)
+            if not _menu_elemani_tikla(sayfa, r"muavin\s*defter|muavin",
+                                       "Rapor", bildir, zaman_asimi=8):
                 ekran = _hata_ekrani_kaydet(sayfa, "menu")
                 detay = f" Ekran görüntüsü: {ekran}" if ekran else ""
                 raise LucaHata(
                     "Luca menüsünde 'Muavin' bağlantısı bulunamadı. Uygulama "
                     "menüsü farklı olabilir." + detay)
+            sayfa = _aktif_sayfa(oturum, sayfa)
             sayfa.wait_for_timeout(1500)
-            _menu_elemani_tikla(sayfa, r"(muavin\s*defter|muavin\s*dök)",
-                                "Rapor", bildir, zaman_asimi=5)
 
             for hesap in hesap_kodlari:
                 donem_etiketi = bas_tarih.strftime("%Y%m")
@@ -274,30 +302,45 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                     bildir(f"Hesap {hesap} muavini sorgulanıyor...")
                     _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih,
                                              bildir)
-                    _hesap_alanini_doldur(sayfa, hesap)
-                    if not _indir_butonu_tikla(
-                            sayfa, (r"^liste$", r"listele", r"sorgula",
-                                    r"getir", r"döküm\s*al")):
-                        bildir("UYARI: Liste/sorgu düğmesi bulunamadı.")
-                    sayfa.wait_for_timeout(3500)
-                    indirdi = False
+                    _hesap_alanlarini_doldur(sayfa, hesap)
+                    # Rapor Türü seçimi: varsa Excel'i işaretle
+                    excel_secildi = _indir_butonu_tikla(
+                        sayfa, (r"^excel$",), zaman_asimi=2)
+                    if excel_secildi:
+                        bildir("Rapor türü Excel olarak seçildi.")
+                    raporda_indi = False
                     try:
-                        with sayfa.expect_download(timeout=20000) as indirme:
-                            if not _indir_butonu_tikla(
-                                    sayfa, (r"excel", r"\bxls\b", r"aktar",
-                                            r"rapor\s*al", r"döküm\s*al")):
-                                raise RuntimeError(
-                                    "Excel/döküm düğmesi bulunamadı")
+                        with sayfa.expect_download(timeout=25000) as indirme:
+                            _indir_butonu_tikla(
+                                sayfa, (r"^rapor$", r"^liste$", r"listele",
+                                        r"sorgula", r"getir"),
+                                zaman_asimi=6)
                         dosya = indirme.value
                         dosya.save_as(hedef)
                         dosyalar.append(hedef)
-                        indirdi = True
+                        raporda_indi = True
                         bildir(f"İndirildi: {os.path.basename(hedef)}")
-                    except Exception as hata:
-                        bildir(f"Hesap {hesap}: döküm alınamadı "
-                               f"({str(hata)[:70]}).")
-                    finally:
-                        if not indirdi:
+                    except Exception:
+                        pass
+                    if not raporda_indi:
+                        # Rapor ekranda açıldı; ayrı Excel/döküm düğmesi ara
+                        try:
+                            with sayfa.expect_download(
+                                    timeout=20000) as indirme:
+                                if not _indir_butonu_tikla(
+                                        sayfa, (r"excel", r"\bxls\b",
+                                                r"aktar", r"döküm\s*al")):
+                                    raise RuntimeError(
+                                        "Excel/döküm düğmesi bulunamadı")
+                            dosya = indirme.value
+                            dosya.save_as(hedef)
+                            dosyalar.append(hedef)
+                            raporda_indi = True
+                            bildir(f"İndirildi: {os.path.basename(hedef)}")
+                        except Exception as hata:
+                            bildir(f"Hesap {hesap}: döküm alınamadı "
+                                   f"({str(hata)[:70]}).")
+                        if not raporda_indi:
                             _hata_ekrani_kaydet(sayfa, f"rapor_{hesap}")
                 except LucaHata:
                     raise
