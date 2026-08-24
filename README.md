@@ -25,8 +25,8 @@ Farkları, eksikleri ve hataları saniyeler içinde bulun.
 |---------|----------|
 | 📄 **Çoklu Format** | e-Fatura XML (UBL), e-Fatura/e-Arşiv PDF, MAHSUP fişi, Excel fatura listeleri ve taranmış belgeler (OCR) |
 | 🧾 **Zenom Muavin Desteği** | Zenom "MUAVİN RAPORU" çıktıları doğrudan cetvel olarak okunur |
-| 💼 **Luca / Türmob Desteği** | Luca "MUAVİN DEFTER" ve fiş dökümü çıktıları doğrudan cetvel olarak okunur |
-| 👥 **Mükellef Paneli** | Mükellefler arası geçiş; GİB'den e-Arşiv alış faturaları otomatik indirilir ve kontrol başlar. Şifreler yalnız bilgisayarda (DPAPI ile şifreli) saklanır |
+| 💼 **Luca / Türmob Desteği** | Luca "MUAVİN DEFTER" ve fiş dökümü çıktıları doğrudan cetvel olarak okunur; entegratör bilgileri girildiyse 191/391 muavini Luca'dan otomatik çekilir |
+| 👥 **Mükellef Paneli** | Mükellefler arası geçiş; GİB'den e-Arşiv alış faturaları otomatik indirilir ve kontrol başlar. Muavin dosyaları dönem bazında hatırlanır ve sonraki çekimlerde otomatik atanır. Şifreler yalnız bilgisayarda (DPAPI ile şifreli) saklanır |
 | ⚡ **GİB Hızlı Doğrulama** | e-Arşiv REST API ile kullanıcı kodu/şifre çekim öncesinde saniyeler içinde doğrulanır; boş dönemlerde tarayıcı hiç açılmaz |
 | 🔍 **Akıllı Eşleştirme** | VKN + belge no + tutar ile çapraz kontrol; iade faturaları otomatik ayristirma |
 | 🧮 **KDV Oran Kontrolü** | Faturadaki KDV oranı ↔ cetvel tutarlılığını ayrıca doğrular (%1 / %5 / %10 / %20) |

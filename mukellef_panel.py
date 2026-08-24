@@ -1,11 +1,13 @@
-"""Mükellefler paneli: profiller, yerel şifreli saklama ve otomatik GİB çekimi."""
+"""Mükellefler paneli: profiller, yerel şifreli saklama ve otomatik GİB/Luca çekimi."""
 import calendar
+import os
 import threading
 import tkinter as tk
 from datetime import date
 from tkinter import filedialog, messagebox, ttk
 
 import gib_cekme
+import luca_cekme
 import mukellefler
 
 AYLAR = [(str(a), a) for a in range(1, 13)]
@@ -66,6 +68,7 @@ class MukellefPaneli(tk.Toplevel):
             ("ivd_sifre", "IVD Şifre", "•"),
             ("ent_kullanici", "Entegratör Kullanıcı", ""),
             ("ent_sifre", "Entegratör Şifre", "•"),
+            ("luca_uye", "Luca Üye Numarası", ""),
             ("not", "Not", ""),
         ]
         for i, (anahtar, etiket, maske) in enumerate(satirlar):
@@ -93,7 +96,9 @@ class MukellefPaneli(tk.Toplevel):
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
         tk.Label(kart, text=("GİB'ten yalnız e-Arşiv alış faturaları otomatik "
                              "çekilir (e-Fatura için e-İmza/entegratör gerekir). "
-                             "Sorgu geriye en fazla 2 ay."), wraplength=700,
+                             "Sorgu geriye en fazla 2 ay. Entegratör 'Luca / "
+                             "Türmob' seçiliyse 191/391 muavini Luca'dan "
+                             "çekilir."), wraplength=700,
                  justify="left", fg="#555555").pack(anchor="w")
         satir = tk.Frame(kart)
         satir.pack(fill="x", pady=(6, 0))
@@ -107,7 +112,11 @@ class MukellefPaneli(tk.Toplevel):
                                width=6)
         self.yil.set(date.today().year)
         self.yil.pack(side="left", padx=(2, 16))
-        self.durum = tk.Label(satir, text="", fg="#2563eb", wraplength=380,
+        self.kayitli_muavin = tk.BooleanVar(value=True)
+        ttk.Checkbutton(satir, text="Kayıtlı muavinleri otomatik kullan",
+                        variable=self.kayitli_muavin).pack(side="left",
+                                                           padx=(0, 10))
+        self.durum = tk.Label(satir, text="", fg="#2563eb", wraplength=300,
                               justify="left")
         self.durum.pack(side="left", fill="x", expand=True)
         self.cek_butonu = tk.Button(satir, text="📥 Faturaları Çek ve Kontrol Et",
@@ -200,6 +209,44 @@ class MukellefPaneli(tk.Toplevel):
                 self.liste.selection_set(self.secili_id)
                 self.liste.see(self.secili_id)
 
+    # ---------- muavin hatirlama ----------
+
+    def _secili_kayit(self, degerler):
+        if self.secili_id:
+            for m in self.mukellefler:
+                if m["id"] == self.secili_id:
+                    return m
+        kimlik = degerler.get("vkn") or degerler.get("gib_tc")
+        for m in self.mukellefler:
+            if (degerler.get("vkn") and m.get("vkn") == degerler["vkn"]) or \
+               (kimlik and (m.get("vkn") == kimlik
+                            or m.get("gib_tc") == kimlik)):
+                return m
+        return None
+
+    def _kayitli_cetveller(self, kayit, donem_anahtari):
+        if not kayit:
+            return []
+        tumu = kayit.get("cetveller") or {}
+        yollar = [y for y in (tumu.get(donem_anahtari) or [])
+                  if os.path.exists(y)]
+        return yollar
+
+    def _cetvel_hatirla(self, kayit, donem_anahtari, yollar):
+        """Seçilen muavin dosyalarını bu mükellef+dönem için saklar."""
+        if not kayit:
+            return
+        try:
+            tumu = dict(kayit.get("cetveller") or {})
+            if yollar:
+                tumu[donem_anahtari] = list(yollar)
+            else:
+                tumu.pop(donem_anahtari, None)
+            kayit["cetveller"] = tumu
+            mukellefler.kaydet(self.mukellefler)
+        except Exception:
+            pass
+
     # ---------- otomatik cekim ----------
 
     def _durum_yaz(self, metin):
@@ -248,27 +295,76 @@ class MukellefPaneli(tk.Toplevel):
             messagebox.showerror("Hata", "İnternet bağlantısı yok veya GİB'e "
                                  "erişilemiyor.", parent=self)
             return
-        cetvel_dosyalari = filedialog.askopenfilenames(
-            parent=self, title="Muavin cetvel dosyalarını seçin (191 / 391)",
-            filetypes=[("Desteklenen dosyalar",
-                        "*.pdf *.xlsx *.xlsm *.xls"), ("Tüm dosyalar", "*.*")])
-        if not cetvel_dosyalari:
-            return
-        if not messagebox.askyesno(
-                "Onay",
-                f"{degerler['ad']} ({bas.strftime('%m.%Y')}) için e-Arşiv alış "
-                "faturaları GİB'den indirilecek.\n\n"
-                f"Sonrasında {len(cetvel_dosyalari)} cetvel dosyasıyla çapraz "
-                "kontrol otomatik başlayacak.\nDevam edilsin mi?", parent=self):
-            return
 
         kimlik = degerler["vkn"] or degerler["gib_tc"]
         hedef_klasor = mukellefler.coz_klasor(kimlik, yil, ay)
+        kayit = self._secili_kayit(degerler)
+        donem = f"{yil}-{ay:02d}"
+
+        luca_planli = (degerler.get("ent_kurum") == "Luca / Türmob"
+                       and degerler.get("luca_uye")
+                       and degerler.get("ent_kullanici")
+                       and degerler.get("ent_sifre"))
+        if degerler.get("ent_kurum") == "Luca / Türmob" and not luca_planli:
+            messagebox.showinfo(
+                "Bilgi", "Entegratör 'Luca / Türmob' seçili ancak Luca Üye "
+                "Numarası / Kullanıcı / Şifre eksik.\nMuavin dosyalarını elle "
+                "seçerek devam edebilirsiniz.", parent=self)
+
+        muavin_klasoru = os.path.join(hedef_klasor, "muavin")
+        cetvel_dosyalari = []
+        if not luca_planli:
+            if self.kayitli_muavin.get():
+                cetvel_dosyalari = self._kayitli_cetveller(kayit, donem)
+            if not cetvel_dosyalari:
+                cetvel_dosyalari = list(filedialog.askopenfilenames(
+                    parent=self,
+                    title="Muavin cetvel dosyalarını seçin (191 / 391)",
+                    filetypes=[("Desteklenen dosyalar",
+                                "*.pdf *.xlsx *.xlsm *.xls"),
+                               ("Tüm dosyalar", "*.*")]))
+                if not cetvel_dosyalari:
+                    return
+                self._cetvel_hatirla(kayit, donem, cetvel_dosyalari)
+
+        ozet = ", ".join(os.path.basename(y) for y in cetvel_dosyalari[:2])
+        ekstra = f" ve {len(cetvel_dosyalari) - 2} dosya daha" \
+            if len(cetvel_dosyalari) > 2 else ""
+        mesaj = (f"{degerler['ad']} ({bas.strftime('%m.%Y')}) için e-Arşiv "
+                 "alış faturaları GİB'den indirilecek.\n\n"
+                 + ("Muavin Luca'dan otomatik çekilecek.\n" if luca_planli
+                    else f"Kullanılacak cetveller: {ozet}{ekstra}\n")
+                 + "\nÇapraz kontrol otomatik başlayacak. Devam edilsin mi?")
+        if not messagebox.askyesno("Onay", mesaj, parent=self):
+            return
+
         self.cek_butonu.configure(state="disabled", bg="#64748b")
         self._durum_yaz("GİB'e bağlanılıyor...")
 
         def is_parcasi():
             try:
+                kullanilacak = list(cetvel_dosyalari)
+                if luca_planli:
+                    self._logla(f"Luca'ya giriş yapılıyor "
+                                f"(üye {degerler.get('luca_uye')})...")
+                    try:
+                        indirilen = luca_cekme.cek_muavin(
+                            degerler["luca_uye"], degerler["ent_kullanici"],
+                            degerler["ent_sifre"], bas, bit, muavin_klasoru,
+                            ilerleme=self._logla)
+                        kullanilacak = indirilen
+                        self.after(0, lambda k=kayit, y=list(indirilen):
+                                   self._cetvel_hatirla(k, donem, y))
+                    except luca_cekme.LucaHata as lhata:
+                        yedek = self._kayitli_cetveller(kayit, donem)
+                        if yedek:
+                            kullanilacak = yedek
+                            self._logla(f"Luca hatası: {str(lhata)[:80]} — "
+                                        "kayıtlı muavinlerle devam ediliyor.")
+                        else:
+                            self.after(0, lambda h="Luca muavin çekimi "
+                                       f"başarısız: {lhata}": self._cek_hata(h))
+                            return
                 yollar = gib_cekme.cek_e_arsiv_alis(
                     degerler["gib_tc"], degerler["gib_sifre"], bas, bit,
                     hedef_klasor, ilerleme=self._logla,
@@ -281,7 +377,7 @@ class MukellefPaneli(tk.Toplevel):
                 self.after(0, lambda h=f"Beklenmeyen hata: {hata}":
                            self._cek_hata(h))
                 return
-            self.after(0, lambda y=yollar, c=list(cetvel_dosyalari):
+            self.after(0, lambda y=yollar, c=kullanilacak:
                        self._cek_bitti(y, c))
 
         threading.Thread(target=is_parcasi, daemon=True).start()
