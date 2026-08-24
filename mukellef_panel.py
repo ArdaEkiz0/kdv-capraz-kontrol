@@ -124,6 +124,13 @@ class MukellefPaneli(tk.Toplevel):
                                     bg="#2563eb", fg="#ffffff", padx=12, pady=4,
                                     cursor="hand2", command=self._cek_ve_kontrol)
         self.cek_butonu.pack(side="right")
+        self.eksik_butonu = tk.Button(satir,
+                                      text="🔍 Eksik Belge Bulucu",
+                                      font=("Segoe UI", 9), relief="flat",
+                                      bg="#64748b", fg="#ffffff", padx=10,
+                                      pady=4, cursor="hand2",
+                                      command=self._eksik_belge_kontrol)
+        self.eksik_butonu.pack(side="right", padx=(0, 8))
 
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self._liste_yenile()
@@ -381,6 +388,67 @@ class MukellefPaneli(tk.Toplevel):
                        self._cek_bitti(y, c))
 
         threading.Thread(target=is_parcasi, daemon=True).start()
+
+    def _eksik_belge_kontrol(self):
+        degerler = self._form_degerleri()
+        try:
+            ay = int(self.ay.get())
+            yil = int(self.yil.get())
+        except ValueError:
+            messagebox.showwarning("Uyarı", "Ay/Yıl geçersiz.", parent=self)
+            return
+        kimlik = degerler["vkn"] or degerler["gib_tc"]
+        if not kimlik:
+            messagebox.showwarning(
+                "Uyarı", "Mükellef seçin veya VKN/TC alanını doldurun.",
+                parent=self)
+            return
+        klasor = mukellefler.coz_klasor(kimlik, yil, ay)
+        fatura_dosyalari = sorted(
+            os.path.join(klasor, ad) for ad in os.listdir(klasor)
+            if ad.lower().startswith("earsiv_alis")
+            and ad.lower().endswith(".xlsx")) \
+            if os.path.isdir(klasor) else []
+        if not fatura_dosyalari:
+            messagebox.showinfo(
+                "Bilgi",
+                f"{klasor} altında indirilmiş e-Arşiv dosyası yok.\n"
+                "Önce 'Faturaları Çek ve Kontrol Et' çalıştırın.",
+                parent=self)
+            return
+        kayit = self._secili_kayit(degerler)
+        donem = f"{yil}-{ay:02d}"
+        cetvel_dosyalari = (self.kayitli_muavin.get()
+                            and self._kayitli_cetveller(kayit, donem)) or []
+        if not cetvel_dosyalari:
+            cetvel_dosyalari = list(filedialog.askopenfilenames(
+                parent=self,
+                title="Muavin cetvel dosyalarını seçin (191 / 391)",
+                filetypes=[("Desteklenen dosyalar",
+                            "*.pdf *.xlsx *.xlsm *.xls"),
+                           ("Tüm dosyalar", "*.*")]))
+            if not cetvel_dosyalari:
+                return
+
+        import excel_oku
+        import eksik_belge
+        import eksik_belge_pencere
+        fatura_kayitlari = []
+        for d in fatura_dosyalari:
+            kayitlar = excel_oku.fatura_gib_arsiv_liste_parse(d) or []
+            fatura_kayitlari.extend(kayitlar)
+        cetvel_kayitlari = []
+        for d in cetvel_dosyalari:
+            sonuc_d = excel_oku.muavin_genel_parse(d)
+            cetvel_kayitlari.extend(sonuc_d.get("kayitlar") or [])
+        if not cetvel_kayitlari:
+            messagebox.showwarning(
+                "Uyarı", "Cetvel dosyalarından satır okunamadı.",
+                parent=self)
+            return
+        sonuc = eksik_belge.eslestir(cetvel_kayitlari, fatura_kayitlari)
+        eksik_belge_pencere.ac(self, sonuc, cetvel_kayitlari,
+                               fatura_kayitlari)
 
     def _cek_hata(self, mesaj):
         self.cek_butonu.configure(state="normal", bg="#2563eb")
