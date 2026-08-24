@@ -1000,6 +1000,84 @@ def muavin_zenom_parse(dosya_yolu):
     return sonuc
 
 
+def muavin_luca_fis_parse(dosya_yolu):
+    """Luca/Türmob fiş dökümü çıktısını okur.
+
+    Sütunları: Fiş No | Fiş Tarihi | Fiş Açıklama | Hesap Kodu | Evrak No |
+    Evrak Tarihi | Detay Açıklama | Borç | Alacak | Miktar | Belge Türü |
+    Para Birimi. Yalnız 191/391 KDV hesap satırları kaydedilir; 191'de Borç,
+    391'de Alacak tutarı KDV'dir.
+    """
+    sonuc = {"dosya": dosya_yolu, "kayitlar": [], "notlar": []}
+    satirlar = excel_satirlar(dosya_yolu)
+
+    baslik_i = None
+    kolonlar = {}
+    for i, satir in enumerate(satirlar):
+        normlar = [_norm_baslik(c) for c in satir]
+        if ("FIS NO" in normlar and "HESAP KODU" in normlar
+                and "BORC" in normlar and "ALACAK" in normlar):
+            baslik_i = i
+            for ad, anahtar in (("FIS NO", "fis"), ("FIS TARIHI", "ftarih"),
+                                ("HESAP KODU", "hesap"), ("EVRAK NO", "belge"),
+                                ("EVRAK TARIHI", "etarih"),
+                                ("DETAY ACIKLAMA", "detay"),
+                                ("BELGE TURU", "bturu"),
+                                ("BORC", "borc"), ("ALACAK", "alacak")):
+                kolonlar[anahtar] = normlar.index(ad) if ad in normlar else None
+            break
+    if baslik_i is None:
+        sonuc["notlar"].append(
+            "Luca fiş dökümü başlığı yok (Fiş No/Hesap Kodu/Borç/Alacak)")
+        return sonuc
+
+    for i in range(baslik_i + 1, len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+
+        def hucre(ad, _satir=satir):
+            j = kolonlar.get(ad)
+            return _satir[j] if j is not None and j < len(_satir) else None
+
+        hesap = str(hucre("hesap") or "").strip()
+        if not (hesap.startswith("191") or hesap.startswith("391")):
+            continue
+
+        belge = fatura_no_temizle(str(hucre("belge") or "").strip())
+        detay = str(hucre("detay") or "").strip()
+        borc = _huc_tutar(hucre("borc"))
+        alacak = _huc_tutar(hucre("alacak"))
+        kdv = borc if borc else alacak
+        tarih_ham = hucre("ftarih") or hucre("etarih")
+        if hasattr(tarih_ham, "strftime"):
+            tarih = tarih_ham.strftime("%Y-%m-%d")
+        else:
+            tarih = tarih_parse(str(tarih_ham or "")) or ""
+        if not belge or kdv is None:
+            continue
+
+        notlar = []
+        if hesap:
+            notlar.append(f"Hesap: {hesap}")
+        bturu = str(hucre("bturu") or "").strip()
+        if bturu:
+            notlar.append(f"Belge Türü: {bturu}")
+        kayit = {
+            "vkn": "", "belge_no": belge, "tarih": tarih,
+            "matrah": None, "kdv": kdv, "unvan": detay[:80],
+            "notlar": notlar,
+        }
+        sonuc["kayitlar"].append(kayit)
+
+    sonuc["kayitlar"] = _muavin_birlestir(sonuc["kayitlar"])
+    if not sonuc["kayitlar"]:
+        sonuc["notlar"].append("Luca fiş dökümünde 191/391 satırı bulunamadı")
+    else:
+        sonuc["notlar"].append("Luca fiş dökümü olarak okundu")
+    return sonuc
+
+
 def _muavin_birlestir(kayitlar):
     """Aynı faturanın hesap defterindeki parça satırlarını tek kayıtta toplar.
 

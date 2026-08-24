@@ -17,6 +17,9 @@ import socket
 import time
 from datetime import date, timedelta
 
+import excel_oku
+import gib_api
+
 GIRIS_ADRESI = "https://dijital.gib.gov.tr/portal/login"
 ARSIV_ADRESI = "https://dijital.gib.gov.tr/portal/e-arsiv-faturalarim"
 KARAKTER_KUMESI = (" tessedit_char_whitelist="
@@ -161,10 +164,12 @@ def _tarayici_ac(playwright):
 
 
 def cek_e_arsiv_alis(gib_tc, gib_sifre, bas_tarih, bit_tarih, hedef_klasor,
-                     ilerleme=None):
+                     ilerleme=None, ivd_kod=None, ivd_sifre=None):
     """Adınıza düzenlenen e-Arşiv faturalarını Excel olarak indirer.
 
     bas_tarih/bit_tarih: datetime.date. Dönen değer: indirilen dosya yolları.
+    ivd_kod/ivd_sifre verilirse çekim öncesi e-Arşiv REST API'si ile hızlı
+    doğrulama yapılır; dönemde belge yoksa tarayıcı hiç açılmadan [] döner.
     """
     hazir, mesaj = _ocr_hazir()
     if not hazir:
@@ -177,6 +182,26 @@ def cek_e_arsiv_alis(gib_tc, gib_sifre, bas_tarih, bit_tarih, hedef_klasor,
     parcalar = _tarih_araligini_bol(bas_tarih, bit_tarih)
     os.makedirs(hedef_klasor, exist_ok=True)
     dosyalar = []
+
+    beklenen = None
+    if ivd_kod and ivd_sifre:
+        bildir("IVD kullanıcı kodu hızlı doğrulanıyor...")
+        try:
+            istemci = gib_api.GibApi(ivd_kod, ivd_sifre)
+            istemci.giris()
+            beklenen = [len(istemci.adima_duzenlenen_belgeler(p_bas, p_son))
+                        for p_bas, p_son in parcalar]
+        except gib_api.GibApiHata as hata:
+            raise GibHata(
+                "e-Arşiv hızlı doğrulama başarısız: %s\n"
+                "(IVD kullanıcı kodu/şifresini kontrol edin veya alanları "
+                "boş bırakın.)" % hata)
+        toplam = sum(beklenen)
+        if toplam == 0:
+            bildir("Seçilen dönemde adınıza düzenlenmiş e-Arşiv belgesi yok "
+                   "(API sorgusu).")
+            return []
+        bildir(f"Doğrulandı: dönemde {toplam} belge bekleniyor.")
 
     try:
         from playwright.sync_api import sync_playwright
@@ -218,6 +243,16 @@ def cek_e_arsiv_alis(gib_tc, gib_sifre, bas_tarih, bit_tarih, hedef_klasor,
                     dosya.save_as(hedef)
                     dosyalar.append(hedef)
                     bildir(f"  İndirildi: {os.path.basename(hedef)}")
+                    if beklenen is not None:
+                        beklenen_sayi = beklenen[sira - 1]
+                        try:
+                            satirlar = excel_oku.fatura_gib_arsiv_liste_parse(hedef)
+                            okunan = len(satirlar)
+                        except Exception:
+                            okunan = None
+                        if okunan is not None and okunan != beklenen_sayi:
+                            bildir(f"  UYARI: API {beklenen_sayi} belge "
+                                   f"bildirdi, Excel'de {okunan} satır okundu.")
                 except GibHata:
                     raise
                 except Exception as hata:

@@ -271,7 +271,9 @@ class MukellefPaneli(tk.Toplevel):
             try:
                 yollar = gib_cekme.cek_e_arsiv_alis(
                     degerler["gib_tc"], degerler["gib_sifre"], bas, bit,
-                    hedef_klasor, ilerleme=self._logla)
+                    hedef_klasor, ilerleme=self._logla,
+                    ivd_kod=degerler.get("ivd_kod"),
+                    ivd_sifre=degerler.get("ivd_sifre"))
             except gib_cekme.GibHata as hata:
                 self.after(0, lambda h=str(hata): self._cek_hata(h))
                 return
