@@ -1388,7 +1388,7 @@ def _satir_sayisini_buyut(sayfa, bildir):
 
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                        hedef_klasor, kategoriler=None, ilerleme=None,
-                       gorunur=True, firma_adi=None):
+                       gorunur=True, firma_adi=None, duz_yaz=True):
     """Luca ERP Akıllı Entegrasyon ekranlarından e-Belgeleri indirir.
 
     Gerçek akış: giriş → portalda gonder('formTarget') ile MM Paketi
@@ -1404,8 +1404,9 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
     penceresinde elle girilir, bu yüzden görünür tarayıcı gerekir.
 
     Kategori başına çıktılar hedef_klasor altına yazılır:
-      luca_{kategori}_{bas}_{bit}/          → belge ZIP + XML + HTML
-      luca_{kategori}_{bas}_{bit}.xlsx      → özet tablo
+      {kategori}_{dosya}.zip/.xml/.html   → düz yazım (duz_yaz=True)
+      luca_{kategori}_{bas}_{bit}/        → alt klasör (duz_yaz=False)
+      luca_{kategori}_{bas}_{bit}.xlsx    → özet tablo
 
     Dönen değer: {kategori: {"zip": [yollar], "ozet": xlsx_yolu,
     "belge_sayisi": n}}. Hiçbir kategori inmezse LucaHata.
@@ -1451,10 +1452,15 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                   bas_tarih, bit_tarih)]
                     bildir(f"{kategori}: listede {len(satirlar)} belge, "
                            f"tarih aralığında {len(secili)} tanesi var.")
-                    klasor = os.path.join(
-                        hedef_klasor,
-                        f"luca_{kategori}_{bas_tarih:%Y%m%d}_"
-                        f"{bit_tarih:%Y%m%d}")
+                    if duz_yaz:
+                        klasor = hedef_klasor
+                    else:
+                        klasor = os.path.join(
+                            hedef_klasor,
+                            f"luca_{kategori}_{bas_tarih:%Y%m%d}_"
+                            f"{bit_tarih:%Y%m%d}")
+                    on_ek = ("" if duz_yaz
+                             else f"luca_{kategori}_")
                     os.makedirs(klasor, exist_ok=True)
                     sayfa2 = cerceve.page
                     zip_yollari = []
@@ -1482,7 +1488,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         else:
                             dosya_no = belge_no
                         zip_yol = os.path.join(klasor,
-                                               f"{dosya_no}.zip")
+                                               f"{on_ek}{dosya_no}.zip")
                         ozet = {}
                         if _dosya_saglam(zip_yol):
                             try:
@@ -1550,6 +1556,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         "ozet": ozet_yol,
                         "belge_sayisi": len(kayitlar)}
                 except Exception as hata:
+                    # Tek kategori inmedi: digerlerini engelleme.
                     bildir(f"{kategori} çekilemedi: {str(hata)[:80]}")
                     _hata_ekrani_kaydet(sayfa, f"belge_{kategori}")
         finally:
