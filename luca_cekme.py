@@ -10,7 +10,6 @@ Not: Luca uygulamasının oturum sonrası ekranları müşteri yapılandırması
 değişebilir; gezinme metin eşleştirmesiyle yapılır ve başarısızlıkta hata ayıkla-
 ma için ekran görüntüsü %%TEMP%% altına kaydedilir.
 """
-import base64
 import html as html_cevir
 import io
 import json
@@ -19,179 +18,6 @@ import re
 import time
 import zipfile
 from datetime import date, datetime
-
-KARAKTER_KUMESI = (" -c tessedit_char_whitelist="
-                   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-                   "0123456789")
-
-_DDDDOCR = None
-_DDDDOCR_BETA = None
-
-
-def _ddddocr_motoru():
-    """Captcha-özel ONNX OCR motorunu tembel yükler."""
-    global _DDDDOCR
-    if _DDDDOCR is None:
-        try:
-            import ddddocr
-            _DDDDOCR = ddddocr.DdddOcr(show_ad=False)
-        except Exception:
-            _DDDDOCR = False
-    return _DDDDOCR or None
-
-
-def _ddddocr_beta_motoru():
-    """ddddocr beta modelini tembel yükler (Latin captcha'da güçlü)."""
-    global _DDDDOCR_BETA
-    if _DDDDOCR_BETA is None:
-        try:
-            import ddddocr
-            _DDDDOCR_BETA = ddddocr.DdddOcr(beta=True, show_ad=False)
-        except Exception:
-            _DDDDOCR_BETA = False
-    return _DDDDOCR_BETA or None
-
-
-def _luca_captcha_temizle(ham, yukseklik_kat=0.30):
-    """Captcha görüntüsünü ön işler: çizgi gürültüsünü siler.
-
-    Şekil filtreleri: en-boy oranı, dolgu oranı, yatay bant; küçük
-    glifler yukseklik_kat ile elenir (0.0 = hepsi kalsın).
-    Dönen değer: temizlenmiş PIL Image ('L' modu) ya da None.
-    """
-    try:
-        import cv2
-        import numpy as np
-        dizi = np.frombuffer(ham, dtype=np.uint8)
-        img = cv2.imdecode(dizi, cv2.IMREAD_COLOR)
-        if img is None:
-            return None
-        ucx = cv2.resize(img, None, fx=3, fy=3,
-                         interpolation=cv2.INTER_CUBIC)
-        gri = cv2.cvtColor(ucx, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gri, 120, 255, cv2.THRESH_BINARY_INV)
-        cekirdek = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        temiz = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cekirdek)
-        adet, etiket, istat, _ = cv2.connectedComponentsWithStats(temiz)
-        adaylar = []
-        for i in range(1, adet):
-            x, y, w, h, alan = istat[i]
-            if alan < 150 or h < 28 or h > 220:
-                continue
-            oran = w / max(1, h)
-            if not (0.15 <= oran <= 1.6):
-                continue
-            dolgu = alan / max(1, w * h)
-            if dolgu < 0.22:
-                continue
-            adaylar.append((x, y, w, h, i))
-        if not adaylar:
-            return None
-        med_h = float(np.median([a[3] for a in adaylar]))
-        med_y = float(np.median([a[1] + a[3] / 2.0 for a in adaylar]))
-        sonuc = np.full_like(gri, 255)
-        for (x, y, w, h, i) in adaylar:
-            if abs(y + h / 2.0 - med_y) > med_h * 1.6:
-                continue
-            if h < med_h * yukseklik_kat:
-                continue
-            bolge = etiket[y:y + h, x:x + w] == i
-            sonuc[y:y + h, x:x + w][bolge] = 0
-        kenarli = cv2.copyMakeBorder(sonuc, 24, 24, 24, 24,
-                                     cv2.BORDER_CONSTANT, value=255)
-        from PIL import Image
-        return Image.fromarray(kenarli)
-    except Exception:
-        return None
-
-
-def _luca_captcha_adaylari(ham):
-    """Captcha görsel baytlarından sıralı OCR adayları üretir.
-
-    Sıra: temizlenmiş görüntü (ddddocr + beta + tesseract) -> ham
-    görüntü (ddddocr + beta + çoklu eşik tesseract).
-    """
-    from PIL import Image, ImageOps
-    import pytesseract
-    adaylar = []
-
-    def ekle(metin):
-        metin = "".join(c for c in str(metin)
-                        if c.isalnum() and c.isascii())[:8]
-        if len(metin) < 3:
-            return
-        if metin not in adaylar and metin.lower() not in \
-                [a.lower() for a in adaylar]:
-            adaylar.append(metin)
-
-    motor = _ddddocr_motoru()
-    beta = _ddddocr_beta_motoru()
-    for kat in (0.30, 0.0, 0.75):
-        temiz = _luca_captcha_temizle(ham, yukseklik_kat=kat)
-        if temiz is None:
-            continue
-        tampon = io.BytesIO()
-        temiz.save(tampon, format="PNG")
-        temiz_ham = tampon.getvalue()
-        if motor:
-            try:
-                ekle(motor.classification(temiz_ham))
-            except Exception:
-                pass
-        if beta:
-            try:
-                ekle(beta.classification(temiz_ham))
-            except Exception:
-                pass
-        for psm in ("7", "13"):
-            try:
-                ekle(pytesseract.image_to_string(
-                    temiz, config="--psm " + psm + KARAKTER_KUMESI))
-            except Exception:
-                continue
-
-    if motor:
-        try:
-            ekle(motor.classification(ham))
-        except Exception:
-            pass
-    if beta:
-        try:
-            ekle(beta.classification(ham))
-        except Exception:
-            pass
-
-    img = Image.open(io.BytesIO(ham))
-    buyuk = img.resize((img.width * 4, img.height * 4),
-                       Image.LANCZOS).convert("L")
-    hist = buyuk.histogram()
-    toplam = sum(hist)
-    ortalama = sum(i * c for i, c in enumerate(hist)) / max(toplam, 1)
-    temel = ImageOps.invert(buyuk) if ortalama < 100 else buyuk
-    for esik in (110, 130, 150, 170):
-        ikili = temel.point(lambda x, e=esik: 0 if x < e else 255)
-        for psm in ("7", "8"):
-            try:
-                ekle(pytesseract.image_to_string(
-                    ikili, config="--psm " + psm + KARAKTER_KUMESI))
-            except Exception:
-                continue
-    return adaylar[:10]
-
-
-def _luca_captcha_oku(sayfa):
-    """Sayfadaki captcha görselini indirip aday metin listesi üretir."""
-    src = sayfa.eval_on_selector("#captcha", "e => e.src")
-    if not src:
-        return []
-    if src.startswith("data:image"):
-        ham = base64.b64decode(src.split(",", 1)[1])
-    else:
-        try:
-            ham = sayfa.context.request.get(src).body()
-        except Exception:
-            return []
-    return _luca_captcha_adaylari(ham)
 
 LUCA_GIRIS_ADRESI = "https://agiris.luca.com.tr/LUCASSO/giris.erp"
 LUCA_GIRIS_ADRESLERI = (
@@ -346,79 +172,42 @@ def _luca_swal_kapat(sayfa):
         pass
 
 
-def _luca_captcha_as(sayfa, bildir, uye_no, kullanici, parola, deneme=12,
-                     manuel_bekleme=0):
-    """Luca captcha ekranını OCR adaylarıyla aşmaya çalışır.
+def _luca_captcha_as(sayfa, bildir, uye_no, kullanici, parola,
+                     manuel_bekleme=180):
+    """Luca captcha'sini kullanicinin elle girmesini bekler.
 
-    Başarıda True; tüm adaylar reddedilirse False döner. Her yanlış
-    denemeden sonra HATA penceresi kapatılır; görsel yenilenmişse o
-    ekranın adayları tüketilmeden yeni okuma yapılır. Sayfa yenileme
-    sonrası giriş formu geri gelirse kimlikleri yeniden gönderir.
-    manuel_bekleme > 0 ise OCR tükenince kullanıcıya pencerede captcha'yı
-    elle girme şansı tanınır (gorunur tarayıcı gerekir).
+    Tarayici gorunur olmalidir; kullanici #captcha-input alanina kodu
+    yazip Tamam'a basar. Yanlis girişte çıkan HATA penceresi otomatik
+    kapatılır, kullanıcı aynı ekranda yeniden deneyebilir. Oturum
+    sıfırlanıp giriş formu geri gelirse kimlikler yeniden gönderilir.
+    Sure dolarsa False doner.
     """
-    onceki_kaynak = ""
-    for tur in range(deneme):
-        # Yenileme sonrası temiz giriş formu geldiyse tekrar gönder
+    if sayfa.query_selector("#captcha-input") is None:
+        return True
+    bekleme = manuel_bekleme if manuel_bekleme > 0 else 180
+    bildir(f"Captcha isteniyor: tarayıcı penceresindeki alana görüntüdeki "
+           f"kodu elle girip Tamam'a basın ({bekleme} sn)...")
+    for _ in range(bekleme):
+        sayfa.wait_for_timeout(1000)
+        if sayfa.query_selector("#captcha-input") is None:
+            bildir("Captcha girildi; devam ediliyor.")
+            return True
+        _luca_swal_kapat(sayfa)
+        # Oturum sıfırlanıp temiz giriş formu geldiyse tekrar gönder
         if sayfa.query_selector("#musteriNo") is not None:
             try:
                 sayfa.fill("#musteriNo", str(uye_no))
                 sayfa.fill("#kullaniciAdi", str(kullanici))
                 sayfa.fill("#parola", str(parola))
                 sayfa.click("input[type=button][value='GİRİŞ']", timeout=4000)
-                sayfa.wait_for_timeout(2000)
-            except Exception:
-                pass
-        kaynak = _luca_captcha_src(sayfa)
-        if kaynak and kaynak == onceki_kaynak:
-            # Aynı captcha: OCR deterministik, giriş akışını baştan al
-            try:
-                sayfa.goto(LUCA_GIRIS_ADRESLERI[0],
-                           wait_until="domcontentloaded")
                 sayfa.wait_for_timeout(1500)
-                if sayfa.query_selector("#musteriNo") is not None:
-                    sayfa.fill("#musteriNo", str(uye_no))
-                    sayfa.fill("#kullaniciAdi", str(kullanici))
-                    sayfa.fill("#parola", str(parola))
-                    sayfa.click("input[type=button][value='GİRİŞ']",
-                                timeout=4000)
-                    sayfa.wait_for_timeout(2000)
             except Exception:
                 pass
-            kaynak = _luca_captcha_src(sayfa)
-        onceki_kaynak = kaynak
-        adaylar = _luca_captcha_oku(sayfa)[:8]
-        for kod in adaylar:
-            try:
-                sayfa.fill("#captcha-input", kod)
-                sayfa.click("input[type=button][value='Tamam']",
-                            timeout=3000)
-                sayfa.wait_for_timeout(1800)
-            except Exception:
-                break
-            if sayfa.query_selector("#captcha-input") is None:
-                bildir(f"Captcha '{kod}' ile geçildi.")
-                return True
-            _luca_swal_kapat(sayfa)
-            if _luca_captcha_src(sayfa) != kaynak:
-                break
-        try:
-            sayfa.reload(wait_until="domcontentloaded")
-            sayfa.wait_for_timeout(1500)
-        except Exception:
-            pass
-    if manuel_bekleme > 0:
-        bildir(f"OCR captcha'yı çözemedi. Penceredeki captcha'yı "
-               f"elle girin ({manuel_bekleme} sn)...")
-        for _ in range(manuel_bekleme):
-            sayfa.wait_for_timeout(1000)
-            if sayfa.query_selector("#captcha-input") is None:
-                bildir("Captcha elle girildi; devam ediliyor.")
-                return True
+    bildir("Captcha süresi doldu.")
     return False
 
 
-def giris_yap(sayfa, uye_no, kullanici, parola, bildir, manuel_bekleme=0):
+def giris_yap(sayfa, uye_no, kullanici, parola, bildir, manuel_bekleme=180):
     """Luca ortak giriş sayfasından oturum açar; sayfayı döndürür."""
     for i, adres in enumerate(LUCA_GIRIS_ADRESLERI):
         try:
@@ -460,8 +249,8 @@ def giris_yap(sayfa, uye_no, kullanici, parola, bildir, manuel_bekleme=0):
             ekran = _hata_ekrani_kaydet(sayfa, "captcha")
             detay = f" Ekran görüntüsü: {ekran}" if ekran else ""
             raise LucaHata(
-                "Luca captcha'sı çözülemedi (OCR adayları reddedildi). "
-                "Tekrar deneyin." + detay)
+                "Captcha süresi içinde girilmedi. Tekrar deneyin ve "
+                "tarayıcı penceresindeki captcha'yı zamanında girin." + detay)
     for _ in range(12):
         time.sleep(2)
         metin = _govde_metni(sayfa)
@@ -1268,7 +1057,7 @@ def _satir_sayisini_buyut(sayfa, bildir):
 
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                        hedef_klasor, kategoriler=None, ilerleme=None,
-                       gorunur=True, manuel_captcha=False, firma_adi=None):
+                       gorunur=True, firma_adi=None):
     """Luca ERP Akıllı Entegrasyon ekranlarından e-Belgeleri indirir.
 
     Gerçek akış: giriş → portalda gonder('formTarget') ile MM Paketi
@@ -1280,9 +1069,8 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
     firma_adi: firma unvanının içinde geçen ibare; Türkçe büyük/küçük
     harf duyarsız eşleşir. Tek firmalık hesapta boş bırakılabilir.
 
-    gorunur=True önerilir; headless modda Luca SSO istekleri engellenen-
-   abiliyor. manuel_captcha=True OCR tükenince kullanıcıya elle captcha
-    girme süresi tanır.
+    gorunur=True önerilir; captcha kullanıcı tarafından tarayıcı
+    penceresinde elle girilir, bu yüzden görünür tarayıcı gerekir.
 
     Kategori başına çıktılar hedef_klasor altına yazılır:
       luca_{kategori}_{bas}_{bit}/          → belge ZIP + XML + HTML
@@ -1306,8 +1094,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
         oturum = _luca_oturum_ac(tarayici)
         sayfa = oturum.new_page()
         try:
-            sayfa = giris_yap(sayfa, uye_no, kullanici, parola, bildir,
-                              manuel_bekleme=180 if manuel_captcha else 0)
+            sayfa = giris_yap(sayfa, uye_no, kullanici, parola, bildir)
             sayfa.wait_for_timeout(2500)
             erp = _erp_penceresi(oturum, sayfa, bildir)
             _firma_donem_sec(erp, firma_adi, bas_tarih, bildir)

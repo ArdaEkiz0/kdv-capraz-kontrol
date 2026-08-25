@@ -74,15 +74,14 @@ if errorlevel 1 (
 )
 
 echo Uygulama kontrol ediliyor...
-%PY% %PY_ARG% -c "import main" >nul 2>nul
+REM Agir kutuphaneleri import etmeden hizli sozdizimi denetimi
+%PY% %PY_ARG% -c "import py_compile; py_compile.compile('main.py', doraise=True)" >nul 2>nul
 if errorlevel 1 (
     echo.
     echo UYGULAMA BASLATILAMADI. Asagidaki hata bilgisini paylasin:
     echo ============================================================
-    %PY% %PY_ARG% -c "import main"
+    %PY% %PY_ARG% -c "import py_compile; py_compile.compile('main.py', doraise=True)"
     echo ============================================================
-    echo Eksik kutuphane varsa su komutu calistirin:
-    echo %PY% %PY_ARG% -m pip install pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2
     pause
     exit /b 1
 )
@@ -90,22 +89,26 @@ if errorlevel 1 (
 REM --- Eski hata logunu temizle ---
 if exist "hata.log" del "hata.log" >nul 2>nul
 
-echo Uygulama baslatiliyor...
+echo Uygulama baslatiliyor (ilk acilis 1-2 dakika surebilir)...
 start "" %PY% %PY_ARG% main.py
 
-REM --- Kisa bekleme ve hata kontrolu ---
+REM --- Bekle ve hata kontrolu ---
+set /a BEKLEME=0
+:bekle_dongu
 timeout /t 5 /nobreak >nul
-if exist "hata.log" (
-    echo.
-    echo !!!!! UYGULAMA HATA VERDI !!!!!
-    echo ============================================================
-    type hata.log
-    echo ============================================================
-    echo Hatayi yukaridaki bilgilerle paylasin.
-    pause
-) else (
-    echo.
-    echo Uygulama acildi. Bu pencereyi kapatabilirsiniz.
-    echo.
-    timeout /t 3 /nobreak >nul
-)
+if exist "hata.log" goto hata_var
+set /a BEKLEME+=5
+if %BEKLEME% LSS 30 goto bekle_dongu
+echo.
+echo Uygulama acildi. Bu pencereyi kapatabilirsiniz.
+timeout /t 3 /nobreak >nul
+exit /b 0
+
+:hata_var
+echo.
+echo !!!!! UYGULAMA HATA VERDI !!!!!
+echo ============================================================
+type hata.log
+echo ============================================================
+echo Hatayi yukaridaki bilgilerle paylasin.
+pause
