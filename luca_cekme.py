@@ -480,28 +480,57 @@ def _hesap_alanlarini_doldur(sayfa, hesap_kodu, bildir=None):
         son_kod = hesap_kodu
     klavye = sayfa.page.keyboard
 
+    def _deger_uyuyor(okunan, beklenen):
+        # Maskeli alan '192.' veya '192/...' biciminde dondurabilir;
+        # ayraclar temizlenip on ek olarak karsilastirilir.
+        if not okunan:
+            return False
+        temiz = okunan.replace("/", ".").rstrip(".")
+        return temiz == beklenen or temiz.startswith(beklenen + ".")
+
     def _dugume_yaz(oge, metin):
-        oge.click(timeout=4000)
-        time.sleep(0.3)
-        klavye.press("Control+a")
-        klavye.type(metin, delay=60)
-        time.sleep(0.3)
-        try:
-            return (oge.evaluate("el => el.value")
-                    or "").strip().replace("/", ".")
-        except Exception:
-            return None
+        for deneme in range(2):
+            try:
+                oge.click(timeout=4000)
+            except Exception:
+                pass
+            time.sleep(0.3)
+            klavye.press("Control+a")
+            klavye.press("Delete")
+            klavye.type(metin, delay=60)
+            klavye.press("Tab")
+            time.sleep(0.3)
+            try:
+                okunan = (oge.evaluate("el => el.value")
+                          or "").strip().replace("/", ".")
+                if _deger_uyuyor(okunan, metin):
+                    return metin
+                if deneme == 0:
+                    bildir(f"UYARI: Alan '{metin}' yazımı doğrulanamadı "
+                           f"(okunan: '{okunan}'), tekrar deneniyor.")
+            except Exception as hata:
+                if deneme == 0:
+                    bildir(f"UYARI: Alan okunamadı ({str(hata)[:60]}), "
+                           "tekrar deneniyor.")
+        return None
 
     def _cift_yaz():
         ilk = _gorunur_esles(sayfa, "#hesap_kodu_ilk")
         if ilk is None:
+            bildir("UYARI: Başlangıç hesap kodu alanı bulunamadı.")
             return False
-        if _dugume_yaz(ilk, hesap_kodu) != hesap_kodu:
+        if _dugume_yaz(ilk, hesap_kodu) is None:
             return False
         son = _gorunur_esles(sayfa, "#hesap_kodu_son")
         if son is None:
+            bildir("UYARI: Bitiş hesap kodu alanı bulunamadı; döküm yalnız "
+                   f"{hesap_kodu} ile sınırlı kalabilir.")
             return False
-        return _dugume_yaz(son, son_kod) == son_kod
+        if _dugume_yaz(son, son_kod) is None:
+            bildir(f"UYARI: Bitiş hesap koduna '{son_kod}' yazılamadı; "
+                   "elle kontrol edin.")
+            return False
+        return True
 
     # Bilinen kimlikler: muavin ekranındaki hesap kodu alanları
     try:
