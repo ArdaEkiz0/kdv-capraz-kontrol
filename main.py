@@ -135,7 +135,7 @@ class KdvKontrolApp:
         self.gecmis_bilgi = None
         self._iptal = threading.Event()
         self._islem_devam = False
-
+        self.kontrol_sonu_gorevleri = []
         try:
             self.db = db_al()
         except Exception:
@@ -849,6 +849,13 @@ class KdvKontrolApp:
                        f"{len(self.sonuc_satirlari)} sonuç satırı.")
         if self.ozet and self.ozet.get("iade_adet", 0):
             self._log_yaz(f"İade faturası: {self.ozet['iade_adet']} adet, toplam KDV: {tl_format(self.ozet.get('iade_kdv_toplam'))} TL")
+        if getattr(self, "kontrol_sonu_gorevleri", None):
+            for gorev in list(self.kontrol_sonu_gorevleri):
+                try:
+                    gorev()
+                except Exception:
+                    pass
+            self.kontrol_sonu_gorevleri = []
         self._kontrol_bitiyoruz()
 
     def _kontrol_bitiyoruz(self):

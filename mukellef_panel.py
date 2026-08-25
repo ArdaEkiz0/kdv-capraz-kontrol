@@ -391,6 +391,11 @@ class MukellefPaneli(tk.Toplevel):
                 return
             self.after(0, lambda y=yollar, c=kullanilacak:
                        self._cek_bitti(y, c))
+            # Uçtan uca akış: çapraz kontrol bitince eksik belge
+            # bulucu otomatik koşar.
+            self.after(0, lambda: getattr(self.uygulama,
+                        "kontrol_sonu_gorevleri", []).append(
+                        self._eksik_belge_otomatik))
 
         threading.Thread(target=is_parcasi, daemon=True).start()
 
@@ -474,6 +479,75 @@ class MukellefPaneli(tk.Toplevel):
         sonuc = eksik_belge.eslestir(cetvel_kayitlari, fatura_kayitlari)
         eksik_belge_pencere.ac(self, sonuc, cetvel_kayitlari,
                                fatura_kayitlari)
+
+    def _eksik_belge_otomatik(self):
+        """Çekim + çapraz kontrol sonrası sessizce çalışır: indirilen
+        e-Arşiv dosyalarıyla kayıtlı muavin cetvellerini eşleştirip
+        sonuç penceresini açar. Hata olursa sadece loglar."""
+        try:
+            degerler = self._form_degerleri()
+            ay = int(self.ay.get())
+            yil = int(self.yil.get())
+        except Exception:
+            return
+        kimlik = degerler.get("vkn") or degerler.get("gib_tc")
+        if not kimlik:
+            return
+        klasor = mukellefler.coz_klasor(kimlik, yil, ay)
+        fatura_onekleri = ("earsiv_alis", "luca_efatura_alis",
+                           "luca_earsiv_alis")
+        fatura_dosyalari = sorted(
+            os.path.join(klasor, ad) for ad in os.listdir(klasor)
+            if ad.lower().startswith(fatura_onekleri)
+            and ad.lower().endswith(".xlsx")) \
+            if os.path.isdir(klasor) else []
+        kayit = self._secili_kayit(degerler)
+        donem = f"{yil}-{ay:02d}"
+        cetvel_dosyalari = self._kayitli_cetveller(kayit, donem)
+        if not fatura_dosyalari or not cetvel_dosyalari:
+            return
+        try:
+            import excel_oku
+            import eksik_belge
+            fatura_kayitlari = []
+            for d in fatura_dosyalari:
+                kayitlar = []
+                for okuyucu in (excel_oku.fatura_luca_ozet_parse,
+                                excel_oku.fatura_gib_arsiv_liste_parse):
+                    try:
+                        kayitlar = okuyucu(d) or []
+                    except Exception:
+                        kayitlar = []
+                    if kayitlar:
+                        break
+                if not kayitlar:
+                    try:
+                        genel = excel_oku.muavin_genel_parse(d)
+                        kayitlar = [k for k in
+                                    (genel.get("kayitlar") or [])
+                                    if k.get("kdv") is not None]
+                        for k in kayitlar:
+                            k.setdefault("satici_vkn", k.get("vkn") or "")
+                    except Exception:
+                        kayitlar = []
+                fatura_kayitlari.extend(kayitlar)
+            cetvel_kayitlari = []
+            for d in cetvel_dosyalari:
+                sonuc_d = excel_oku.muavin_genel_parse(d)
+                cetvel_kayitlari.extend(sonuc_d.get("kayitlar") or [])
+            if not cetvel_kayitlari or not fatura_kayitlari:
+                return
+            sonuc = eksik_belge.eslestir(cetvel_kayitlari,
+                                         fatura_kayitlari)
+            kritik = len(sonuc.get("cetvelde_var_faturasi_yok") or [])
+            self._logla(f"Eksik belge taraması: {kritik} kayıt için "
+                        "fatura bulunamadı." if kritik else
+                        "Eksik belge taraması tamamlandı.")
+            import eksik_belge_pencere
+            eksik_belge_pencere.ac(self, sonuc, cetvel_kayitlari,
+                                   fatura_kayitlari)
+        except Exception as hata:
+            self._logla(f"Eksik belge taraması atlandı: {str(hata)[:100]}")
 
     def _cek_hata(self, mesaj):
         self.cek_butonu.configure(state="normal", bg="#2563eb")
