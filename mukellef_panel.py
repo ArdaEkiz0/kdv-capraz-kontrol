@@ -66,6 +66,7 @@ class MukellefPaneli(tk.Toplevel):
             ("gib_sifre", "GİB (DVD) Şifre", "•"),
             ("ivd_kod", "IVD Kullanıcı Kodu (opsiyonel)", ""),
             ("ivd_sifre", "IVD Şifre", "•"),
+            ("__ent_kurum__", "Entegratör", ""),
             ("ent_kullanici", "Entegratör Kullanıcı", ""),
             ("ent_sifre", "Entegratör Şifre", "•"),
             ("luca_uye", "Luca Üye Numarası", ""),
@@ -74,15 +75,17 @@ class MukellefPaneli(tk.Toplevel):
         for i, (anahtar, etiket, maske) in enumerate(satirlar):
             ttk.Label(sag, text=etiket).grid(row=i, column=0, sticky="w",
                                              pady=2, padx=(0, 8))
+            if anahtar == "__ent_kurum__":
+                # Entegratör kurum seçimi kendi satırinda; altindaki
+                # kullanici/sifre alanlarinin uzerine binmesin.
+                self.ent_kurum = ttk.Combobox(sag, values=ENT_KURUMLAR,
+                                              width=38, state="readonly")
+                self.ent_kurum.set("")
+                self.ent_kurum.grid(row=i, column=1, sticky="ew", pady=2)
+                continue
             giris = ttk.Entry(sag, width=38, show=maske)
             giris.grid(row=i, column=1, sticky="ew", pady=2)
             self.alanlar[anahtar] = giris
-        ttk.Label(sag, text="Entegratör").grid(row=6, column=0, sticky="w",
-                                               pady=2, padx=(0, 8))
-        self.ent_kurum = ttk.Combobox(sag, values=ENT_KURUMLAR, width=35,
-                                      state="readonly")
-        self.ent_kurum.grid(row=6, column=1, sticky="ew", pady=2)
-        self.ent_kurum.set("")
         sag.columnconfigure(1, weight=1)
         ttk.Button(sag, text="💾 Kaydet", command=self._kaydet,
                    style="Primary.TButton").grid(row=len(satirlar), column=1,
