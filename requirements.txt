@@ -6,3 +6,4 @@ xlrd
 matplotlib
 fpdf2
 pdfminer.six
+playwright

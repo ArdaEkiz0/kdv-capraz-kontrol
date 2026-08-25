@@ -61,13 +61,13 @@ if errorlevel 1 (
 echo.
 
 REM --- Gerekli kutuphaneler ---
-%PY% %PY_ARG% -c "import pymupdf, openpyxl, pytesseract, PIL, matplotlib, fpdf, pdfminer" >nul 2>nul
+%PY% %PY_ARG% -c "import pymupdf, openpyxl, pytesseract, PIL, matplotlib, fpdf, pdfminer, playwright" >nul 2>nul
 if errorlevel 1 (
     echo Gerekli kutuphaneler kuruluyor, bir dakika surebilir...
-    %PY% %PY_ARG% -m pip install --quiet --upgrade --force-reinstall pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2 pdfminer.six
+    %PY% %PY_ARG% -m pip install --quiet --upgrade --force-reinstall pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2 pdfminer.six playwright
     if errorlevel 1 (
         echo Kutuphaneler kurulamadi. Asagidaki hatayi not edin:
-        %PY% %PY_ARG% -m pip install pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2 pdfminer.six
+        %PY% %PY_ARG% -m pip install pymupdf openpyxl pytesseract pillow xlrd matplotlib fpdf2 pdfminer.six playwright
         pause
         exit /b 1
     )
