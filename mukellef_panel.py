@@ -438,9 +438,15 @@ class MukellefPaneli(tk.Toplevel):
         fatura_kayitlari = []
         for d in fatura_dosyalari:
             try:
-                kayitlar = excel_oku.fatura_gib_arsiv_liste_parse(d) or []
+                kayitlar = excel_oku.fatura_luca_ozet_parse(d) or []
             except Exception:
                 kayitlar = []
+            if not kayitlar:
+                try:
+                    kayitlar = \
+                        excel_oku.fatura_gib_arsiv_liste_parse(d) or []
+                except Exception:
+                    kayitlar = []
             if not kayitlar:
                 try:
                     genel = excel_oku.muavin_genel_parse(d)
