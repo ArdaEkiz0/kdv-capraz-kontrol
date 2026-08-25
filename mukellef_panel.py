@@ -276,9 +276,15 @@ class MukellefPaneli(tk.Toplevel):
                                    "lütfen bekleyin.", parent=self)
             return
         degerler = self._form_degerleri()
-        if not degerler["gib_tc"] or not degerler["gib_sifre"]:
+        luca_planli_on = (degerler.get("ent_kurum") == "Luca / Türmob"
+                          and degerler.get("luca_uye")
+                          and degerler.get("ent_kullanici")
+                          and degerler.get("ent_sifre"))
+        if (not degerler["gib_tc"] or not degerler["gib_sifre"]) \
+                and not luca_planli_on:
             messagebox.showwarning(
-                "Uyarı", "GİB (DVD) kullanıcı ve şifre alanlarını doldurun.",
+                "Uyarı", "GİB (DVD) kullanıcı ve şifre alanlarını doldurun "
+                "(veya Luca bilgilerini eksiksiz girin).",
                 parent=self)
             return
         try:
@@ -398,11 +404,19 @@ class MukellefPaneli(tk.Toplevel):
                         self._logla(f"Luca belge çekimi atlandı: "
                                     f"{str(bhata)[:80]}")
                 try:
-                    yollar = gib_cekme.cek_e_arsiv_alis(
-                        degerler["gib_tc"], degerler["gib_sifre"], bas, bit,
-                        hedef_klasor, ilerleme=self._logla,
-                        ivd_kod=degerler.get("ivd_kod"),
-                        ivd_sifre=degerler.get("ivd_sifre"))
+                    # Luca belgeleri indiysese GİB'e hic gitme: her sey
+                    # Luca'dan geldi, ayni kaynaktan kontrol daha tutarli.
+                    if luca_yedek:
+                        yollar = list(luca_yedek)
+                        self._logla(f"GİB atlandı — faturalar Luca'dan "
+                                    f"{len(yollar)} belge kümesi olarak "
+                                    "indirildi.")
+                    else:
+                        yollar = gib_cekme.cek_e_arsiv_alis(
+                            degerler["gib_tc"], degerler["gib_sifre"], bas,
+                            bit, hedef_klasor, ilerleme=self._logla,
+                            ivd_kod=degerler.get("ivd_kod"),
+                            ivd_sifre=degerler.get("ivd_sifre"))
                 except gib_cekme.GibHata as ghata:
                     if luca_yedek:
                         yollar = list(luca_yedek)
