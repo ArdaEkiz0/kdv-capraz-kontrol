@@ -404,9 +404,11 @@ class MukellefPaneli(tk.Toplevel):
                 parent=self)
             return
         klasor = mukellefler.coz_klasor(kimlik, yil, ay)
+        fatura_onekleri = ("earsiv_alis", "luca_efatura_alis",
+                           "luca_earsiv_alis")
         fatura_dosyalari = sorted(
             os.path.join(klasor, ad) for ad in os.listdir(klasor)
-            if ad.lower().startswith("earsiv_alis")
+            if ad.lower().startswith(fatura_onekleri)
             and ad.lower().endswith(".xlsx")) \
             if os.path.isdir(klasor) else []
         if not fatura_dosyalari:
@@ -435,7 +437,19 @@ class MukellefPaneli(tk.Toplevel):
         import eksik_belge_pencere
         fatura_kayitlari = []
         for d in fatura_dosyalari:
-            kayitlar = excel_oku.fatura_gib_arsiv_liste_parse(d) or []
+            try:
+                kayitlar = excel_oku.fatura_gib_arsiv_liste_parse(d) or []
+            except Exception:
+                kayitlar = []
+            if not kayitlar:
+                try:
+                    genel = excel_oku.muavin_genel_parse(d)
+                    kayitlar = [k for k in (genel.get("kayitlar") or [])
+                                if k.get("kdv") is not None]
+                    for k in kayitlar:
+                        k.setdefault("satici_vkn", k.get("vkn") or "")
+                except Exception:
+                    kayitlar = []
             fatura_kayitlari.extend(kayitlar)
         cetvel_kayitlari = []
         for d in cetvel_dosyalari:
