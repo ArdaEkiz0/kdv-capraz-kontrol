@@ -823,6 +823,66 @@ def _turk_kucult(metin):
             .replace("Ç", "ç")).replace("ı", "i").lower()
 
 
+_SIRKET_EK_KELIMELERI = {
+    "a.s.", "as", "a.s", "ltd", "sti", "şti", "s.t.i.", "tic", "san",
+    "ve", "ticaret", "sanayi", "limited", "sirketi", "şirketi",
+    "kurumsal", "co", "corp", "inc",
+}
+
+
+def _firma_anahtar(metin):
+    """Unvandan sirket eklerini atarak anlamli kelime kumesi uretir.
+
+    'KİRAZLAR FERMANTASYON SAN. VE TİC. LTD. ŞTİ.' -> {'kirazlar',
+    'fermantasyon'}; Luca'daki kısa ad 'KIRAZLARLT' olsa da kök
+    'kirazlar' ile eslesir.
+    """
+    temiz = _turk_kucult(metin)
+    temiz = re.sub(r"[^\w\s]", " ", temiz)
+    return {k for k in temiz.split()
+            if len(k) >= 3 and k not in _SIRKET_EK_KELIMELERI}
+
+
+def _firma_eslesen(secenekler, firma_adi):
+    """Sirket combo seceneklerini unvanla eslestirir (esnek).
+
+    1. Tam alt-dize (eski davranis, en kesin)
+    2. Anahtar-kelime kesisimi: hedef unvanin anlamli kelimeleri,
+       Luca'nin kisaltilmis adinda gecmeli; kestirme 'KIRAZLARLT'
+       gibi adlar da yakalanir.
+    3. Ilk anlamli kelimeyle baslayan ad ('kirazlar*' gibi).
+    """
+    ibare = _turk_kucult(firma_adi)
+    tam = [s for s in secenekler if ibare in _turk_kucult(s["t"])]
+    if tam:
+        return tam
+    anahtarlar = _firma_anahtar(firma_adi) or set()
+    if not anahtarlar:
+        return []
+    skorlu = []
+    for s in secenekler:
+        adanahtar = _firma_anahtar(s["t"])
+        if not adanahtar:
+            continue
+        kesisim = len(anahtarlar & adanahtar)
+        # Kestirme tek-kelime adlar ('kirazlarlt'): anlamli bir hedef
+        # kelimesiyle oneki paylasiyorsa (>=5 harf) eslesme say.
+        onek = any(a.startswith(b[:5]) or b.startswith(a[:5])
+                   for a in anahtarlar for b in adanahtar)
+        if kesisim or onek:
+            skorlu.append((kesisim, s))
+    if skorlu:
+        skorlu.sort(key=lambda c: -c[0])
+        return [s for _, s in skorlu]
+    ilk = sorted(anahtarlar)[0] if anahtarlar else ""
+    if ilk:
+        baslayan = [s for s in secenekler
+                    if _turk_kucult(s["t"]).startswith(ilk)]
+        if len(baslayan) == 1:
+            return baslayan
+    return []
+
+
 def _erp_penceresi(oturum, sayfa, bildir):
     """Portalda gonder('formTarget') tetikler; acilan ERP sekmesini dondurur.
 
@@ -868,9 +928,7 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
     if not secenekler:
         raise LucaHata("Firma listesi boş geldi.")
     if firma_adi:
-        ibare = _turk_kucult(firma_adi)
-        eslesen = [s for s in secenekler
-                   if ibare in _turk_kucult(s["t"])]
+        eslesen = _firma_eslesen(secenekler, firma_adi)
         if not eslesen:
             ornekler = ", ".join(s["t"] for s in secenekler[:6])
             raise LucaHata(f"Firma bulunamadı: {firma_adi} "
