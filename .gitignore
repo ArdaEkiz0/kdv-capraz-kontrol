@@ -79,3 +79,16 @@ graft/
 # GitHub erişim anahtarı (özel repo güncellemeleri)
 github_token.txt
 
+
+# Yerel paket/cikti ve arac dosyalari (repoya gecmez)
+kdv-kontrol-v*.zip
+/.txt
+/191*.xlsx
+.claude/
+.kiro/
+.opencode/
+.mcp.json
+opencode.json
+.ignore
+AGENTS.md
+.github/copilot-instructions.md

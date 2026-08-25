@@ -11,11 +11,14 @@ değişebilir; gezinme metin eşleştirmesiyle yapılır ve başarısızlıkta h
 ma için ekran görüntüsü %%TEMP%% altına kaydedilir.
 """
 import base64
+import html as html_cevir
 import io
+import json
 import os
 import re
 import time
-from datetime import date
+import zipfile
+from datetime import date, datetime
 
 KARAKTER_KUMESI = (" -c tessedit_char_whitelist="
                    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -834,6 +837,375 @@ LUCA_BELGE_KATEGORILERI = (
      (r"giden", r"g[öo]nderilen", r"d[üu]zenlenen", r"sat[ıi][şs]")),
 )
 
+# Luca ERP'de gib530.do ekranlarinin 'tur' parametre karsiliklari.
+LUCA_GIB_TURLER = {
+    "efatura_alis": "gib_efatura_alis",
+    "efatura_satis": "gib_efatura_satis",
+    "earsiv_alis": "gib_ebelge_alis",
+    "earsiv_satis": "gib_ebelge_satis",
+}
+
+
+def _turk_kucult(metin):
+    """Turkce buyuk harfleri de kuculterek karsilastirma metni uretir.
+
+    I/ı/i farki da esitlenir; boylece 'KIRAZLAR' ile 'KİRAZLAR' ortak
+    ibareye iner.
+    """
+    return (metin.replace("İ", "i").replace("I", "i").replace("Ş", "ş")
+            .replace("Ğ", "ğ").replace("Ü", "ü").replace("Ö", "ö")
+            .replace("Ç", "ç")).replace("ı", "i").lower()
+
+
+def _erp_penceresi(oturum, sayfa, bildir):
+    """Portalda gonder('formTarget') tetikler; acilan ERP sekmesini dondurur.
+
+    Yeni sekme auygs.luca.com.tr SSO'sundan gecer; otomasyon bayraklari
+    kapali degilse sunucu 500 dondurdugu icin _tarayici_ac zorunludur.
+    """
+    popuplar = []
+    oturum.on("page", lambda y: popuplar.append(y))
+    sayfa.evaluate("gonder('formTarget')")
+    bildir("Mali Müşavir Paketi penceresi açılıyor...")
+    for _ in range(30):
+        time.sleep(2)
+        if not popuplar:
+            continue
+        hedef = popuplar[0]
+        try:
+            if len(hedef.content()) > 3000 or len(hedef.frames) > 1:
+                hedef.wait_for_timeout(4000)
+                return hedef
+        except Exception:
+            continue
+    raise LucaHata(
+        "Luca ERP penceresi açılamadı. Sunucu SSO isteğini reddetti "
+        "(oturum çakışması olabilir; birkaç dakika sonra deneyin).")
+
+
+def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
+    """ERP ust cercevesinde sirket + donem secip Tamam'a basar."""
+    ust = None
+    for f in erp.frames:
+        try:
+            if f.query_selector("#SirketCombo"):
+                ust = f
+                break
+        except Exception:
+            continue
+    if ust is None:
+        raise LucaHata("Firma seçim alanı (SirketCombo) bulunamadı.")
+    secenekler = ust.eval_on_selector_all(
+        "#SirketCombo option",
+        "os => os.map(o => ({v:o.value,t:o.textContent.trim()}))"
+        ".filter(x => x.v && x.v !== '0')")
+    if not secenekler:
+        raise LucaHata("Firma listesi boş geldi.")
+    if firma_adi:
+        ibare = _turk_kucult(firma_adi)
+        eslesen = [s for s in secenekler
+                   if ibare in _turk_kucult(s["t"])]
+        if not eslesen:
+            ornekler = ", ".join(s["t"] for s in secenekler[:6])
+            raise LucaHata(f"Firma bulunamadı: {firma_adi} "
+                           f"(örnek firmalar: {ornekler})")
+        hedef = eslesen[0]
+        if len(eslesen) > 1:
+            bildir(f"Dikkat: '{firma_adi}' ile {len(eslesen)} firma "
+                   f"eşleşti, ilk seçiliyor ({hedef['t']}).")
+    else:
+        if len(secenekler) != 1:
+            raise LucaHata(
+                f"firma_adi belirtilmeli (hesapta {len(secenekler)} "
+                "firma var).")
+        hedef = secenekler[0]
+    ust.select_option("#SirketCombo", hedef["v"])
+    ust.wait_for_timeout(800)
+    donemler = ust.eval_on_selector_all(
+        "#DonemCombo option",
+        "os => os.map(o => ({v:o.value,t:o.textContent.trim()}))"
+        ".filter(x => x.v && x.v !== '0')")
+    yil = str(bas_tarih.year)
+    donem = next((d for d in donemler if yil in d["t"]), None)
+    if donem is None and donemler:
+        donem = donemler[0]
+    if donem is None:
+        raise LucaHata("Bu firmaya ait dönem bulunamadı.")
+    ust.select_option("#DonemCombo", donem["v"])
+    ust.wait_for_timeout(500)
+    ust.click("button:has-text('Tamam')")
+    bildir(f"Firma/dönem seçildi: {hedef['t']} / {donem['t']}")
+    time.sleep(8)
+    return hedef["t"], donem["t"]
+
+
+def _gib530_frame(erp, tur, uye_no, bildir=None):
+    """Ana icerik cercevesini istenen gib530 ekranina goturur ve frame'i
+    dondurur; yuklenmezse None doner.
+
+    Firma secimi sonrasi cerceveler yeniden yuklendigi icin ilk
+    denemede 'execution context destroyed' hatasi normaldir; gezinme
+    araliklarla yeniden denenir.
+    """
+    adres = f"gib530.do?tur={tur}&c_musteri_id={uye_no}"
+    for deneme in range(10):
+        try:
+            if deneme in (0, 3, 6):
+                erp.evaluate(
+                    "u => { top.frames['frm3'].location.href = u; }",
+                    adres)
+        except Exception:
+            pass
+        time.sleep(2)
+        for f in erp.frames:
+            try:
+                if "gib530" in f.url and len(f.content()) > 5000:
+                    return f
+            except Exception:
+                continue
+    if bildir is not None:
+        try:
+            nerede = erp.evaluate(
+                "top.frames['frm3'] "
+                "? top.frames['frm3'].location.href : 'frm3 yok'")
+            bildir(f"frm3 durumu: {str(nerede)[:100]}")
+        except Exception:
+            pass
+    return None
+
+
+_FATURA_JSON = re.compile(r'fatura="([^"]+)"')
+
+
+def _satirlari_ayikla(html_metin):
+    """gib530 listesindeki her satirin 'fatura' JSON ozelligini cozer.
+
+    Donen liste [(satir_sirasi, sozluk), ...]; satir_sirasi DOM sirasidir
+    ve ZIP indirme tuslarinin sirasiyla birebir ortusur.
+    """
+    satirlar = []
+    for sira, ham in enumerate(_FATURA_JSON.findall(html_metin)):
+        try:
+            veri = json.loads(html_cevir.unescape(ham))
+        except Exception:
+            continue
+        satirlar.append((sira, veri))
+    return satirlar
+
+
+def _tarih_araliginda(metin, bas_tarih, bit_tarih):
+    try:
+        gun = datetime.strptime(metin, "%d/%m/%Y").date()
+    except (TypeError, ValueError):
+        return False
+    return bas_tarih <= gun <= bit_tarih
+
+
+def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
+    """Satirdaki ZIP ikonuna tiklar; indigi dosyayi kaydeder."""
+    with sayfa.expect_download(timeout=30000) as bekle:
+        frame.evaluate(
+            "n => { const e = [...document.querySelectorAll('[onclick]')]"
+            ".filter(x => x.getAttribute('onclick').includes('zip_indir'))"
+            "[n]; if (!e) throw new Error('ZIP düğmesi yok'); e.click(); }",
+            satir_sirasi)
+    indirme = bekle.value
+    indirme.save_as(hedef_yol)
+    return indirme.suggested_filename
+
+
+def _ubl_ozet(xml_bytes):
+    """UBL fatura XML'inden tutarlari cikarir.
+
+    Kurallar:
+    - Para birimi TRY olan degerler oncelidir; hic TRY yoksa belge
+      para birimi kullanilir ve 'para' alanindan anlasilir.
+    - Bazi gondericiler TaxTotal bloklarini tekrarlar; dogrudan TaxAmount
+      ile kendi TaxSubtotal toplami tutarli olmayan bloklar sayilmaz,
+      boylece KDV iki katına cikmaz.
+    - oran_kalemleri: her KDV orani icin {"oran", "matrah", "kdv"}
+      sozlugu; cok oranli faturalar capraz kontrolde oran basina
+      degerlendirilir. (Uygulamanin diger yerlerindeki oranlar=[18, 8]
+      duz oran listesinden farkli alandir.)
+    """
+    try:
+        import xml.etree.ElementTree as ET
+        kok = ET.fromstring(xml_bytes)
+    except Exception:
+        return {}
+
+    def yerel(etiket):
+        return etiket.split("}")[-1]
+
+    def sayi(metin):
+        try:
+            return float((metin or "0").replace(",", "."))
+        except ValueError:
+            return None
+
+    bloklar = []
+    for eb in kok.iter():
+        if yerel(eb.tag) != "TaxTotal":
+            continue
+        dogrudan = None
+        para_b = ""
+        alt = []
+        for el in eb:
+            ad = yerel(el.tag)
+            if ad == "TaxAmount":
+                dogrudan = sayi(el.text)
+                para_b = el.get("currencyID") or para_b
+            elif ad == "TaxSubtotal":
+                yuzde = None
+                taban_t = None
+                alt_kdv = None
+                for a in el:
+                    aa = yerel(a.tag)
+                    if aa == "Percent":
+                        yuzde = sayi(a.text)
+                    elif aa == "TaxableAmount":
+                        taban_t = sayi(a.text)
+                    elif aa == "TaxAmount":
+                        alt_kdv = sayi(a.text)
+                if yuzde is not None and alt_kdv is not None:
+                    alt.append({"oran": round(yuzde, 2),
+                                "matrah": round(taban_t, 2)
+                                if taban_t is not None else None,
+                                "kdv": round(alt_kdv, 2)})
+        tutarli = bool(alt) and dogrudan is not None and \
+            abs(sum(a["kdv"] for a in alt) - dogrudan) <= 0.02
+        bloklar.append({"para": para_b, "dogrudan": dogrudan,
+                        "alt": alt, "tutarli": tutarli})
+
+    secili = [b for b in bloklar if b["tutarli"]]
+    if not secili:
+        secili = [b for b in bloklar if b["alt"]] or bloklar
+
+    genels = []
+    matrahs = []
+    for el in kok.iter():
+        ad = yerel(el.tag)
+        if ad == "PayableAmount":
+            genels.append((sayi(el.text),
+                           el.get("currencyID") or ""))
+        elif ad == "TaxExclusiveAmount":
+            matrahs.append((sayi(el.text),
+                            el.get("currencyID") or ""))
+
+    def tercih(ciftler):
+        temiz = [(d, p) for d, p in ciftler if d is not None]
+        if not temiz:
+            return None, ""
+        for d, p in temiz:
+            if p in ("TRY", "TL"):
+                return d, "TRY"
+        return temiz[0]
+
+    genel_toplam, genel_para = tercih(genels)
+    matrah, matrah_para = tercih(matrahs)
+
+    # Blok secimi: gondericiler hem satir kirilimini hem belge toplamini
+    # ayri TaxTotal bloklari olarak yazabiliyor. Tabanlari toplami KDV-
+    # haric matraya esit olan blok(lar) gercek vergi bilesenleridir;
+    # matraya eslesen tek blok varsa digerleri (kismi/kopya) atlanir.
+    if len(secili) > 1 and matrah is not None:
+        tam_bloklar = [b for b in secili
+                       if abs(sum((a.get("matrah") or 0.0)
+                                  for a in b["alt"]) - matrah) <= 0.05]
+        if len(tam_bloklar) == 1:
+            secili = tam_bloklar
+
+    # Alt kalemleri temizle: belge duzeyinde tekrarlanan ozet satirini
+    # (tabani diger satirlarin toplami) ve sent kopyalarini kaldirir.
+    tum_alt = []
+    for b in secili:
+        tum_alt.extend(b["alt"])
+    temiz = []
+    for i, a in enumerate(tum_alt):
+        taban_a = a.get("matrah")
+        if taban_a is None:
+            continue
+        digerler = [x for j, x in enumerate(tum_alt) if j != i]
+        if digerler and abs(
+                sum((x.get("matrah") or 0.0) for x in digerler)
+                - taban_a) <= 0.05:
+            continue
+        temiz.append(a)
+
+    oranlar = []
+    for a in sorted(temiz,
+                    key=lambda x: (-x["oran"], -x["kdv"])):
+        benzer = [b for b in oranlar
+                  if b["oran"] == a["oran"]
+                  and abs(b["kdv"] - a["kdv"]) <= 0.05]
+        if not benzer:
+            oranlar.append(a)
+
+    # KDV toplami: tutarli bloklarin dogrudan degerleri; yakin degerler
+    # tek sayilir (tekrarlanan TaxTotal bloklari yaygin).
+    kdvs = []
+    for b in secili:
+        d = b["dogrudan"]
+        if d is None:
+            continue
+        if not any(abs(d - y) <= 0.05 for y in kdvs):
+            kdvs.append(round(d, 2))
+
+    para = "TRY" if (genel_para == "TRY" or matrah_para == "TRY"
+                     or any(b["para"] in ("TRY", "TL")
+                            for b in secili)) else (
+        genel_para or (secili[0]["para"] if secili else ""))
+
+    ozet = {}
+    if matrahs:
+        ozet["matrah"] = round(matrah, 2)
+    if kdvs:
+        ozet["kdv_toplam"] = round(sum(kdvs), 2)
+    if genel_toplam is not None:
+        ozet["genel_toplam"] = round(genel_toplam, 2)
+    if para:
+        ozet["para"] = para
+    if oranlar:
+        ozet["oran_kalemleri"] = oranlar
+    return ozet
+
+
+def _ozet_tablo_yaz(yol, kayitlar):
+    """Belge ozetini .xlsx olarak yazar; openpyxl yoksa .csv dener."""
+    sutunlar = [("belge_numarasi", "Belge No"),
+                ("belge_tarihi", "Tarih"),
+                ("belge_turu", "Tür"),
+                ("karsi_vkn", "VKN/TCKN"),
+                ("unvan", "Unvan"),
+                ("onay_durumu", "Durum"),
+                ("matrah", "Matrah"),
+                ("kdv_toplam", "KDV"),
+                ("genel_toplam", "Genel Toplam"),
+                ("oranlar_metni", "KDV Oranlar"),
+                ("para", "Para"),
+                ("ettn", "ETTN"),
+                ("dosya", "ZIP")]
+    try:
+        from openpyxl import Workbook
+        kitap = Workbook()
+        yaprak = kitap.active
+        yaprak.title = "belgeler"
+        yaprak.append([baslik for _, baslik in sutunlar])
+        for kayit in kayitlar:
+            yaprak.append([kayit.get(anahtar, "")
+                           for anahtar, _ in sutunlar])
+        kitap.save(yol)
+        return yol
+    except Exception:
+        csv_yol = os.path.splitext(yol)[0] + ".csv"
+        with open(csv_yol, "w", encoding="utf-8-sig", newline="") as dosya:
+            dosya.write(",".join(b for _, b in sutunlar) + "\n")
+            for kayit in kayitlar:
+                hucreler = [str(kayit.get(a, "")).replace('"', "'")
+                            for a, _ in sutunlar]
+                dosya.write(",".join('"' + h + '"' for h in hucreler) + "\n")
+        return csv_yol
+
 
 def _belge_sorgula_ve_indir(sayfa, hedef, bildir):
     """Ekranda tarihleri doldurmus varsayarak sorgula + Excel indir.
@@ -896,28 +1268,37 @@ def _satir_sayisini_buyut(sayfa, bildir):
 
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                        hedef_klasor, kategoriler=None, ilerleme=None,
-                       gorunur=False, manuel_captcha=False):
-    """Luca'dan dort belge kategorisini indirir:
-    efatura_alis, efatura_satis, earsiv_alis, earsiv_satis.
+                       gorunur=True, manuel_captcha=False, firma_adi=None):
+    """Luca ERP Akıllı Entegrasyon ekranlarından e-Belgeleri indirir.
 
-    Tek girisle tum kategoriler denenir. Belge sayisi yuksekse (1000-2000+)
-    once tum aralik tek indirmede denenir; olmazsa aralik otomatik 10 gunluk,
-    takilan parcalar 1 gunluk bolunerek surdurulur. Her parca ayri dosyadir:
-    luca_{kategori}_{bas}_{bit}.xlsx
+    Gerçek akış: giriş → portalda gonder('formTarget') ile MM Paketi
+    penceresi → SirketCombo/DonemCombo ile firma+dönem seçimi → her
+    kategori için gib530.do?tur=... ekranı → listedeki 'fatura' JSON'ları
+    okunur, tarih aralığına göre süzülür → her belgenin ZIP'i satırdaki
+    ZIP simgesiyle indirilip açılır (UBL XML + HTML).
 
-    gorunur=True tarayiciyi ekranda acar; manuel_captcha=True ile OCR
-    basarisizsa kullaniciya captcha'yi elle girme süresi taninir.
+    firma_adi: firma unvanının içinde geçen ibare; Türkçe büyük/küçük
+    harf duyarsız eşleşir. Tek firmalık hesapta boş bırakılabilir.
 
-    Donen deger: {kategori: [dosya_yollari]}. Basarisiz kategori ekran
-    goruntusuyle atlanir. Hicbiri inmezse LucaHata.
+    gorunur=True önerilir; headless modda Luca SSO istekleri engellenen-
+   abiliyor. manuel_captcha=True OCR tükenince kullanıcıya elle captcha
+    girme süresi tanır.
+
+    Kategori başına çıktılar hedef_klasor altına yazılır:
+      luca_{kategori}_{bas}_{bit}/          → belge ZIP + XML + HTML
+      luca_{kategori}_{bas}_{bit}.xlsx      → özet tablo
+
+    Dönen değer: {kategori: {"zip": [yollar], "ozet": xlsx_yolu,
+    "belge_sayisi": n}}. Hiçbir kategori inmezse LucaHata.
     """
     bildir = _bildir_fonksiyonu(ilerleme)
     os.makedirs(hedef_klasor, exist_ok=True)
-    hedefler = kategoriler or [k for k, _, _ in LUCA_BELGE_KATEGORILERI]
+    hedefler = kategoriler or [k for k in LUCA_GIB_TURLER]
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        raise LucaHata("Playwright kurulu değil. Kurulum: pip install playwright")
+        raise LucaHata(
+            "Playwright kurulu değil. Kurulum: pip install playwright")
 
     sonuc = {}
     with sync_playwright() as p:
@@ -928,97 +1309,131 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
             sayfa = giris_yap(sayfa, uye_no, kullanici, parola, bildir,
                               manuel_bekleme=180 if manuel_captcha else 0)
             sayfa.wait_for_timeout(2500)
-
-            def parca_cek(kategori, bas, bit):
-                hedef = os.path.join(
-                    hedef_klasor,
-                    f"luca_{kategori}_"
-                    f"{bas.strftime('%Y%m%d')}_{bit.strftime('%Y%m%d')}.xlsx")
-                if _dosya_saglam(hedef):
-                    return hedef
-                if not _tarih_alanlarini_doldur(sayfa, bas, bit, bildir):
-                    raise RuntimeError("tarih alanları doldurulamadı")
-                if _belge_sorgula_ve_indir(sayfa, hedef, bildir):
-                    if _dosya_saglam(hedef):
-                        return hedef
-                    try:
-                        os.remove(hedef)
-                    except OSError:
-                        pass
-                    raise RuntimeError("indirilen dosya boş görünüyor")
-                raise RuntimeError("indirme başarısız")
+            erp = _erp_penceresi(oturum, sayfa, bildir)
+            _firma_donem_sec(erp, firma_adi, bas_tarih, bildir)
 
             for kategori in hedefler:
-                tanim = next((t for t in LUCA_BELGE_KATEGORILERI
-                              if t[0] == kategori), None)
-                if tanim is None:
+                tur = LUCA_GIB_TURLER.get(kategori)
+                if tur is None:
                     bildir(f"Bilinmeyen kategori atlandı: {kategori}")
                     continue
-                modul_deseni, alt_desenler = tanim[1], tanim[2]
-                bildir(f"{kategori}: ekran aranıyor...")
-                dosyalar = []
+                bildir(f"{kategori}: ekran açılıyor...")
                 try:
-                    if not _menu_elemani_tikla(sayfa, modul_deseni,
-                                               "Modül", bildir, zaman_asimi=5):
-                        raise RuntimeError("modül menüsü bulunamadı")
-                    sayfa = _aktif_sayfa(oturum, sayfa)
-                    sayfa.wait_for_timeout(1500)
-                    if not any(_menu_elemani_tikla(sayfa, d, "Alt menü",
-                                                   bildir, zaman_asimi=3)
-                               for d in alt_desenler):
-                        raise RuntimeError("alt menü bulunamadı")
-                    sayfa = _aktif_sayfa(oturum, sayfa)
-                    sayfa.wait_for_timeout(1200)
-                    _satir_sayisini_buyut(sayfa, bildir)
-
-                    # 1) Tum aralik tek seferde
-                    try:
-                        yol = parca_cek(kategori, bas_tarih, bit_tarih)
-                        dosyalar.append(yol)
-                        bildir(f"{kategori}: tüm dönem tek dosyada indi.")
-                    except Exception:
-                        # 2) 10 gunluk parcalar; olmayan gun 1 gune bolunur
-                        dosyalar = []
-                        on_gunluk = _aralik_parcalara_bol(bas_tarih,
-                                                          bit_tarih, 10)
-                        for pi, (pb, ps) in enumerate(on_gunluk, 1):
+                    cerceve = _gib530_frame(erp, tur, uye_no, bildir)
+                    if cerceve is None:
+                        raise RuntimeError("gib530 ekranı yüklenmedi")
+                    satirlar = _satirlari_ayikla(cerceve.content())
+                    secili = [(sira, belge) for sira, belge in satirlar
+                              if _tarih_araliginda(
+                                  belge.get("belge_tarihi"),
+                                  bas_tarih, bit_tarih)]
+                    bildir(f"{kategori}: listede {len(satirlar)} belge, "
+                           f"tarih aralığında {len(secili)} tanesi var.")
+                    klasor = os.path.join(
+                        hedef_klasor,
+                        f"luca_{kategori}_{bas_tarih:%Y%m%d}_"
+                        f"{bit_tarih:%Y%m%d}")
+                    os.makedirs(klasor, exist_ok=True)
+                    sayfa2 = cerceve.page
+                    zip_yollari = []
+                    kayitlar = []
+                    gorulen = {}
+                    atlanan_belge = 0
+                    for numara, (sira, belge) in enumerate(secili, 1):
+                        durum_kisa = _turk_kucult(
+                            str(belge.get("onay_durumu") or ""))
+                        iptal_ibare = str(belge.get("iptal_itiraz") or
+                                          belge.get("iptal_itiraz_durumu")
+                                          or "").strip()
+                        if (iptal_ibare
+                                or ("red" in durum_kisa)
+                                or ("iptal" in durum_kisa)
+                                or (durum_kisa and "onay" not in durum_kisa)):
+                            atlanan_belge += 1
+                            continue
+                        belge_no = (belge.get("belge_numarasi")
+                                    or f"belge{sira}").strip()
+                        gorulen[belge_no] = gorulen.get(belge_no, 0) + 1
+                        if gorulen[belge_no] > 1:
+                            dosya_no = (f"{belge_no}_"
+                                        f"{gorulen[belge_no]}")
+                        else:
+                            dosya_no = belge_no
+                        zip_yol = os.path.join(klasor,
+                                               f"{dosya_no}.zip")
+                        ozet = {}
+                        if _dosya_saglam(zip_yol):
                             try:
-                                yol = parca_cek(kategori, pb, ps)
-                                dosyalar.append(yol)
-                                bildir(f"{kategori}: parça {pi}/"
-                                       f"{len(on_gunluk)} indi "
-                                       f"({pb:%d.%m}-{ps:%d.%m}).")
+                                with zipfile.ZipFile(zip_yol) as zipp:
+                                    for ic_ad in zipp.namelist():
+                                        icerik = zipp.read(ic_ad)
+                                        if ic_ad.lower().endswith(".xml"):
+                                            ozet = _ubl_ozet(icerik)
+                                        if not os.path.exists(
+                                                os.path.join(klasor,
+                                                             ic_ad)):
+                                            zipp.extract(ic_ad, klasor)
                             except Exception:
-                                if pb == ps:
-                                    bildir(f"{kategori}: {pb:%d.%m} "
-                                           "günü inmedi.")
-                                    continue
-                                for (gb, gs) in \
-                                        _aralik_parcalara_bol(pb, ps, 1):
-                                    try:
-                                        dosyalar.append(parca_cek(
-                                            kategori, gb, gs))
-                                    except Exception:
-                                        bildir(f"{kategori}: {gb:%d.%m} "
-                                               "günü inmedi.")
-                        if dosyalar:
-                            bildir(f"{kategori}: parçalı çekim tamam, "
-                                   f"{len(dosyalar)} dosya.")
-                    if dosyalar:
-                        sonuc[kategori] = dosyalar
-                    else:
-                        _hata_ekrani_kaydet(sayfa, f"belge_{kategori}")
+                                pass
+                        else:
+                            try:
+                                _zip_tikla_indir(cerceve, sayfa2, sira,
+                                                 zip_yol)
+                            except Exception as hata:
+                                bildir(f"{kategori}: {belge_no} inmedi "
+                                       f"({str(hata)[:50]}), atlanıyor.")
+                                continue
+                            try:
+                                with zipfile.ZipFile(zip_yol) as zipp:
+                                    for ic_ad in zipp.namelist():
+                                        icerik = zipp.read(ic_ad)
+                                        if ic_ad.lower().endswith(".xml"):
+                                            ozet = _ubl_ozet(icerik)
+                                        zipp.extract(ic_ad, klasor)
+                            except Exception:
+                                pass
+                        kayitlar.append({
+                            "belge_numarasi": belge_no,
+                            "belge_tarihi": belge.get("belge_tarihi", ""),
+                            "belge_turu": belge.get("belge_turu", ""),
+                            "karsi_vkn": str(belge.get("alici_vkn_tckn",
+                                                       "")),
+                            "unvan": belge.get("alici_unvan_ad_soyad", ""),
+                            "onay_durumu": belge.get("onay_durumu", ""),
+                            "ettn": belge.get("ettn", ""),
+                            "dosya": os.path.basename(zip_yol),
+                            **ozet})
+                        kayit = kayitlar[-1]
+                        if ozet.get("oran_kalemleri"):
+                            kayit["oranlar_metni"] = "; ".join(
+                                f"{a['oran']:g}%:"
+                                f"{(a.get('matrah') or 0):.2f}/"
+                                f"{a['kdv']:.2f}"
+                                for a in ozet["oran_kalemleri"])
+                        zip_yollari.append(zip_yol)
+                        bildir(f"{kategori}: {numara}/{len(secili)} "
+                               f"belge ({belge_no}).")
+                    if atlanan_belge:
+                        bildir(f"{kategori}: {atlanan_belge} red/iptal "
+                               "belge dışarıda bırakıldı.")
+                    if not kayitlar:
+                        raise RuntimeError("tarih aralığında belge inmedi")
+                    ozet_yol = _ozet_tablo_yaz(
+                        os.path.join(
+                            hedef_klasor,
+                            f"luca_{kategori}_{bas_tarih:%Y%m%d}_"
+                            f"{bit_tarih:%Y%m%d}.xlsx"), kayitlar)
+                    sonuc[kategori] = {
+                        "zip": zip_yollari,
+                        "ozet": ozet_yol,
+                        "belge_sayisi": len(kayitlar)}
                 except Exception as hata:
-                    if dosyalar:
-                        sonuc[kategori] = dosyalar
-                    else:
-                        bildir(f"{kategori} çekilemedi: {str(hata)[:80]}")
-                        _hata_ekrani_kaydet(sayfa, f"belge_{kategori}")
+                    bildir(f"{kategori} çekilemedi: {str(hata)[:80]}")
+                    _hata_ekrani_kaydet(sayfa, f"belge_{kategori}")
         finally:
             tarayici.close()
     if not sonuc:
         raise LucaHata(
-            "Luca'dan hiçbir e-Belge kategorisi indirilemedi. Ekranlar "
-            "müşteri yapılandırmasına göre değişebilir; keşif raporu "
-            "gerekli.")
+            "Luca'dan hiçbir e-Belge kategorisi indirilemedi. Ekran "
+            "görüntüleri %TEMP% altına kaydedildi.")
     return sonuc

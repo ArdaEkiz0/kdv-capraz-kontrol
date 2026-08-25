@@ -383,6 +383,117 @@ def fatura_gib_arsiv_liste_parse(dosya_yolu):
     return sonuc
 
 
+def fatura_luca_ozet_parse(dosya_yolu):
+    """Luca Akıllı Entegrasyon özet tablosu (cek_luca_belgeleri çıktısı).
+
+    Başlıklar: Belge No | Tarih | Tür | VKN/TCKN | Unvan | Durum |
+    Matrah | KDV | Genel Toplam | KDV Oranlar | Para | ETTN | ZIP.
+    'KDV Oranlar' hücresi '20%:500.00/100.00; 1%:...' biçiminde çok
+    oranlı kırılımı taşır. Format tanınmazsa None döner.
+    """
+    satirlar = excel_satirlar(dosya_yolu)
+    baslik_i = None
+    kolon = {}
+    for i, satir in enumerate(satirlar):
+        normlar = [_norm_baslik(c) for c in satir]
+        if "BELGE NO" in normlar and "GENEL TOPLAM" in normlar \
+                and ("ETTN" in normlar or "KDV ORANLAR" in normlar):
+            baslik_i = i
+            for j, n in enumerate(normlar):
+                if n == "BELGE NO":
+                    kolon["belge"] = j
+                elif n == "TARIH":
+                    kolon["tarih"] = j
+                elif n == "TUR":
+                    kolon["tur"] = j
+                elif n.startswith("VKN"):
+                    kolon["vkn"] = j
+                elif n.startswith("UNVAN"):
+                    kolon["unvan"] = j
+                elif n == "DURUM":
+                    kolon["durum"] = j
+                elif n == "MATRAH":
+                    kolon["matrah"] = j
+                elif n == "KDV":
+                    kolon["kdv"] = j
+                elif n == "GENEL TOPLAM":
+                    kolon["toplam"] = j
+                elif n == "KDV ORANLAR":
+                    kolon["oranlar"] = j
+                elif n == "PARA":
+                    kolon["para"] = j
+            break
+    if baslik_i is None:
+        return None
+
+    oran_parca = re.compile(
+        r"(\d+(?:[.,]\d+)?)\s*%\s*:\s*(-?[\d.]+)\s*/\s*(-?[\d.]+)")
+    sonuc = []
+    for i in range(baslik_i + 1, len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        belge_ham = satir[kolon["belge"]] \
+            if kolon.get("belge") is not None and kolon["belge"] < len(satir) \
+            else None
+        if belge_ham is None or not str(belge_ham).strip():
+            continue
+
+        def hucre(anahtar):
+            j = kolon.get(anahtar)
+            if j is None or j >= len(satir):
+                return None
+            return satir[j]
+
+        durum_metni = str(hucre("durum") or "").strip()
+        durum_kucuk = (durum_metni.replace("İ", "i").replace("I", "i")
+                       .replace("ı", "i").lower())
+        if (durum_kucuk and "onay" not in durum_kucuk) or \
+                "red" in durum_kucuk or "iptal" in durum_kucuk:
+            continue
+
+        tarih_deger = hucre("tarih")
+        t = tarih_parse(str(tarih_deger).strip()) if tarih_deger else None
+        kayit = {
+            "dosya": dosya_yolu, "tip": "excel", "satir": i + 1,
+            "belge_no": fatura_no_temizle(str(belge_ham)),
+            "tarih": str(t) if t else None,
+            "satici_vkn": vkn_temizle(str(hucre("vkn") or "")),
+            "alici_vkn": None,
+            "matrah": tutar_parse(hucre("matrah")),
+            "kdv": tutar_parse(hucre("kdv")),
+            "toplam": tutar_parse(hucre("toplam")),
+            "oranlar": [], "notlar": [],
+            "unvan": str(hucre("unvan") or "").strip()[:80] or None,
+            "oran": None,
+            "oran_kalemleri": [],
+        }
+        # oran_kalemleri: uygulama genelindeki oranlar=[18, 8] listesinden
+        # farkli, Luca ozetinde oran bazina acilmis {"oran", "matrah",
+        # "kdv"} sozlukleridir.
+        oran_ham = str(hucre("oranlar") or "")
+        for eslesme in oran_parca.finditer(oran_ham):
+            yuzde = float(eslesme.group(1).replace(",", "."))
+            kayit["oran_kalemleri"].append({
+                "oran": round(yuzde, 2),
+                "matrah": round(float(eslesme.group(2)), 2),
+                "kdv": round(float(eslesme.group(3)), 2)})
+        para = str(hucre("para") or "").strip().upper()
+        if para and para not in ("TRY", "TL"):
+            kayit["notlar"].append(f"Para birimi TRY değil: {para}")
+        if kayit["matrah"] is None or kayit["kdv"] is None:
+            kayit["notlar"].append(
+                "Matrah/KDV bulunamadı, manuel kontrol edin")
+        elif kayit["toplam"] is not None \
+                and abs(kayit["matrah"] + kayit["kdv"]
+                        - kayit["toplam"]) > Decimal("0.02"):
+            kayit["notlar"].append("Matrah+KDV ≠ Toplam")
+        sonuc.append(kayit)
+    if not sonuc:
+        return None
+    return sonuc
+
+
 def fatura_gelen_parse(dosya_yolu):
     """Gelen faturalar Excel formatı (e-fatura portalinden indirilen gönderici faturaları listesi).
 

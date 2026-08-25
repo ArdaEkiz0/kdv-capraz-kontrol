@@ -92,6 +92,46 @@ def eslestir(cetvel_kayitlari, fatura_kayitlari):
       eksik:   [c_i]   cetvelde var, faturası yok
       fazla:   [f_i]   faturada var, cetvelde yok
     """
+    # Cok oranli faturalar oran basina sanal satirlara acilir; boylece
+    # kitapta oran bazinda acilmis birden fazla cetvel satiri tek
+    # faturaya eslesebilir. Sonuclar gercek fatura indeksine cevrilir.
+    # (oran_kalemleri: {"oran","matrah","kdv"} sozlukleri; oranlar
+    # alanindaki duz [18, 8] oran listesiyle karismasin.)
+    genis_var = any(
+        len([o for o in (f.get("oran_kalemleri") or [])
+             if isinstance(o, dict)
+             and _sayi(o.get("kdv")) is not None]) > 1
+        for f in fatura_kayitlari)
+    if genis_var:
+        sanal, kaynak = [], []
+        for j, f in enumerate(fatura_kayitlari):
+            oranlar = [o for o in (f.get("oran_kalemleri") or [])
+                       if isinstance(o, dict)
+                       and _sayi(o.get("kdv")) is not None]
+            if len(oranlar) > 1:
+                for o in oranlar:
+                    g = dict(f)
+                    g["matrah"] = o.get("matrah")
+                    g["kdv"] = o["kdv"]
+                    # Tek kalemli liste: yeniden acilmayi engeller,
+                    # esnek puanlamada oran isabeti de calismaya devam
+                    # eder.
+                    g["oran_kalemleri"] = [o]
+                    sanal.append(g)
+                    kaynak.append(j)
+            else:
+                sanal.append(f)
+                kaynak.append(j)
+        r = eslestir(cetvel_kayitlari, sanal)
+        return {
+            "eslesen": [(i, kaynak[j], y)
+                        for i, j, y in r["eslesen"]],
+            "belirsiz": [(i, [(kaynak[j], p) for j, p in adaylar])
+                         for i, adaylar in r["belirsiz"]],
+            "eksik": r["eksik"],
+            "fazla": sorted({kaynak[j] for j in r["fazla"]}),
+        }
+
     n_c, n_f = len(cetvel_kayitlari), len(fatura_kayitlari)
     eslesen = []
     belirsiz = []
@@ -115,18 +155,25 @@ def eslestir(cetvel_kayitlari, fatura_kayitlari):
             c_kalan.discard(i)
             f_kalan.discard(uygun[0])
 
-    # KDV kovasi: sadece tutari uyumlu faturalar adaydir
+    # KDV kovasi: sadece tutari uyumlu faturalar adaydir.
+    # Cok oranli faturalarda her orandaki KDV tutari da ayri adaydir
+    # (cetvel satiri faturanin tek oranli kalemiyle eslesabilir).
     degerler = []
     kova = {}
     for j in range(n_f):
+        deger_j = set()
         v = _sayi(fatura_kayitlari[j].get("kdv"))
-        if v is None:
-            continue
-        anahtar = round(v, 2)
-        if anahtar not in kova:
-            kova[anahtar] = []
-            degerler.append(anahtar)
-        kova[anahtar].append(j)
+        if v is not None:
+            deger_j.add(round(v, 2))
+        for o in (fatura_kayitlari[j].get("oran_kalemleri") or []):
+            ov = _sayi(o.get("kdv")) if isinstance(o, dict) else None
+            if ov is not None:
+                deger_j.add(round(ov, 2))
+        for anahtar in deger_j:
+            if anahtar not in kova:
+                kova[anahtar] = []
+                degerler.append(anahtar)
+            kova[anahtar].append(j)
     degerler.sort()
 
     def aday_bul(v):
@@ -207,6 +254,12 @@ def eslestir(cetvel_kayitlari, fatura_kayitlari):
                         puan += 1
                 else:
                     puan -= 2
+            # Cetvel satiri faturanin tek bir oran kaleminin KDV'sine
+            # esitse ek guven (cok oranli faturalarda satir baz eslesme)
+            if any(_tutar_esit(c.get("kdv"), o.get("kdv"))
+                   for o in (f.get("oran_kalemleri") or [])
+                   if isinstance(o, dict)):
+                puan += 1
             if puan >= 3:
                 puanlar.append((puan, j))
         if not puanlar:

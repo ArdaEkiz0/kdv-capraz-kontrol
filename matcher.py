@@ -321,6 +321,100 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
         if not c_listesi:
             continue
 
+        # ÇOK ORANLI FATURA: KDV kırılımı birden fazla oranda olan
+        # faturada her cetvel satırı kendi oranındaki tutarla ayrı
+        # değerlendirilir; tüm cetvel satırları birer orana oturursa
+        # toplam tutar farkı YAZILMAZ, artan oranlar ayrıca bildirilir.
+        if len(f_listesi) == 1:
+            f0 = f_listesi[0]
+            oran_kalemleri = [o for o in (f0.get("oran_kalemleri") or [])
+                              if isinstance(o, dict)
+                              and o.get("kdv") is not None]
+            if len(oran_kalemleri) > 1:
+                kalan_oran = list(oran_kalemleri)
+                oran_eslesme = {}
+                for j, c in enumerate(c_listesi):
+                    cv = c.get("kdv")
+                    if cv is None:
+                        continue
+                    adaylar = [o for o in kalan_oran
+                               if _tutar_esit(float(o["kdv"]),
+                                              float(cv))]
+                    if len(adaylar) == 1:
+                        oran_eslesme[j] = adaylar[0]
+                        kalan_oran.remove(adaylar[0])
+                tam_kapsam = (len(oran_eslesme) == len(c_listesi)
+                              and len(c_listesi) >= 2)
+
+                # Cetvel satirlari tek tek orana oturmuyorsa ama KDV
+                # toplamlari kirilimin toplamina esitse fatura kitapta
+                # toplu kaydedilmistir; matematiksel olarak kapandigi
+                # icin tutar farki YAZILMAZ.
+                toplam_kapandi = False
+                if not tam_kapsam and c_listesi and all(
+                        c.get("kdv") is not None for c in c_listesi):
+                    olcek = float(TOLERANS) * max(1, len(c_listesi))
+                    toplam_kapandi = abs(
+                        sum(float(c["kdv"]) for c in c_listesi)
+                        - sum(float(o["kdv"])
+                              for o in oran_kalemleri)) <= olcek
+
+                if tam_kapsam or toplam_kapandi:
+                    if toplam_kapandi and not tam_kapsam:
+                        satir_f = dict(f0)
+                        satir_f["toplam"] = None
+                        oran_metni = "+".join(
+                            "%{:g}".format(o["oran"])
+                            for o in oran_kalemleri)
+                        detay = (f"Oran kırılımı toplamda eşleşti "
+                                 f"(KDV {oran_metni})")
+                        for c in c_listesi:
+                            kullanilan_c.add((id(c), anahtar))
+                        kullanilan_f.add(id(f0))
+                        if all(vkn_uyumlu(f0, c)
+                               for c in c_listesi):
+                            ozet["eslesen"] += 1
+                            durum_ekle(DURUM_OK, satir_f,
+                                       c_listesi[0], detay=detay)
+                        else:
+                            ozet["vkn_farki"] += 1
+                            durum_ekle(DURUM_VKN_FARKI, satir_f,
+                                       c_listesi[0],
+                                       detay=detay + " | Fatura VKN: "
+                                       f"{f0['satici_vkn']} | "
+                                       f"Cetvel VKN: "
+                                       f"{c_listesi[0]['vkn']}")
+                        continue
+                    for j, c in enumerate(c_listesi):
+                        kullanilan_c.add((id(c), anahtar))
+                        kullanilan_f.add(id(f0))
+                        kalem = oran_eslesme[j]
+                        satir_f = dict(f0)
+                        satir_f["matrah"] = kalem.get("matrah")
+                        satir_f["kdv"] = kalem["kdv"]
+                        satir_f["toplam"] = None
+                        if not vkn_uyumlu(f0, c):
+                            ozet["vkn_farki"] += 1
+                            durum_ekle(DURUM_VKN_FARKI, satir_f, c,
+                                       detay=f"Oran %{kalem['oran']:g} | "
+                                       f"Fatura VKN: {f0['satici_vkn']} | "
+                                       f"Cetvel VKN: {c['vkn']}")
+                        else:
+                            ozet["eslesen"] += 1
+                            durum_ekle(DURUM_OK, satir_f, c,
+                                       detay=f"Oran bazında eşleşti "
+                                       f"(KDV %{kalem['oran']:g})")
+                    for o in kalan_oran:
+                        ozet["cetvelde_yok"] += 1
+                        satir_f = dict(f0)
+                        satir_f["matrah"] = o.get("matrah")
+                        satir_f["kdv"] = o["kdv"]
+                        satir_f["toplam"] = None
+                        durum_ekle(DURUM_CETVELDE_YOK, satir_f, None,
+                                   detay=f"Faturanın KDV %{o['oran']:g} "
+                                   "oranlı kalemi muavin cetvelde yok")
+                    continue
+
         # Akıllı eşleştirme: aynı belge numarasında birden fazla fatura ve/veya
         # cetvel kaydı olabilir (belge numarası çakışması). Sırayla değil,
         # içerik uyumuna göre eşleştirilir:
