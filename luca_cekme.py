@@ -183,7 +183,16 @@ def _luca_captcha_as(sayfa, bildir, uye_no, kullanici, parola,
     sıfırlanıp giriş formu geri gelirse kimlikler yeniden gönderilir.
     Sure dolarsa False doner.
     """
-    if sayfa.query_selector("#captcha-input") is None:
+    try:
+        ilk = sayfa.query_selector("#captcha-input")
+    except Exception:
+        # Sayfa henuz yukleniyor/geziyor olabilir; bir kez daha bak.
+        time.sleep(2)
+        try:
+            ilk = sayfa.query_selector("#captcha-input")
+        except Exception:
+            ilk = None
+    if ilk is None:
         return True
     bekleme = manuel_bekleme if manuel_bekleme > 0 else 180
     try:
@@ -194,20 +203,27 @@ def _luca_captcha_as(sayfa, bildir, uye_no, kullanici, parola,
            f"kodu elle girip Tamam'a basın ({bekleme} sn)...")
     for _ in range(bekleme):
         sayfa.wait_for_timeout(1000)
-        if sayfa.query_selector("#captcha-input") is None:
+        try:
+            captcha_kaldi = sayfa.query_selector("#captcha-input") is not None
+        except Exception:
+            # Kullanicinin girisiyle sayfa gezindi; yoklama bu esnada
+            # olusebilir ("execution context destroyed"). Gezinti,
+            # basarili giris anlamina gelir.
+            captcha_kaldi = False
+        if not captcha_kaldi:
             bildir("Captcha girildi; devam ediliyor.")
             return True
         _luca_swal_kapat(sayfa)
         # Oturum sıfırlanıp temiz giriş formu geldiyse tekrar gönder
-        if sayfa.query_selector("#musteriNo") is not None:
-            try:
+        try:
+            if sayfa.query_selector("#musteriNo") is not None:
                 sayfa.fill("#musteriNo", str(uye_no))
                 sayfa.fill("#kullaniciAdi", str(kullanici))
                 sayfa.fill("#parola", str(parola))
                 sayfa.click("input[type=button][value='GİRİŞ']", timeout=4000)
                 sayfa.wait_for_timeout(1500)
-            except Exception:
-                pass
+        except Exception:
+            pass
     bildir("Captcha süresi doldu.")
     return False
 
@@ -317,38 +333,86 @@ def _menu_elemani_tikla(sayfa, desen, aciklama, bildir, zaman_asimi=6):
     return False
 
 
+def _luca_metin_gir(oge, metin):
+    """Luca'nın maskeli alanlarına klavye vuruşuyla yazar; değeri
+    özellikten geri okuyup döndürür.
+
+    Bu alanların özel JS araçları (takvim, hesap planı) olduğu için
+    click() yerine odak JS ile verilir (tık takvim penceresi açar);
+    yazım sonrası Escape/Tab ile araç kapatılıp değer işlenir. Tarih
+    aracı ayraç karakterini değiştirebildiği için karşılaştırma
+    ayraç-bağımsız yapılır ('/' -> '.').
+    """
+    try:
+        oge.evaluate("el => el.focus && el.focus()")
+    except Exception:
+        pass
+    try:
+        oge.evaluate("el => el.select && el.select()")
+    except Exception:
+        pass
+    try:
+        oge.type(metin, delay=45)
+        oge.press("Tab")
+    except Exception:
+        try:
+            oge.fill(metin, force=True)
+        except Exception:
+            pass
+    try:
+        return (oge.input_value() or "").strip().replace("/", ".")
+    except Exception:
+        return None
+
+
 def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
-    """Rapor ekranındaki tarih alanlarını bulup doldurmaya çalışır."""
+    """Rapor ekranındaki tarih alanlarını bulup doldurmaya çalışır.
+
+    Muavin ekranındaki bilinen kimlikler (#tarih_ilk/#tarih_son) önce
+    denenir; değer özellikten geri okunarak doğrulanır, tutmazsa genel
+    seçicilerle tarama yapılır.
+    """
     bas_metin = bas_tarih.strftime("%d.%m.%Y")
     bit_metin = bit_tarih.strftime("%d.%m.%Y")
     doldurulan = 0
-    for secici in ("input[name*='Tarih' i]", "input[id*='Tarih' i]",
-                   "input[name*='tarih']", "input[id*='tarih']"):
+    for secici, metin in (("#tarih_ilk", bas_metin),
+                          ("#tarih_son", bit_metin)):
         try:
-            ogeler = sayfa.query_selector_all(secici)
+            oge = sayfa.query_selector(secici)
+            if oge is None or not oge.is_visible():
+                continue
+            if _luca_metin_gir(oge, metin) == metin:
+                doldurulan += 1
         except Exception:
             continue
-        for oge in ogeler:
+    if doldurulan < 2:
+        for secici in ("input[name*='Tarih' i]", "input[id*='Tarih' i]",
+                       "input[name*='tarih']", "input[id*='tarih']"):
             try:
-                if not oge.is_visible():
-                    continue
-                deger = (oge.input_value() or "").strip()
-                if deger and re.match(r"^\d{2}\.\d{2}\.\d{4}$", deger):
-                    continue
-                if doldurulan == 0:
-                    oge.fill(bas_metin, force=True)
-                    doldurulan += 1
-                elif doldurulan == 1:
-                    oge.fill(bit_metin, force=True)
-                    doldurulan += 1
-                    break
+                ogeler = sayfa.query_selector_all(secici)
             except Exception:
                 continue
-        if doldurulan >= 2:
-            break
+            for oge in ogeler:
+                try:
+                    if not oge.is_visible():
+                        continue
+                    deger = (oge.input_value() or "").strip()
+                    if deger and re.match(r"^\d{2}\.\d{2}\.\d{4}$", deger):
+                        continue
+                    hedef = bas_metin if doldurulan == 0 else bit_metin
+                    if _luca_metin_gir(oge, hedef) == hedef:
+                        doldurulan += 1
+                    if doldurulan >= 2:
+                        break
+                except Exception:
+                    continue
+            if doldurulan >= 2:
+                break
     if doldurulan < 2:
         bildir("UYARI: Tarih alanları otomatik doldurulamadı; sayfanın kendi "
                "varsayılan dönemi kullanılacak.")
+    else:
+        bildir(f"Tarih aralığı girildi: {bas_metin} - {bit_metin}")
     return doldurulan
 
 
@@ -377,12 +441,57 @@ def _indir_butonu_tikla(sayfa, desenler, zaman_asimi=8):
     return False
 
 
-def _hesap_alanlarini_doldur(sayfa, hesap_kodu):
-    """Başlangıç ve Bitiş hesap kodu alanlarını aynı kodla doldurur.
+def _hesap_alanlarini_doldur(sayfa, hesap_kodu, bildir=None):
+    """Başlangıç ve Bitiş hesap kodu alanlarını aralık olarak doldurur.
 
-    Luca muavin raporunda aralık iki alandır; her ikisine de aynı kodu
-    yazmak (örn. 191 -> 191) yalnız o hesabın dökümünü verir.
+    Luca aralığı dizgesel karşılaştırmayla uygular; bitişe aynı kodu
+    yazmak (191 -> 191) alt hesapları (191.01.003 gibi) dışarıda
+    bırakır. Bitiş kodu bir sonraki hesap olmalıdır (191 -> 192) ki
+    tüm alt hesaplar aralığa dahil olsun. Hesap boyu alanlarına
+    (hesap_boyu_ilk/son) kesinlikle dokunulmaz.
+
+    Form yalnız gerçek klavye olaylarını kabul eder; JS ile değer
+    basmak gonder()'in okudugu duruma islemez. Deger, bayat düğüm
+    yerine taze JS okumasiyla dogrulanir.
     """
+    try:
+        son_kod = str(int(hesap_kodu) + 1)
+    except ValueError:
+        son_kod = hesap_kodu
+
+    def _taze_okur(oge):
+        try:
+            return (oge.evaluate("el => el.value")
+                    or "").strip().replace("/", ".")
+        except Exception:
+            return None
+
+    def _secici_okur(secici):
+        try:
+            return (sayfa.eval_on_selector(secici, "el => el.value")
+                    or "").strip().replace("/", ".")
+        except Exception:
+            return None
+
+    def _cift_yaz(ilk_oge, son_oge):
+        _luca_metin_gir(ilk_oge, hesap_kodu)
+        if hesap_kodu not in (_taze_okur(ilk_oge), _secici_okur("#hesap_kodu_ilk")):
+            return False
+        _luca_metin_gir(son_oge, son_kod)
+        return son_kod in (_taze_okur(son_oge), _secici_okur("#hesap_kodu_son"))
+
+    # Bilinen kimlikler: muavin ekranındaki hesap kodu alanları
+    try:
+        ilk = sayfa.query_selector("#hesap_kodu_ilk")
+        son = sayfa.query_selector("#hesap_kodu_son")
+        if (ilk is not None and son is not None):
+            if _cift_yaz(ilk, son):
+                return True
+    except Exception:
+        pass
+
+    # Genel yol: bos kalan ilk iki 'Hesap' girdisini bul; hesap boyu
+    # alanlarini atla, birine baslangic digerine bitis kodunu yaz.
     doldurulan = 0
     for secici in ("input[name*='Hesap' i]", "input[id*='Hesap' i]",
                    "input[name*='hesap']", "input[id*='hesap']"):
@@ -392,8 +501,16 @@ def _hesap_alanlarini_doldur(sayfa, hesap_kodu):
             continue
         for oge in ogeler:
             try:
+                kimlik = ((oge.get_attribute("name") or "")
+                          + (oge.get_attribute("id") or "")).lower()
+                if "boyu" in kimlik:
+                    continue
                 if oge.is_visible() and not (oge.input_value() or "").strip():
-                    oge.fill(hesap_kodu, force=True)
+                    hedef = hesap_kodu if doldurulan == 0 else son_kod
+                    _luca_metin_gir(oge, hedef)
+                    # Luca düğüm değiştirdiğinde geri okuma yanıltır;
+                    # yazim istisna vermediyse basarili say. Asil
+                    # denetim indirilen dosyada yapilir.
                     doldurulan += 1
                     if doldurulan >= 2:
                         return True
@@ -403,7 +520,7 @@ def _hesap_alanlarini_doldur(sayfa, hesap_kodu):
 
 
 def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
-               hesap_kodlari=("191", "391"), ilerleme=None):
+               hesap_kodlari=("191", "391"), firma_adi="", ilerleme=None):
     """Luca'dan muavin dökümünü Excel olarak indirir.
 
     Dönen değer: indirilen dosya yolları listesi.
@@ -427,24 +544,18 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
             sayfa = giris_yap(sayfa, uye_no, kullanici, parola, bildir)
             sayfa.wait_for_timeout(2500)
 
-            # Modul/menu gezinmesi: Genel Muhasebe -> Raporlar -> Muavin
-            if _menu_elemani_tikla(sayfa, r"genel\s*muhasebe", "Modül",
-                                   bildir, zaman_asimi=4):
-                sayfa = _aktif_sayfa(oturum, sayfa)
-                sayfa.wait_for_timeout(1500)
-            if _menu_elemani_tikla(sayfa, r"^raporlar?\b", "Menü", bildir,
-                                   zaman_asimi=3):
-                sayfa = _aktif_sayfa(oturum, sayfa)
-                sayfa.wait_for_timeout(1000)
-            if not _menu_elemani_tikla(sayfa, r"muavin\s*defter|muavin",
-                                       "Rapor", bildir, zaman_asimi=8):
-                ekran = _hata_ekrani_kaydet(sayfa, "menu")
+            # Menuler iframe icinde render edildigi icin metin
+            # eslestirmesiyle gezinme guvenilir degil; ERP penceresine
+            # gecip rapor ekranini dogrudan adresiyle yukluyoruz.
+            erp = _erp_penceresi(oturum, sayfa, bildir)
+            _firma_donem_sec(erp, firma_adi, bas_tarih, bildir)
+            cerceve = _muavin_frame(erp, uye_no, bildir)
+            if cerceve is None:
+                ekran = _hata_ekrani_kaydet(erp, "muavin_menu")
                 detay = f" Ekran görüntüsü: {ekran}" if ekran else ""
                 raise LucaHata(
-                    "Luca menüsünde 'Muavin' bağlantısı bulunamadı. Uygulama "
-                    "menüsü farklı olabilir." + detay)
-            sayfa = _aktif_sayfa(oturum, sayfa)
-            sayfa.wait_for_timeout(1500)
+                    "Muavin rapor ekranı (raporMizanDetayHazirla) "
+                    "yüklenemedi." + detay)
 
             for hesap in hesap_kodlari:
                 donem_etiketi = bas_tarih.strftime("%Y%m")
@@ -453,36 +564,44 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                     f"luca_muavin_{hesap}_{donem_etiketi}.xlsx")
                 try:
                     bildir(f"Hesap {hesap} muavini sorgulanıyor...")
-                    _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih,
+                    # Onceki rapordan kalmis bayat form yerine ekranı
+                    # her hesap icin tazele (alanlar temiz baslar).
+                    yeni = _muavin_frame(erp, uye_no, bildir)
+                    if yeni is not None:
+                        cerceve = yeni
+                    _tarih_alanlarini_doldur(cerceve, bas_tarih, bit_tarih,
                                              bildir)
-                    _hesap_alanlarini_doldur(sayfa, hesap)
+                    _hesap_alanlarini_doldur(cerceve, hesap, bildir)
                     # Rapor Türü seçimi: varsa Excel'i işaretle
                     excel_secildi = _indir_butonu_tikla(
-                        sayfa, (r"^excel$",), zaman_asimi=2)
+                        cerceve, (r"^excel$",), zaman_asimi=2)
                     if excel_secildi:
                         bildir("Rapor türü Excel olarak seçildi.")
                     raporda_indi = False
                     try:
-                        with sayfa.expect_download(timeout=25000) as indirme:
+                        with erp.expect_download(timeout=25000) as indirme:
                             _indir_butonu_tikla(
-                                sayfa, (r"^rapor$", r"^liste$", r"listele",
-                                        r"sorgula", r"getir"),
+                                cerceve,
+                                (r"^rapor$", r"^liste$", r"listele",
+                                 r"sorgula", r"getir"),
                                 zaman_asimi=6)
                         dosya = indirme.value
                         dosya.save_as(hedef)
                         dosyalar.append(hedef)
                         raporda_indi = True
                         bildir(f"İndirildi: {os.path.basename(hedef)}")
+                        _muavin_dosya_denetle(hedef, hesap, bildir)
                     except Exception:
                         pass
                     if not raporda_indi:
                         # Rapor ekranda açıldı; ayrı Excel/döküm düğmesi ara
                         try:
-                            with sayfa.expect_download(
+                            with erp.expect_download(
                                     timeout=20000) as indirme:
                                 if not _indir_butonu_tikla(
-                                        sayfa, (r"excel", r"\bxls\b",
-                                                r"aktar", r"döküm\s*al")):
+                                        cerceve,
+                                        (r"excel", r"\bxls\b",
+                                         r"aktar", r"döküm\s*al")):
                                     raise RuntimeError(
                                         "Excel/döküm düğmesi bulunamadı")
                             dosya = indirme.value
@@ -490,11 +609,12 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                             dosyalar.append(hedef)
                             raporda_indi = True
                             bildir(f"İndirildi: {os.path.basename(hedef)}")
+                            _muavin_dosya_denetle(hedef, hesap, bildir)
                         except Exception as hata:
                             bildir(f"Hesap {hesap}: döküm alınamadı "
                                    f"({str(hata)[:70]}).")
                         if not raporda_indi:
-                            _hata_ekrani_kaydet(sayfa, f"rapor_{hesap}")
+                            _hata_ekrani_kaydet(erp, f"rapor_{hesap}")
                 except LucaHata:
                     raise
                 except Exception as hata:
@@ -756,6 +876,78 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
         for f in erp.frames:
             try:
                 if "gib530" in f.url and len(f.content()) > 5000:
+                    return f
+            except Exception:
+                continue
+    if bildir is not None:
+        try:
+            nerede = erp.evaluate(
+                "top.frames['frm3'] "
+                "? top.frames['frm3'].location.href : 'frm3 yok'")
+            bildir(f"frm3 durumu: {str(nerede)[:100]}")
+        except Exception:
+            pass
+    return None
+
+
+def _muavin_dosya_denetle(yol, hesap, bildir):
+    """Indirilen muavin dosyasinda veri satiri ve dogru hesap var mi
+    diye bakir.
+
+    Ilk ~4 satir basliktir (MUAVIN DEFTER, firma, dönem, tarih); ilk
+    hesap satirinin kodu istenen hesapla baslamaliyadir.
+    """
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(yol)
+        ws = wb.active
+        satir_sayisi = ws.max_row or 0
+        ilk_hesap = None
+        if satir_sayisi > 4:
+            for satir in ws.iter_rows(min_row=5, max_row=8,
+                                      values_only=True):
+                ilk = str(satir[0] or "").strip() if satir else ""
+                if re.match(r"^\d{3}(\.|$)", ilk):
+                    ilk_hesap = ilk
+                    break
+        wb.close()
+        if satir_sayisi <= 4:
+            bildir(f"UYARI: Hesap {hesap} dökümü boş görünüyor "
+                   f"({satir_sayisi} satır).")
+        elif ilk_hesap and not ilk_hesap.startswith(hesap):
+            bildir(f"UYARI: Hesap {hesap} dökümü beklenen hesabı "
+                   f"içermiyor (ilk satır: {ilk_hesap}).")
+        elif ilk_hesap:
+            bildir(f"Hesap {hesap} dökümü doğrulandı ({satir_sayisi} satır, "
+                   f"ilk hesap: {ilk_hesap}).")
+    except Exception:
+        pass
+
+
+def _muavin_frame(erp, uye_no, bildir=None):
+    """Icerik cercevesini muavin defter ekranina goturur ve frame'i
+    dondurur; yuklenmezse None doner.
+
+    Luca menuleri iframe icinde render edildigi icin metin
+    eslestirmesiyle gezinme guvenilir degil; ERP menu dizisindeki
+    'Tum Yazicilar -> Muavin Defter' adresi (raporMizanDetayHazirla.do)
+    dogrudan yuklenir. Firma secimi sonrasi cerceveler yeniden
+    yuklendigi icin gezinme araliklarla yeniden denenir.
+    """
+    adres = f"raporMizanDetayHazirla.do?c_musteri_id={uye_no}"
+    for deneme in range(10):
+        try:
+            if deneme in (0, 3, 6):
+                erp.evaluate(
+                    "u => { top.frames['frm3'].location.href = u; }",
+                    adres)
+        except Exception:
+            pass
+        time.sleep(2)
+        for f in erp.frames:
+            try:
+                if ("raporMizanDetayHazirla" in f.url
+                        and len(f.content()) > 5000):
                     return f
             except Exception:
                 continue

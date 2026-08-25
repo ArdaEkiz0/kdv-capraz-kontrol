@@ -362,6 +362,7 @@ class MukellefPaneli(tk.Toplevel):
                         indirilen = luca_cekme.cek_muavin(
                             degerler["luca_uye"], degerler["ent_kullanici"],
                             degerler["ent_sifre"], bas, bit, muavin_klasoru,
+                            firma_adi=degerler.get("ad", ""),
                             ilerleme=self._logla)
                         kullanilacak = indirilen
                         self.after(0, lambda k=kayit, y=list(indirilen):
