@@ -355,6 +355,7 @@ class MukellefPaneli(tk.Toplevel):
         def is_parcasi():
             try:
                 kullanilacak = list(cetvel_dosyalari)
+                luca_yedek = []
                 if luca_planli:
                     self._logla(f"Luca'ya giriş yapılıyor "
                                 f"(üye {degerler.get('luca_uye')})...")
@@ -377,11 +378,40 @@ class MukellefPaneli(tk.Toplevel):
                             self.after(0, lambda h="Luca muavin çekimi "
                                        f"başarısız: {lhata}": self._cek_hata(h))
                             return
-                yollar = gib_cekme.cek_e_arsiv_alis(
-                    degerler["gib_tc"], degerler["gib_sifre"], bas, bit,
-                    hedef_klasor, ilerleme=self._logla,
-                    ivd_kod=degerler.get("ivd_kod"),
-                    ivd_sifre=degerler.get("ivd_sifre"))
+                    # Luca'dan e-Belgeler (e-Fatura/e-Arşiv ALIŞ) da
+                    # indirilir; GİB çekimi başarısız olursa yedek olur.
+                    try:
+                        belge_sonuc = luca_cekme.cek_luca_belgeleri(
+                            degerler["luca_uye"], degerler["ent_kullanici"],
+                            degerler["ent_sifre"], bas, bit, hedef_klasor,
+                            kategoriler=("earsiv_alis", "efatura_alis"),
+                            ilerleme=self._logla,
+                            firma_adi=degerler.get("ad", ""))
+                        luca_ozetler = [v.get("ozet") for v in
+                                        (belge_sonuc or {}).values()
+                                        if v.get("ozet")]
+                        if luca_ozetler:
+                            self._logla(f"Luca'dan {len(luca_ozetler)} "
+                                        "belge kümesi indirildi.")
+                            luca_yedek.extend(luca_ozetler)
+                    except luca_cekme.LucaHata as bhata:
+                        self._logla(f"Luca belge çekimi atlandı: "
+                                    f"{str(bhata)[:80]}")
+                try:
+                    yollar = gib_cekme.cek_e_arsiv_alis(
+                        degerler["gib_tc"], degerler["gib_sifre"], bas, bit,
+                        hedef_klasor, ilerleme=self._logla,
+                        ivd_kod=degerler.get("ivd_kod"),
+                        ivd_sifre=degerler.get("ivd_sifre"))
+                except gib_cekme.GibHata as ghata:
+                    if luca_yedek:
+                        yollar = list(luca_yedek)
+                        self._logla(f"GİB çekimi başarısız "
+                                    f"({str(ghata)[:60]}) — Luca'dan "
+                                    f"indirilen {len(yollar)} belge kümesi "
+                                    "kullanılıyor.")
+                    else:
+                        raise
             except gib_cekme.GibHata as hata:
                 self.after(0, lambda h=str(hata): self._cek_hata(h))
                 return
