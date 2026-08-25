@@ -860,19 +860,25 @@ def _firma_eslesen(secenekler, firma_adi):
     if not anahtarlar:
         return []
     skorlu = []
-    for s in secenekler:
-        adanahtar = _firma_anahtar(s["t"])
-        if not adanahtar:
-            continue
-        kesisim = len(anahtarlar & adanahtar)
-        # Kestirme tek-kelime adlar ('kirazlarlt'): anlamli bir hedef
-        # kelimesiyle oneki paylasiyorsa (>=5 harf) eslesme say.
-        onek = any(a.startswith(b[:5]) or b.startswith(a[:5])
-                   for a in anahtarlar for b in adanahtar)
-        if kesisim or onek:
-            skorlu.append((kesisim, s))
+    # Her anlamli kelime sirayla denenir ('kirazlar' da 'fermantasyon'
+    # da); kisaltilmis adlar ('KIRAZLARLT') boyle yakalanir, benzer
+    # baslangicli ilgisiz firmalar ('AKIN'/'AKKEC') eslesmez.
+    for anahtar in sorted(anahtarlar, key=len, reverse=True):
+        secili = {s["v"] for _, s in skorlu}
+        for s in secenekler:
+            if s["v"] in secili:
+                continue
+            ad_kucuk = re.sub(r"[^\w\s]", " ", _turk_kucult(s["t"]))
+            if re.search(r"\b" + re.escape(anahtar), ad_kucuk):
+                skorlu.append((1, s))
+        if len(skorlu) == 1:
+            return [s for _, s in skorlu]
+        if len(skorlu) > 1:
+            break
+    if len(skorlu) == 1:
+        return [s for _, s in skorlu]
     if skorlu:
-        skorlu.sort(key=lambda c: -c[0])
+        # Birden fazla aday: sirali dondur; cagiran taraf hata verir.
         return [s for _, s in skorlu]
     ilk = sorted(anahtarlar)[0] if anahtarlar else ""
     if ilk:
@@ -935,8 +941,12 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
                            f"(örnek firmalar: {ornekler})")
         hedef = eslesen[0]
         if len(eslesen) > 1:
-            bildir(f"Dikkat: '{firma_adi}' ile {len(eslesen)} firma "
-                   f"eşleşti, ilk seçiliyor ({hedef['t']}).")
+            adaylar = ", ".join(s["t"] for s in eslesen[:6])
+            raise LucaHata(
+                f"'{firma_adi}' ile {len(eslesen)} firma eşleşti "
+                f"({adaylar}). Hangi firma olduğunu netleştirmek için "
+                "mükellef kaydındaki Unvan alanını Luca'daki kısa ada "
+                "göre düzenleyin (örn. 'KIRAZLARLT' yazın).")
     else:
         if len(secenekler) != 1:
             raise LucaHata(
@@ -945,6 +955,7 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
         hedef = secenekler[0]
     ust.select_option("#SirketCombo", hedef["v"])
     ust.wait_for_timeout(800)
+    bildir(f"Luca firması seçildi: {hedef['t']}")
     donemler = ust.eval_on_selector_all(
         "#DonemCombo option",
         "os => os.map(o => ({v:o.value,t:o.textContent.trim()}))"
