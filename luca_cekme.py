@@ -19,6 +19,25 @@ import time
 import zipfile
 from datetime import date, datetime
 
+
+def _guvenli_cikar(zipp, klasor):
+    """ZIP icerigini zip-slip'e karsi denetleyerek cikarir.
+
+    Uye adlari '..' icermez ve mutlak yol olamaz; surunen hedef daima
+    klasor icinde kalir. Guvensiz uye atlanir, sayisi dondurulur.
+    """
+    atlanan = 0
+    kok = os.path.realpath(klasor)
+    for ic_ad in zipp.namelist():
+        if ic_ad.endswith("/"):
+            continue
+        hedef = os.path.realpath(os.path.join(klasor, ic_ad))
+        if not (hedef == kok or hedef.startswith(kok + os.sep)):
+            atlanan += 1
+            continue
+        zipp.extract(ic_ad, klasor)
+    return atlanan
+
 LUCA_GIRIS_ADRESI = "https://agiris.luca.com.tr/LUCASSO/giris.erp"
 LUCA_GIRIS_ADRESLERI = (
     "https://agiris.luca.com.tr/LUCASSO/giris.erp",
@@ -1497,10 +1516,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                         icerik = zipp.read(ic_ad)
                                         if ic_ad.lower().endswith(".xml"):
                                             ozet = _ubl_ozet(icerik)
-                                        if not os.path.exists(
-                                                os.path.join(klasor,
-                                                             ic_ad)):
-                                            zipp.extract(ic_ad, klasor)
+                                    _guvenli_cikar(zipp, klasor)
                             except Exception:
                                 pass
                         else:
@@ -1517,7 +1533,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                         icerik = zipp.read(ic_ad)
                                         if ic_ad.lower().endswith(".xml"):
                                             ozet = _ubl_ozet(icerik)
-                                        zipp.extract(ic_ad, klasor)
+                                    _guvenli_cikar(zipp, klasor)
                             except Exception:
                                 pass
                         kayitlar.append({
