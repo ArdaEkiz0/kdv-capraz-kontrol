@@ -333,6 +333,25 @@ def _menu_elemani_tikla(sayfa, desen, aciklama, bildir, zaman_asimi=6):
     return False
 
 
+def _gorunur_esles(sayfa, secici):
+    """Secicinin gorunur eslesmesini dondurur; yoksa None.
+
+    Luca sayfalari quirks modunda oldugu icin id secicileri gizli
+    buyuk harf kopyalara da carpiabilir (HESAP_KODU_ILK gibi); ilk
+    eslesme gizli dugum olabilir ve yazim bosluga gider.
+    """
+    try:
+        for oge in sayfa.query_selector_all(secici):
+            try:
+                if oge.is_visible():
+                    return oge
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 def _luca_metin_gir(oge, metin):
     """Luca'nın maskeli alanlarına klavye vuruşuyla yazar; değeri
     özellikten geri okuyup döndürür.
@@ -450,42 +469,44 @@ def _hesap_alanlarini_doldur(sayfa, hesap_kodu, bildir=None):
     tüm alt hesaplar aralığa dahil olsun. Hesap boyu alanlarına
     (hesap_boyu_ilk/son) kesinlikle dokunulmaz.
 
-    Form yalnız gerçek klavye olaylarını kabul eder; JS ile değer
-    basmak gonder()'in okudugu duruma islemez. Deger, bayat düğüm
-    yerine taze JS okumasiyla dogrulanir.
+    Sayfada ayni kimligin gizli buyuk harf kopyalari da vardir
+    (HESAP_KODU_ILK); quirks mod seciciyi gizli dugume kilitleyebilir.
+    Bu yuzden yalniz GORUNUR dugume gercek tiklama + Ctrl+A + klavye
+    ile yazilir ve deger ayni dugumden okunarak dogrulanir.
     """
     try:
         son_kod = str(int(hesap_kodu) + 1)
     except ValueError:
         son_kod = hesap_kodu
+    klavye = sayfa.page.keyboard
 
-    def _taze_okur(oge):
+    def _dugume_yaz(oge, metin):
+        oge.click(timeout=4000)
+        time.sleep(0.3)
+        klavye.press("Control+a")
+        klavye.type(metin, delay=60)
+        time.sleep(0.3)
         try:
             return (oge.evaluate("el => el.value")
                     or "").strip().replace("/", ".")
         except Exception:
             return None
 
-    def _secici_okur(secici):
-        try:
-            return (sayfa.eval_on_selector(secici, "el => el.value")
-                    or "").strip().replace("/", ".")
-        except Exception:
-            return None
-
-    def _cift_yaz(ilk_oge, son_oge):
-        _luca_metin_gir(ilk_oge, hesap_kodu)
-        if hesap_kodu not in (_taze_okur(ilk_oge), _secici_okur("#hesap_kodu_ilk")):
+    def _cift_yaz():
+        ilk = _gorunur_esles(sayfa, "#hesap_kodu_ilk")
+        if ilk is None:
             return False
-        _luca_metin_gir(son_oge, son_kod)
-        return son_kod in (_taze_okur(son_oge), _secici_okur("#hesap_kodu_son"))
+        if _dugume_yaz(ilk, hesap_kodu) != hesap_kodu:
+            return False
+        son = _gorunur_esles(sayfa, "#hesap_kodu_son")
+        if son is None:
+            return False
+        return _dugume_yaz(son, son_kod) == son_kod
 
     # Bilinen kimlikler: muavin ekranındaki hesap kodu alanları
     try:
-        ilk = sayfa.query_selector("#hesap_kodu_ilk")
-        son = sayfa.query_selector("#hesap_kodu_son")
-        if (ilk is not None and son is not None):
-            if _cift_yaz(ilk, son):
+        if _gorunur_esles(sayfa, "#hesap_kodu_ilk") is not None:
+            if _cift_yaz():
                 return True
     except Exception:
         pass
@@ -891,14 +912,20 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
 
 
 def _muavin_dosya_denetle(yol, hesap, bildir):
-    """Indirilen muavin dosyasinda veri satiri ve dogru hesap var mi
-    diye bakir.
+    """Indirilen muavin dosyasinda veri satiri ve dogru aralik var mi
+    diye bakar.
 
     Ilk ~4 satir basliktir (MUAVIN DEFTER, firma, dönem, tarih); ilk
-    hesap satirinin kodu istenen hesapla baslamaliyadir.
+    hesap satirinin kodu istenen aralikta (hesap..hesap+1) olmalidir.
+    Bitis kodu bir sonraki hesap oldugu icin 192 hesaplarinin da
+    gorunmesi normaldir.
     """
     try:
         import openpyxl
+        try:
+            son_kod = str(int(hesap) + 1)
+        except ValueError:
+            son_kod = hesap
         wb = openpyxl.load_workbook(yol)
         ws = wb.active
         satir_sayisi = ws.max_row or 0
@@ -914,9 +941,9 @@ def _muavin_dosya_denetle(yol, hesap, bildir):
         if satir_sayisi <= 4:
             bildir(f"UYARI: Hesap {hesap} dökümü boş görünüyor "
                    f"({satir_sayisi} satır).")
-        elif ilk_hesap and not ilk_hesap.startswith(hesap):
-            bildir(f"UYARI: Hesap {hesap} dökümü beklenen hesabı "
-                   f"içermiyor (ilk satır: {ilk_hesap}).")
+        elif ilk_hesap and not (hesap <= ilk_hesap[:3] <= son_kod):
+            bildir(f"UYARI: Hesap {hesap} dökümü beklenen aralıkta değil "
+                   f"(ilk satır: {ilk_hesap}).")
         elif ilk_hesap:
             bildir(f"Hesap {hesap} dökümü doğrulandı ({satir_sayisi} satır, "
                    f"ilk hesap: {ilk_hesap}).")
