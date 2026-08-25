@@ -203,6 +203,7 @@ class MukellefPaneli(tk.Toplevel):
             "ent_kurum": degerler["ent_kurum"],
             "ent_kullanici": degerler["ent_kullanici"],
             "ent_sifre": mukellefler.sifrele(degerler["ent_sifre"]),
+            "luca_uye": degerler["luca_uye"],
             "not": degerler["not"],
         })
         if not mevcut:

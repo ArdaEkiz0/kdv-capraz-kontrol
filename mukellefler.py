@@ -83,6 +83,7 @@ def yeni_mukellef():
         "ent_kurum": "",
         "ent_kullanici": "",
         "ent_sifre": "",
+        "luca_uye": "",
         "not": "",
     }
 
