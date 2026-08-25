@@ -38,12 +38,13 @@ _BRAVE_YOLU = (r"C:\Program Files\BraveSoftware\Brave-Browser"
                r"\Application\brave.exe")
 
 
-def _tarayici_ac(playwright, gorunur=False):
+def _tarayici_ac(playwright, gorunur=True):
     """Luca oturumu icin tarayici acar.
 
-    Luca sunucusu otomasyon bayragini (--enable-automation /
-    navigator.webdriver) tespit edip SSO'da 500 dondurdugu icin bu
-    bayraklar ozellikle devre disi birakilir.
+    Captcha kullanici tarafindan pencerede elle girildigi icin gorunur
+    tarayici varsayilandir. Luca sunucusu otomasyon bayragini
+    (--enable-automation / navigator.webdriver) tespit edip SSO'da 500
+    dondurdugu icin bu bayraklar ozellikle devre disi birakilir.
     """
     ortak = {
         "headless": not gorunur,
@@ -185,6 +186,10 @@ def _luca_captcha_as(sayfa, bildir, uye_no, kullanici, parola,
     if sayfa.query_selector("#captcha-input") is None:
         return True
     bekleme = manuel_bekleme if manuel_bekleme > 0 else 180
+    try:
+        sayfa.bring_to_front()
+    except Exception:
+        pass
     bildir(f"Captcha isteniyor: tarayıcı penceresindeki alana görüntüdeki "
            f"kodu elle girip Tamam'a basın ({bekleme} sn)...")
     for _ in range(bekleme):
@@ -413,7 +418,9 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
 
     dosyalar = []
     with sync_playwright() as p:
-        tarayici = _tarayici_ac(p)
+        # Captcha kullanicinin elle girdigi icin gorunur tarayici sart;
+        # varsayilan da gorunur ama cagirida acikca belirtiyoruz.
+        tarayici = _tarayici_ac(p, gorunur=True)
         oturum = _luca_oturum_ac(tarayici)
         sayfa = oturum.new_page()
         try:
@@ -1080,6 +1087,10 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
     "belge_sayisi": n}}. Hiçbir kategori inmezse LucaHata.
     """
     bildir = _bildir_fonksiyonu(ilerleme)
+    if not gorunur:
+        raise LucaHata(
+            "Captcha kullanıcı tarafından elle girildiği için Luca çekimi "
+            "yalnız görünür tarayıcıyla çalışır (gorunur=True kullanın).")
     os.makedirs(hedef_klasor, exist_ok=True)
     hedefler = kategoriler or [k for k in LUCA_GIB_TURLER]
     try:
