@@ -1028,13 +1028,15 @@ def _muavin_dosya_denetle(yol, hesap, bildir):
         ws = wb.active
         satir_sayisi = ws.max_row or 0
         ilk_hesap = None
+        hareket_var = False
         if satir_sayisi > 4:
-            for satir in ws.iter_rows(min_row=5, max_row=8,
-                                      values_only=True):
+            for satir in ws.iter_rows(min_row=5, values_only=True):
                 ilk = str(satir[0] or "").strip() if satir else ""
-                if re.match(r"^\d{3}(\.|$)", ilk):
+                if not ilk_hesap and re.match(r"^\d{3}(\.|$)", ilk):
                     ilk_hesap = ilk
-                    break
+                # Tarihli hareket satiri (dd.mm.yyyy / dd/mm/yyyy)
+                if re.match(r"^\d{2}[./]\d{2}[./]\d{4}", ilk):
+                    hareket_var = True
         wb.close()
         if satir_sayisi <= 4:
             bildir(f"UYARI: Hesap {hesap} dökümü boş görünüyor "
@@ -1042,6 +1044,11 @@ def _muavin_dosya_denetle(yol, hesap, bildir):
         elif ilk_hesap and not (hesap <= ilk_hesap[:3] <= son_kod):
             bildir(f"UYARI: Hesap {hesap} dökümü beklenen aralıkta değil "
                    f"(ilk satır: {ilk_hesap}).")
+        elif ilk_hesap and not hareket_var:
+            bildir(f"UYARI: Hesap {hesap} dökümünde DÖNEM İÇİ hareket yok "
+                   "(yalnız 'Nakli Yekün' açılış satırları var). Belgeler "
+                   "Luca'ya düşmüş ama henüz muhasebe fişine işlenmemiş "
+                   "olabilir; bu yüzden faturalarla eşleşme çıkmaz.")
         elif ilk_hesap:
             bildir(f"Hesap {hesap} dökümü doğrulandı ({satir_sayisi} satır, "
                    f"ilk hesap: {ilk_hesap}).")
