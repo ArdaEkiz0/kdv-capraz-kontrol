@@ -50,8 +50,23 @@ def _ocr_hazir():
                        "(C:\\Program Files\\Tesseract-OCR)")
     komut = shutil.which("tesseract")
     if not komut:
-        for aday in (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                     r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
+        adaylar = [r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                   r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"]
+        # Kayit defterinden kurulum yolu (UB-Mannheim kurucusu yazar):
+        try:
+            import winreg
+            for kok_anahtar in (winreg.HKEY_LOCAL_MACHINE,
+                                winreg.HKEY_CURRENT_USER):
+                try:
+                    ana = winreg.OpenKey(kok_anahtar,
+                                         r"SOFTWARE\Tesseract-OCR")
+                    yol, _ = winreg.QueryValueEx(ana, "InstallPath")
+                    adaylar.append(os.path.join(yol, "tesseract.exe"))
+                except OSError:
+                    continue
+        except Exception:
+            pass
+        for aday in adaylar:
             if os.path.exists(aday):
                 komut = aday
                 break
