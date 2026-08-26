@@ -479,6 +479,42 @@ def _indir_butonu_tikla(sayfa, desenler, zaman_asimi=8):
     return False
 
 
+def _rapor_seceneklerini_duzelt(cerceve, bildir=None):
+    """Muavin rapor formunda bakiyesiz hesaplari gizleyen filtreyi acar.
+
+    'Bakiyesi ve Calismayan Hesaplar' select'i 'Bakiyesiz Hesaplari
+    Gosterme' seciliyse, donem icinde hareketi olmayan bitis hesabi
+    (orn. 192) dokumden tamamen elenir. Tumunu gosteren degere
+    cevrilir; bulunamazsa sessiz gecilir.
+    """
+    try:
+        for secenek in cerceve.query_selector_all("select option"):
+            try:
+                metin = (secenek.inner_text() or "").strip()
+            except Exception:
+                continue
+            kucuk = metin.lower()
+            # 'Tumunu Goster' / 'Tumu' iceren secenek: bakiyesizleri de
+            # listeye alir. Turkce karakterler degisik yazilabildigi
+            # icin esnek eslestirme kullanilir.
+            if "t" + chr(252) + "m" in kucuk and ("goster" in kucuk
+                                                  or "g" in kucuk):
+                deger = secenek.get_attribute("value")
+                secenek.evaluate(
+                    "o => o.parentElement.value = arguments[0]", deger)
+                try:
+                    cerceve.select_option(
+                        f"select:has(option[value='{deger}'])", value=deger)
+                except Exception:
+                    pass
+                if bildir:
+                    bildir(f"Rapor filtresi '{metin}' olarak ayarlandi.")
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _hesap_alanlarini_doldur(sayfa, hesap_kodu, bildir=None):
     """Başlangıç ve Bitiş hesap kodu alanlarını aralık olarak doldurur.
 
@@ -656,6 +692,10 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                         cerceve = yeni
                     _tarih_alanlarini_doldur(cerceve, bas_tarih, bit_tarih,
                                              bildir)
+                    # Bakiyesiz hesaplari gizleyen filtre acilir; yoksa
+                    # donem ici hareketi olmayan bitis hesabi (192/392)
+                    # dokumden elenir.
+                    _rapor_seceneklerini_duzelt(cerceve, bildir)
                     _hesap_alanlarini_doldur(cerceve, hesap, bildir)
                     # Rapor Türü seçimi: varsa Excel'i işaretle
                     excel_secildi = _indir_butonu_tikla(
@@ -1064,11 +1104,15 @@ def _muavin_dosya_denetle(yol, hesap, bildir):
         satir_sayisi = ws.max_row or 0
         ilk_hesap = None
         hareket_var = False
+        ana_hesaplar = set()
         if satir_sayisi > 4:
             for satir in ws.iter_rows(min_row=5, values_only=True):
                 ilk = str(satir[0] or "").strip() if satir else ""
-                if not ilk_hesap and re.match(r"^\d{3}(\.|$)", ilk):
-                    ilk_hesap = ilk
+                m = re.match(r"^(\d{3})(\.|$)", ilk)
+                if m:
+                    ana_hesaplar.add(m.group(1))
+                    if not ilk_hesap:
+                        ilk_hesap = ilk
                 # Tarihli hareket satiri (dd.mm.yyyy / dd/mm/yyyy)
                 if re.match(r"^\d{2}[./]\d{2}[./]\d{4}", ilk):
                     hareket_var = True
@@ -1076,6 +1120,12 @@ def _muavin_dosya_denetle(yol, hesap, bildir):
         if satir_sayisi <= 4:
             bildir(f"UYARI: Hesap {hesap} dökümü boş görünüyor "
                    f"({satir_sayisi} satır).")
+        elif son_kod not in ana_hesaplar and hesap in ana_hesaplar:
+            bildir(f"UYARI: Hesap {hesap} dökümünde bitiş hesabı "
+                   f"{son_kod} YOK (içindekiler: "
+                   f"{', '.join(sorted(ana_hesaplar))}). Rapor filtresi "
+                   "bakiyesiz hesapları eliyor olabilir; döküm aralığı "
+                   "eksik.")
         elif ilk_hesap and not (hesap <= ilk_hesap[:3] <= son_kod):
             bildir(f"UYARI: Hesap {hesap} dökümü beklenen aralıkta değil "
                    f"(ilk satır: {ilk_hesap}).")
