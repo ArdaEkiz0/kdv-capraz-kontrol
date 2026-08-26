@@ -2,6 +2,7 @@ from decimal import Decimal
 from collections import defaultdict
 from datetime import datetime
 from difflib import SequenceMatcher
+import re
 
 from utils import tl_format, vkn_gecerli_mi
 from kurallar import beklenen_oran, kural_bul
@@ -278,6 +279,32 @@ def _harfler(metin):
     return _re.sub(r"[^\w]", "", (metin or "").upper())
 
 
+def _satici_muavinde_var_mi(satici_metin, muavin_metinleri):
+    """Satıcı unvanının anlamlı kelime kökü, muavin açıklamalarının
+    herhangi birinde geçiyor mu? Hiç geçmiyorsa False -> fiş işlenmemiş."""
+    if not satici_metin or not muavin_metinleri:
+        return True  # bilinmiyor -> varsayımsal geçerli
+    k = re.sub(r"[^A-ZÇĞİÖŞÜ0-9]", " ", satici_metin.upper()).split()
+    # Jenerik/ortak kelimeler eşleşme sayılmaz (GIDA, SAN, TIC, LTD...)
+    # bunlar her satıcıda geçtiği için yanlış pozitif üretir.
+    GENEL = {"GIDA","SAN","TIC","LTD","STI","A","S","TURIZM","HIZMET",
+         "PAZARLAMA","SANAYI","TICARET","TUKETIM","MALLARI","VE","LIMITED",
+         "YURTICI","YURTDISI","TASIMACILIK","URUNLERI","GID","URN","TIC",
+         "INSAA","İNSAA","INSAAT","İNŞAAT","NAKLIYAT","DAGITIM",
+         "PAZ","TEM","KURUYEMIS","KURUMSAL","URUN","DONDU","TOPRAK",
+         "ŞİRKETİ","SIRKETI","SATIS","SATIŞ","ANONIM","ANONİM",
+         "MEŞRUBAT","MESRUBAT","GIDACILIK","ELEKTRONIK"}
+    kelimeler = [x for x in k
+                 if len(x) >= 4 and x not in GENEL and not x.isdigit()]
+    if not kelimeler:
+        return True  # ayırt edici kelime yok -> bilinemez, varsayımsal geçer
+    for km in kelimeler:
+        for m in muavin_metinleri:
+            if km in m:
+                return True
+    return False
+
+
 def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
     def anahtar_fatura(f):
         return (f["belge_no"] or "").upper()
@@ -326,6 +353,15 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
 
     kullanilan_c = set()
     kullanilan_f = set()
+
+    # Muavin kayıtlarının unvan/metin seti: bir faturanın satıcısı muavin
+    # boyunca hiç geçmiyorsa fişi işlenmemiş olabilir (net bilgi üretir).
+    muavin_metinleri = []
+    for c in cetvel_kayitlari:
+        parca = (str(c.get("unvan") or "") + " " +
+                 str(c.get("belge_no") or "")).strip()
+        if parca:
+            muavin_metinleri.append(parca.upper())
 
     def durum_ekle(durum, f, c, detay=""):
         f_belge = (f or {}).get("belge_no") if f else ((c or {}).get("belge_no") if c else "")
@@ -565,11 +601,22 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
                 ozet["mukerrer"] += 1
                 durum_ekle(DURUM_MUKERRER, f, None, "Aynı fatura birden fazla kayıt halinde")
             else:
-                ozet["cetvelde_yok"] += 1
-                detay = []
-                if f["matrah"] is None or f["kdv"] is None:
-                    detay.append("Tutarlar okunamadı")
-                durum_ekle(DURUM_CETVELDE_YOK, f, None, " / ".join(detay) if detay else "Cetvelde kaydı yok")
+                            ozet["cetvelde_yok"] += 1
+                            detay = []
+                            if f["matrah"] is None or f["kdv"] is None:
+                                detay.append("Tutarlar okunamadı")
+                            # Net bilgi: satıcı muavin defterinde hiç geçmiyorsa fiş
+                            # işlenmemiş olabilir (Luca'da muhasebeleştirme bekleniyor).
+                            if not _satici_muavinde_var_mi(
+                                    (f.get("satici_unvan") or ""),
+                                    muavin_metinleri):
+                                detay.append("Muavinde satıcı hiç geçmiyor — fiş "
+                                             "işlenmemiş olabilir (Luca'da "
+                                             "muhasebeleştirme bekleniyor)")
+                            if not detay:
+                                detay.append("Cetvelde kaydı yok")
+                            durum_ekle(DURUM_CETVELDE_YOK, f, None,
+                                       " / ".join(detay))
         # Artan cetvel satırları: defterde mükerrer kayıt.
         for j, c in enumerate(c_listesi):
             if j in c_kullanilan:
@@ -589,7 +636,13 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
         detay = []
         if f["matrah"] is None or f["kdv"] is None:
             detay.append("Tutarlar okunamadı")
-        durum_ekle(DURUM_CETVELDE_YOK, f, None, " / ".join(detay) if detay else "Cetvelde kaydı yok")
+        if not _satici_muavinde_var_mi((f.get("satici_unvan") or ""),
+                                       muavin_metinleri):
+            detay.append("Muavinde satıcı hiç geçmiyor — fiş işlenmemiş "
+                         "olabilir (Luca'da muhasebeleştirme bekleniyor)")
+        if not detay:
+            detay.append("Cetvelde kaydı yok")
+        durum_ekle(DURUM_CETVELDE_YOK, f, None, " / ".join(detay))
 
     for anahtar, c_listesi in list(c_grup.items()):
         for c in c_listesi:
