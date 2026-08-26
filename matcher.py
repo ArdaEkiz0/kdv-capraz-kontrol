@@ -231,6 +231,12 @@ def olasilari_isaretle(sonuc_satirlari, faturalar, cetvel_kayitlari):
         r["detay"] = (r.get("detay") or "") + ek if r.get("detay") else metin
 
 
+def _harfler(metin):
+    """Karşılaştırma için yalnız harf/rakam içerik döndürür."""
+    import re as _re
+    return _re.sub(r"[^\w]", "", (metin or "").upper())
+
+
 def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
     def anahtar_fatura(f):
         return (f["belge_no"] or "").upper()
@@ -483,7 +489,22 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
             else:
                 durum = DURUM_OK
                 ozet["eslesen"] += 1
+                # Yanlış eşleşme koruması: satıcı unvanı ile muavin
+                # açıklaması hiç ortak harf dizisi içermiyorsa şüpheli
+                # olarak işaretle (belge no OCR yanılması olabilir).
                 detay = ""
+                try:
+                    _fu = _harfler(f.get("satici_unvan") or "")
+                    _cu = _harfler(c.get("unvan") or "")
+                    if _fu and _cu and not (_fu[:8] in _cu or _cu[:8] in _fu):
+                        ortak = max((len(_fu[i:i+5]) for i in range(0, len(_fu) - 4)
+                                     for j in range(len(_cu))
+                                     if _cu.startswith(_fu[i:i+5], j)), default=0)
+                        if ortak < 4:
+                            detay = "⚠ Şüpheli eşleşme: unvanlar farklı"
+                            ozet["supheli_eslesme"] =                                 ozet.get("supheli_eslesme", 0) + 1
+                except Exception:
+                    pass
                 if (f.get("indirim_toplam") or Decimal("0")) > Decimal("0"):
                     durum = DURUM_INDIRIMLI
                     detay = f"Fatura özel indirim içerir (≈{f['indirim_toplam']:,.2f})"

@@ -1325,6 +1325,22 @@ def _genel_unvan_cikar(hucreler, belge, aciklama_metni=None):
     return en_uzun[:80]
 
 
+def _vkn_kontrol_hanesi(no):
+    """10 haneli VKN kontrol hanesini doğrular; 11 haneli TCKN'de ilk
+    hane sıfır olmamalı. Yanlış okumayı elemek için kullanılır."""
+    no = (no or "").strip()
+    if len(no) == 11:
+        return no.isdigit() and no[0] != "0"
+    if len(no) != 10 or not no.isdigit():
+        return False
+    d = [int(c) for c in no]
+    s = 0
+    for i in range(9):
+        t = (d[i] + 10 - (i + 1)) % 10
+        s = (s * ((t * 2) % 9 + 1)) % 10
+    return (10 - (s + d[9]) % 10) % 10 == d[9]
+
+
 def muavin_genel_parse(dosya_yolu):
     """Bilinmeyen Excel muavin/hesap defteri formatlarını otomatik tanıyıp okur.
 
@@ -1440,8 +1456,22 @@ def muavin_genel_parse(dosya_yolu):
         notlar = []
         if aktif_hesap:
             notlar.append(f"Hesap: {aktif_hesap}")
+        # Açıklamadan VKN/TCKN çıkar ('VKN:1234567890' veya 10-11 haneli
+        # sayı). Böylece çapraz kontrolde VKN doğrulaması gerçek olur.
+        cikarilan_vkn = ""
+        m_vkn = re.search(r"VKN\s*[:=)]*\s*(\d{10,11})", unvan or "",
+                          re.IGNORECASE)
+        if m_vkn:
+            cikarilan_vkn = m_vkn.group(1)
+        else:
+            for m_rakam in re.finditer(r"(?<!\d)(\d{10,11})(?!\d)",
+                                       unvan or ""):
+                aday = m_rakam.group(1)
+                if _vkn_kontrol_hanesi(aday):
+                    cikarilan_vkn = aday
+                    break
         sonuc["kayitlar"].append({
-            "vkn": "", "belge_no": belge,
+            "vkn": cikarilan_vkn, "belge_no": belge,
             "tarih": tarih if tarih else None,
             "matrah": None, "kdv": kdv, "unvan": unvan,
             "notlar": notlar,
