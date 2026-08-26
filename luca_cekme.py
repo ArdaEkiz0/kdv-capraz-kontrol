@@ -391,7 +391,7 @@ def _luca_metin_gir(oge, metin):
         pass
     try:
         oge.type(metin, delay=45)
-        oge.press("Tab")
+        oge.press("Enter")
     except Exception:
         try:
             oge.fill(metin, force=True)
@@ -508,27 +508,37 @@ def _hesap_alanlarini_doldur(sayfa, hesap_kodu, bildir=None):
         return temiz == beklenen or temiz.startswith(beklenen + ".")
 
     def _dugume_yaz(oge, metin):
-        for deneme in range(2):
+        """Alana tikla, mevcut degeri tamamen sil, metni yaz ve ENTER'a bas.
+
+        Luca maskeli alanlari yazilan degeri Enter ile isler; Tab
+        yetmez. Deger ozellikten geri okunarak dogrulanir.
+        """
+        for deneme in range(3):
             try:
                 oge.click(timeout=4000)
             except Exception:
                 pass
             time.sleep(0.3)
+            # Onceki hesaptan kalan degeri tumuyle temizle:
             klavye.press("Control+a")
             klavye.press("Delete")
-            klavye.type(metin, delay=60)
-            klavye.press("Tab")
-            time.sleep(0.3)
+            klavye.press("Backspace")
+            time.sleep(0.2)
+            klavye.type(metin, delay=80)
+            time.sleep(0.2)
+            # Luca bu alanda Enter bekler; onay olmadan deger islenmez.
+            klavye.press("Enter")
+            time.sleep(0.5)
             try:
                 okunan = (oge.evaluate("el => el.value")
                           or "").strip().replace("/", ".")
                 if _deger_uyuyor(okunan, metin):
                     return metin
-                if deneme == 0:
+                if deneme < 2:
                     bildir(f"UYARI: Alan '{metin}' yazımı doğrulanamadı "
                            f"(okunan: '{okunan}'), tekrar deneniyor.")
             except Exception as hata:
-                if deneme == 0:
+                if deneme < 2:
                     bildir(f"UYARI: Alan okunamadı ({str(hata)[:60]}), "
                            "tekrar deneniyor.")
         return None
@@ -545,10 +555,16 @@ def _hesap_alanlarini_doldur(sayfa, hesap_kodu, bildir=None):
             bildir("UYARI: Bitiş hesap kodu alanı bulunamadı; döküm yalnız "
                    f"{hesap_kodu} ile sınırlı kalabilir.")
             return False
+        try:
+            onceki = (son.evaluate("el => el.value") or "").strip()
+        except Exception:
+            onceki = ""
         if _dugume_yaz(son, son_kod) is None:
-            bildir(f"UYARI: Bitiş hesap koduna '{son_kod}' yazılamadı; "
-                   "elle kontrol edin.")
+            bildir(f"UYARI: Bitiş hesap koduna '{son_kod}' yazılamadı "
+                   f"(alan önce şunuydu: '{onceki}'); elle kontrol edin.")
             return False
+        bildir(f"Hesap aralığı yazıldı: {hesap_kodu} -> {son_kod} "
+               f"(bitiş alanının önceki değeri: {onceki or 'boş'})")
         return True
 
     # Bilinen kimlikler: muavin ekranındaki hesap kodu alanları
