@@ -59,7 +59,12 @@ def _ocr_hazir():
         import pytesseract
         pytesseract.pytesseract.tesseract_cmd = komut
         return True, ""
-    return False, "Tesseract OCR bulunamadı. https://github.com/UB-Mannheim/tesseract/wiki"
+    # Tesseract kurulu ama PATH'te degil olabilir; yaygin kurulum yolu
+    # zaten yukarida denendi. Buraya gelindiyse gercekten yok:
+    return False, ("Tesseract OCR programı bulunamadı.\n"
+                   "Kurulum: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                   "(Kurulumda 'Add to PATH' kutusunu işaretleyin;\n"
+                   "kurduktan sonra uygulamayı kapat-aç yapın.)")
 
 
 def _tarih_araligini_bol(bas, bit, parca_gun=7):
