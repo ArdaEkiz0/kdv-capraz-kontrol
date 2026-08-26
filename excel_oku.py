@@ -9,30 +9,55 @@ KOLON_SINONIMLERI = {
     "belge_no": [
         "BELGE NO", "BELGE NUMARASI", "BELGE", "FATURA NO", "FATURA NUMARASI",
         "FATURA", "EVRAK NO", "IRSALIYE NO",
+        # Yeni: yaygın muhasebe programları
+        "FIS NO", "YEVMIYE NO", "BELGE ID", "DOCUMENT NO", "INVOICE NO",
+        "SERI NO", "SIRA NO", "E BELGE NO", "ETTN NO", "UUID",
+        # Luca/Logo/Mikro/Netsis/Paraşüt/Zirve/Odoo dışa aktarımları
+        "FATURA ETTN", "BELGE TURU NO", "VADE NO",
     ],
     "tarih": [
         "TARIH", "BELGE TARIHI", "FATURA TARIHI", "DUZENLENME TARIHI",
         "DUZENLEME TARIHI", "ISLEM TARIHI", "EVRAK TARIHI", "TARIH",
+        # Yeni
+        "FIS TARIHI", "KAYIT TARIHI", "ONAY TARIHI", "DATE", "ISSUE DATE",
+        "OLUSTURMA TARIHI", "GORULEN TARIH",
     ],
     "vkn": [
         "VKN", "VERGI KIMLIK NO", "VERGI NO", "TC KIMLIK NO", "TCKN",
         "KIMLIK NO", "T.C. KIMLIK NO",
+        # Yeni
+        "Vergi Kimlik Numarası", "TAX NUMBER", "TAX ID", "VKN TCKN",
+        "VERGI NUMARASI", "TC NO", "MUHATAP VKN", "GONDEREN VKN",
+        "ALICI VKN", "SATICI VKN",
     ],
     "matrah": [
         "MATRAH", "KDV MATRAHI", "MAL HIZMET TUTARI", "MAL HIZMET BEDELI",
         "KDV HARIC TUTAR", "TUTAR", "BEDEL", "ARACILIK HIZMETI",
+        # Yeni
+        "NET TUTAR", "NET BEDEN", "SUBTOTAL", "NET AMOUNT", "TUTAR KDV HARIC",
+        "BIRIM FIYAT TOPLAMI", "MALI HIZMET ALIMLARI", "BRUT TUTAR",
     ],
     "kdv": [
         "KDV TUTARI", "HESAPLANAN KDV", "KDV", "VERGI TUTARI", "KDV TOPLAMI",
+        # Yeni
+        "KDV AMOUNT", "VAT", "VAT AMOUNT", "HESAPLANAN VERGI", "KDVTUTARI",
     ],
     "toplam": [
         "GENEL TOPLAM", "FATURA TOPLAMI", "TOPLAM TUTAR", "TOPLAM",
         "ODENECEK TUTAR", "ODENEN TUTAR", "GENEL TOPLAM",
+        # Yeni
+        "GRAND TOTAL", "TOTAL", "BRUT TOPLAM", "ODENECEK", "YEKUN",
+        "TAHSIL EDILEN", "KDV DAHIL TUTAR",
     ],
-    "oran": ["KDV ORANI", "ORAN", "KDV ORANI %", "ORAN %"],
+    "oran": ["KDV ORANI", "ORAN", "KDV ORANI %", "ORAN %",
+             "KDV RATE", "RATE", "VAT RATE"],
     "unvan": [
         "UNVAN", "FIRMA UNVANI", "FIRMA", "TEDARIKCI", "SATICI",
         "ALICI UNVANI", "CARI", "CARİ", "MUSTERI",
+        # Yeni
+        "CARI UNVAN", "CARI ADI", "MUHATAP", "PARTNER", "CUSTOMER",
+        "SUPPLIER", "VENDOR", "ACIKLAMA UNVAN", "FIRMA ADI",
+        "GONDERICI", "ALICI", "MUSTERI UNVANI",
     ],
 }
 
@@ -105,12 +130,32 @@ def _spreadsheetml_satirlar(dosya_yolu):
     return tumu
 
 
+def _csv_tsv_satirlar(dosya_yolu):
+    """CSV/TSV dosyasını satır listesine çevirir (Google Sheets / Paraşüt /
+    Logo / Mikro dışa aktarımları dahil). Ayıracı otomatik algılar."""
+    import csv as _csv
+    for kodlama in ("utf-8-sig", "cp1254", "latin-1"):
+        try:
+            with open(dosya_yolu, "r", encoding=kodlama, newline="") as fh:
+                ornek = fh.read(4096)
+                fh.seek(0)
+                ayirici = ";" if ornek.count(";") > ornek.count("	")                     and ornek.count(";") >= ornek.count(",") else (
+                    "	" if ornek.count("	") > ornek.count(",") else ",")
+                okuyucu = _csv.reader(fh, delimiter=ayirici)
+                return [list(satir) for satir in okuyucu]
+        except UnicodeDecodeError:
+            continue
+    return []
+
+
 def excel_satirlar(dosya_yolu):
     try:
         with open(dosya_yolu, "rb") as fh:
             bas = fh.read(2048)
     except OSError:
         bas = b""
+    if dosya_yolu.lower().endswith((".csv", ".tsv")):
+        return _csv_tsv_satirlar(dosya_yolu)
     if bas.lstrip().startswith(b"<?xml") and (
             b"SpreadsheetML" in bas or b"office:spreadsheet" in bas):
         return _spreadsheetml_satirlar(dosya_yolu)
@@ -1410,7 +1455,15 @@ def muavin_genel_parse(dosya_yolu):
                 if tarih:
                     break
 
-        belge = _genel_belge_cikar(list(satir))
+        belge = None
+        # Önce başlıklardan eşlenen Belge No sütununu dene (CSV/TSV ve
+        # muhasebe dışa aktarımları için güvenilir yol).
+        if baslik_i is not None and kolonlar.get("belge_no") is not None                 and kolonlar["belge_no"] < len(satir):
+            aday = str(satir[kolonlar["belge_no"]] or "").strip()
+            if aday and aday != "-":
+                belge = aday
+        if belge is None:
+            belge = _genel_belge_cikar(list(satir))
         if belge is None:
             continue
 
@@ -1458,12 +1511,21 @@ def muavin_genel_parse(dosya_yolu):
             notlar.append(f"Hesap: {aktif_hesap}")
         # Açıklamadan VKN/TCKN çıkar ('VKN:1234567890' veya 10-11 haneli
         # sayı). Böylece çapraz kontrolde VKN doğrulaması gerçek olur.
+        # 1) VKN sütunu doluysa doğrudan kullan (CSV/TSV/Excel başlıklı).
         cikarilan_vkn = ""
-        m_vkn = re.search(r"VKN\s*[:=)]*\s*(\d{10,11})", unvan or "",
-                          re.IGNORECASE)
-        if m_vkn:
-            cikarilan_vkn = m_vkn.group(1)
-        else:
+        if baslik_i is not None and kolonlar.get("vkn") is not None                 and kolonlar["vkn"] < len(satir):
+            aday = re.sub(r"\D", "", str(satir[kolonlar["vkn"]] or ""))
+            if aday and _vkn_kontrol_hanesi(aday):
+                cikarilan_vkn = aday
+        # 2) Sütun boşsa açıklama metninden çıkar.
+        if not cikarilan_vkn:
+            m_vkn = re.search(r"VKN\s*[:=)]*\s*(\d{10,11})", unvan or "",
+                              re.IGNORECASE)
+            if m_vkn:
+                aday = m_vkn.group(1)
+                if _vkn_kontrol_hanesi(aday):
+                    cikarilan_vkn = aday
+        if not cikarilan_vkn:
             for m_rakam in re.finditer(r"(?<!\d)(\d{10,11})(?!\d)",
                                        unvan or ""):
                 aday = m_rakam.group(1)
