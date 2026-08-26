@@ -119,6 +119,15 @@ class MukellefPaneli(tk.Toplevel):
         ttk.Checkbutton(satir, text="Kayıtlı muavinleri otomatik kullan",
                         variable=self.kayitli_muavin).pack(side="left",
                                                            padx=(0, 10))
+        # Ne cekilecegini kullanici secer: ikisi de varsayilan acik.
+        self.muavin_cekilsin = tk.BooleanVar(value=True)
+        ttk.Checkbutton(satir, text="Muavin çek",
+                        variable=self.muavin_cekilsin).pack(side="left",
+                                                            padx=(0, 8))
+        self.fatura_cekilsin = tk.BooleanVar(value=True)
+        ttk.Checkbutton(satir, text="Faturaları çek (Luca)",
+                        variable=self.fatura_cekilsin).pack(side="left",
+                                                            padx=(0, 8))
         self.durum = tk.Label(satir, text="", fg="#2563eb", wraplength=300,
                               justify="left")
         self.durum.pack(side="left", fill="x", expand=True)
@@ -348,13 +357,27 @@ class MukellefPaneli(tk.Toplevel):
         ozet = ", ".join(os.path.basename(y) for y in cetvel_dosyalari[:2])
         ekstra = f" ve {len(cetvel_dosyalari) - 2} dosya daha" \
             if len(cetvel_dosyalari) > 2 else ""
-        mesaj = (f"{degerler['ad']} ({bas.strftime('%m.%Y')}) için e-Arşiv "
-                 "alış faturaları GİB'den indirilecek.\n\n"
-                 + ("Muavin Luca'dan otomatik çekilecek.\n" if luca_planli
-                    else f"Kullanılacak cetveller: {ozet}{ekstra}\n")
-                 + "\nÇapraz kontrol otomatik başlayacak. Devam edilsin mi?")
+        istekler = []
+        if luca_planli and self.muavin_cekilsin.get():
+            istekler.append("Muavin Luca'dan çekilecek")
+        elif not luca_planli and cetvel_dosyalari:
+            istekler.append(f"Kullanılacak cetveller: {ozet}{ekstra}")
+        if degerler.get("ent_kurum") == "Luca / Türmob" \
+                and self.fatura_cekilsin.get() and luca_planli:
+            istekler.append("Faturalar Luca'dan çekilecek "
+                            "(e-Arşiv/e-Fatura, alış/satış)")
+        else:
+            istekler.append("e-Arşiv alış GİB'den indirilecek")
+        mesaj = (f"{degerler['ad']} ({bas.strftime('%m.%Y')}) için:\n\n"
+                 + "\n".join(f"• {i}" for i in istekler)
+                 + "\n\nÇapraz kontrol sonrasında otomatik başlayacak. "
+                   "Devam edilsin mi?")
         if not messagebox.askyesno("Onay", mesaj, parent=self):
             return
+        muavin_istendi = (luca_planli and self.muavin_cekilsin.get()) \
+            or not luca_planli
+        fatura_luca_istendi = (luca_planli
+                               and self.fatura_cekilsin.get())
 
         self.cek_butonu.configure(state="disabled", bg="#64748b")
         self._durum_yaz("GİB'e bağlanılıyor...")
@@ -363,7 +386,7 @@ class MukellefPaneli(tk.Toplevel):
             try:
                 kullanilacak = list(cetvel_dosyalari)
                 luca_yedek = []
-                if luca_planli:
+                if luca_planli and muavin_istendi:
                     self._logla(f"Luca'ya giriş yapılıyor "
                                 f"(üye {degerler.get('luca_uye')})...")
                     try:
@@ -385,32 +408,44 @@ class MukellefPaneli(tk.Toplevel):
                             self.after(0, lambda h="Luca muavin çekimi "
                                        f"başarısız: {lhata}": self._cek_hata(h))
                             return
-                    # Luca'dan TUM e-Belgeler (e-Fatura/e-Arşiv, alış +
-                    # satış) indirilir; dosyalar ana klasöre düz yazılır.
-                    try:
-                        belge_sonuc = luca_cekme.cek_luca_belgeleri(
-                            degerler["luca_uye"], degerler["ent_kullanici"],
-                            degerler["ent_sifre"], bas, bit, hedef_klasor,
-                            kategoriler=("earsiv_alis", "earsiv_satis",
-                                         "efatura_alis", "efatura_satis"),
-                            ilerleme=self._logla,
-                            firma_adi=degerler.get("ad", ""),
-                            duz_yaz=True)
-                        luca_ozetler = [v.get("ozet") for v in
-                                        (belge_sonuc or {}).values()
-                                        if v.get("ozet")]
-                        if luca_ozetler:
-                            self._logla(f"Luca'dan {len(luca_ozetler)} "
-                                        "belge kümesi indirildi "
-                                        "(e-Arşiv/e-Fatura, alış/satış).")
-                            luca_yedek.extend(luca_ozetler)
-                    except luca_cekme.LucaHata as bhata:
-                        self._logla(f"Luca belge çekimi atlandı: "
-                                    f"{str(bhata)[:80]}")
+                    # Luca'dan TUM e-Belgeler: yalnizca kullanici faturalari
+                    # da istediyse indirilir (kutu isaretli).
+                    if fatura_luca_istendi:
+                        try:
+                            belge_sonuc = luca_cekme.cek_luca_belgeleri(
+                                degerler["luca_uye"],
+                                degerler["ent_kullanici"],
+                                degerler["ent_sifre"], bas, bit,
+                                hedef_klasor,
+                                kategoriler=("earsiv_alis", "earsiv_satis",
+                                             "efatura_alis",
+                                             "efatura_satis"),
+                                ilerleme=self._logla,
+                                firma_adi=degerler.get("ad", ""),
+                                duz_yaz=True)
+                            luca_ozetler = [v.get("ozet") for v in
+                                            (belge_sonuc or {}).values()
+                                            if v.get("ozet")]
+                            if luca_ozetler:
+                                self._logla(f"Luca'dan {len(luca_ozetler)} "
+                                            "belge kümesi indirildi "
+                                            "(e-Arşiv/e-Fatura, alış/satış).")
+                                luca_yedek.extend(luca_ozetler)
+                        except luca_cekme.LucaHata as bhata:
+                            self._logla(f"Luca belge çekimi atlandı: "
+                                        f"{str(bhata)[:80]}")
+                    elif muavin_istendi:
+                        self._logla("Fatura çekimi kutudan çıkarıldı — "
+                                    "yalnız muavin indirildi.")
                 try:
+                    # Fatura istenmediyse hicbir yerden cekme (sadece muavin).
+                    if not fatura_luca_istendi and luca_planli:
+                        yollar = []
+                        self._logla("Fatura çekimi istenmedi — muavin "
+                                    "çekimi tamamlandı.")
                     # Luca belgeleri indiysese GİB'e hic gitme: her sey
                     # Luca'dan geldi, ayni kaynaktan kontrol daha tutarli.
-                    if luca_yedek:
+                    elif luca_yedek:
                         yollar = list(luca_yedek)
                         self._logla(f"GİB atlandı — faturalar Luca'dan "
                                     f"{len(yollar)} belge kümesi olarak "
