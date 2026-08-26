@@ -408,35 +408,32 @@ class MukellefPaneli(tk.Toplevel):
                             self.after(0, lambda h="Luca muavin çekimi "
                                        f"başarısız: {lhata}": self._cek_hata(h))
                             return
-                    # Luca'dan TUM e-Belgeler: yalnizca kullanici faturalari
-                    # da istediyse indirilir (kutu isaretli).
-                    if fatura_luca_istendi:
-                        try:
-                            belge_sonuc = luca_cekme.cek_luca_belgeleri(
-                                degerler["luca_uye"],
-                                degerler["ent_kullanici"],
-                                degerler["ent_sifre"], bas, bit,
-                                hedef_klasor,
-                                kategoriler=("earsiv_alis", "earsiv_satis",
-                                             "efatura_alis",
-                                             "efatura_satis"),
-                                ilerleme=self._logla,
-                                firma_adi=degerler.get("ad", ""),
-                                duz_yaz=True)
-                            luca_ozetler = [v.get("ozet") for v in
-                                            (belge_sonuc or {}).values()
-                                            if v.get("ozet")]
-                            if luca_ozetler:
-                                self._logla(f"Luca'dan {len(luca_ozetler)} "
-                                            "belge kümesi indirildi "
-                                            "(e-Arşiv/e-Fatura, alış/satış).")
-                                luca_yedek.extend(luca_ozetler)
-                        except luca_cekme.LucaHata as bhata:
-                            self._logla(f"Luca belge çekimi atlandı: "
-                                        f"{str(bhata)[:80]}")
-                    elif muavin_istendi:
-                        self._logla("Fatura çekimi kutudan çıkarıldı — "
-                                    "yalnız muavin indirildi.")
+                # Luca'dan TUM e-Belgeler: bagimsiz olarak fatura kutusuna
+                # bagli (muavin secilmese de calisir).
+                if luca_planli and fatura_luca_istendi:
+                    try:
+                        belge_sonuc = luca_cekme.cek_luca_belgeleri(
+                            degerler["luca_uye"],
+                            degerler["ent_kullanici"],
+                            degerler["ent_sifre"], bas, bit,
+                            hedef_klasor,
+                            kategoriler=("earsiv_alis", "earsiv_satis",
+                                         "efatura_alis", "efatura_satis"),
+                            ilerleme=self._logla,
+                            firma_adi=degerler.get("ad", ""),
+                            duz_yaz=True)
+                        luca_ozetler = [v.get("ozet") for v in
+                                        (belge_sonuc or {}).values()
+                                        if v.get("ozet")]
+                        if luca_ozetler:
+                            self._logla(f"Luca'dan {len(luca_ozetler)} "
+                                        "belge kümesi indirildi "
+                                        "(e-Arşiv/e-Fatura, alış/satış).")
+                            luca_yedek.extend(luca_ozetler)
+                    except luca_cekme.LucaHata as bhata:
+                        self._logla(f"Luca belge çekimi atlandı: "
+                                    f"{str(bhata)[:80]}")
+
                 # Luca planliysa GİB HİÇ kullanilmaz; her sey Luca'dan.
                 if luca_planli:
                     yollar = list(luca_yedek)
