@@ -437,33 +437,30 @@ class MukellefPaneli(tk.Toplevel):
                     elif muavin_istendi:
                         self._logla("Fatura çekimi kutudan çıkarıldı — "
                                     "yalnız muavin indirildi.")
-                try:
-                    # Fatura istenmediyse hicbir yerden cekme (sadece muavin).
-                    if not fatura_luca_istendi and luca_planli:
-                        yollar = []
+                # Luca planliysa GİB HİÇ kullanilmaz; her sey Luca'dan.
+                if luca_planli:
+                    yollar = list(luca_yedek)
+                    if not fatura_luca_istendi:
                         self._logla("Fatura çekimi istenmedi — muavin "
                                     "çekimi tamamlandı.")
-                    # Luca belgeleri indiysese GİB'e hic gitme: her sey
-                    # Luca'dan geldi, ayni kaynaktan kontrol daha tutarli.
-                    elif luca_yedek:
-                        yollar = list(luca_yedek)
-                        self._logla(f"GİB atlandı — faturalar Luca'dan "
-                                    f"{len(yollar)} belge kümesi olarak "
-                                    "indirildi.")
+                    elif yollar:
+                        self._logla(f"Faturalar Luca'dan {len(yollar)} "
+                                    "belge kümesi olarak indirildi.")
                     else:
+                        self._logla("UYARI: Faturalar Luca'dan inmedi. "
+                                    "GİB'e bu mükellef için hiç "
+                                    "gidilmez (Lucadan çekim modu); "
+                                    "Luca bağlantısını kontrol edip "
+                                    "tekrar deneyin.")
+                else:
+                    # Luca hesabi yok: klasik GİB yolu.
+                    try:
                         yollar = gib_cekme.cek_e_arsiv_alis(
                             degerler["gib_tc"], degerler["gib_sifre"], bas,
                             bit, hedef_klasor, ilerleme=self._logla,
                             ivd_kod=degerler.get("ivd_kod"),
                             ivd_sifre=degerler.get("ivd_sifre"))
-                except gib_cekme.GibHata as ghata:
-                    if luca_yedek:
-                        yollar = list(luca_yedek)
-                        self._logla(f"GİB çekimi başarısız "
-                                    f"({str(ghata)[:60]}) — Luca'dan "
-                                    f"indirilen {len(yollar)} belge kümesi "
-                                    "kullanılıyor.")
-                    else:
+                    except gib_cekme.GibHata as ghata:
                         raise
             except gib_cekme.GibHata as hata:
                 self.after(0, lambda h=str(hata): self._cek_hata(h))
