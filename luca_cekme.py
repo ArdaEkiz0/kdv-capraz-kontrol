@@ -1219,6 +1219,61 @@ def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
     return indirme.suggested_filename
 
 
+
+def _zip_toplu_indir(frame, sayfa, sira_listesi, yol_fonksiyonu, bildir=None,
+                     pencere=4):
+    """ZIP indirmelerini kademeli paralel tetikler.
+
+    Playwright'in download olaylarini toplayiciyla yakalar; her 'pencere'
+    adetinde bir onceki grubun bitmesini beklemeden sonraki click'i
+    atar, boylece network beklemeleri ust uste biner. Donen: {sira:
+    suggested_filename}.
+    """
+    import queue
+    indirilen = {}
+    kuyruk = queue.Queue()
+    dinleyici = lambda d: kuyruk.put(d)
+    sayfa.on("download", dinleyici)
+    try:
+        bekleyen = list(sira_listesi)
+        aktif = 0
+        while bekleyen or aktif:
+            while bekleyen and aktif < pencere:
+                sira = bekleyen.pop(0)
+                try:
+                    frame.evaluate(
+                        "n => { const e = [...document.querySelectorAll("
+                        "'[onclick]')]"
+                        ".filter(x => x.getAttribute('onclick')"
+                        ".includes('zip_indir'))"
+                        "[n]; if (!e) throw new Error('yok'); e.click(); }",
+                        sira)
+                    aktif += 1
+                except Exception:
+                    pass
+                time.sleep(0.15)
+            if aktif == 0:
+                break
+            try:
+                d = kuyruk.get(timeout=45)
+            except Exception:
+                break  # kuyruk sustu: kalanlari tek tek dene
+            hedef_yol = yol_fonksiyonu(d.suggested_filename)
+            try:
+                d.save_as(hedef_yol)
+            except Exception:
+                continue
+            aktif -= 1
+            # sira -> dosya eslesmesi: suggested_filename ETTN bazli;
+            # cagiran dosya adindan eslesir.
+    finally:
+        try:
+            sayfa.remove_listener("download", dinleyici)
+        except Exception:
+            pass
+    return indirilen
+
+
 def _ubl_ozet(xml_bytes):
     """UBL fatura XML'inden tutarlari cikarir.
 
@@ -1552,6 +1607,9 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     kayitlar = []
                     gorulen = {}
                     atlanan_belge = 0
+                    # Paralel indirme oncesi hazirlik: gecerli belgeler
+                    # icin hedef yollari hesapla; zaten saglam olanlari atla.
+                    gecerli = []
                     for numara, (sira, belge) in enumerate(secili, 1):
                         durum_kisa = _turk_kucult(
                             str(belge.get("onay_durumu") or ""))
@@ -1574,6 +1632,47 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             dosya_no = belge_no
                         zip_yol = os.path.join(klasor,
                                                f"{on_ek}{dosya_no}.zip")
+                        if not _dosya_saglam(zip_yol):
+                            gecerli.append((sira, zip_yol))
+                    if gecerli:
+                        bildir(f"{kategori}: {len(gecerli)} belge paralel "
+                               "indiriliyor...")
+                        def _yol_fonk(oneri):
+                            return os.path.join(klasor,
+                                                f"{on_ek}{oneri}")
+                        _zip_toplu_indir(cerceve, sayfa2,
+                                         [s for s, _ in gecerli],
+                                         _yol_fonk, bildir)
+                    yol_esle = dict(gecerli)
+                    for numara, (sira, belge) in enumerate(secili, 1):
+                        durum_kisa = _turk_kucult(
+                            str(belge.get("onay_durumu") or ""))
+                        iptal_ibare = str(belge.get("iptal_itiraz") or
+                                          belge.get("iptal_itiraz_durumu")
+                                          or "").strip()
+                        if (iptal_ibare
+                                or ("red" in durum_kisa)
+                                or ("iptal" in durum_kisa)
+                                or (durum_kisa and "onay" not in durum_kisa)):
+                            continue
+                        belge_no = (belge.get("belge_numarasi")
+                                    or f"belge{sira}").strip()
+                        if sira in yol_esle:
+                            zip_yol = yol_esle[sira]
+                        else:
+                            # Paralel listeye girmeyen (zaten inmis) belge:
+                            # hedef yolunu ayni kurallarla yeniden kur.
+                            gecici_sayac = {}
+                            for s2, b2 in secili[:sira + 1]:
+                                bn2 = (b2.get("belge_numarasi")
+                                       or f"belge{s2}").strip()
+                                if bn2 == belge_no:
+                                    gecici_sayac[bn2] = \
+                                        gecici_sayac.get(bn2, 0) + 1
+                            n2 = gecici_sayac.get(belge_no, 1)
+                            dn = (f"{belge_no}_{n2}" if n2 > 1 else belge_no)
+                            zip_yol = os.path.join(klasor,
+                                                   f"{on_ek}{dn}.zip")
                         ozet = {}
                         if _dosya_saglam(zip_yol):
                             try:
