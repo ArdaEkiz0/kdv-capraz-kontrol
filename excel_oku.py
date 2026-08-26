@@ -488,6 +488,9 @@ def fatura_luca_ozet_parse(dosya_yolu):
                 and abs(kayit["matrah"] + kayit["kdv"]
                         - kayit["toplam"]) > Decimal("0.02"):
             kayit["notlar"].append("Matrah+KDV ≠ Toplam")
+        # Luca özet tablosunda satıcı unvanı 'unvan' kolonunda gelir;
+        # matcher ve raporlar 'satici_unvan' beklediği için eşle.
+        kayit["satici_unvan"] = kayit.get("unvan")
         sonuc.append(kayit)
     if not sonuc:
         return None
