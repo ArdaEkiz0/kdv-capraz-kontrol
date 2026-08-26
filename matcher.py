@@ -25,7 +25,24 @@ DURUM_ONAYLI = "ONAYLI FARK"
 # Gerçek uygulamada gördüğün oranları: 0.70 (otömotiv/şarj/akaryakıt %30 tevk),
 # 0.95 (akaryakıt %5). Düşkün oranları (0.9/0.8/0.5 vb.) tutar farklıdan
 # ayırt etmek için katılmamıştır.
-TEVKIFAT_ORANLARI = (Decimal("0.70"), Decimal("0.95"))
+# Muavin KDV'sinin fatura KDV'sine oranı (klasik yön: fatura tam KDV,
+# muavinde tevkifat sonrası kalan kısım kayıtlı).
+# %20 -> 0.80, %30 -> 0.70, %40 -> 0.60, %50 -> 0.50, %60 -> 0.40,
+# %70 -> 0.30, %80 -> 0.20, %90 -> 0.10, %10 -> 0.90, %5 -> 0.95
+# Klasik yön (fatura tam KDV, muavinde kalan). 0.80(%20) ve 0.90(%10)
+# kasıtlı dışarıda: bunlar KDV oran farkı senaryolarıyla karışabilir;
+# %20 tevkifat zaten TERS yönde (1.25 çarpanı) yakalanıyor.
+TEVKIFAT_ORANLARI = (Decimal("0.70"), Decimal("0.60"),
+                     Decimal("0.50"), Decimal("0.40"), Decimal("0.30"),
+                     Decimal("0.20"), Decimal("0.10"), Decimal("0.95"))
+
+# Ters yön: fatura özeti TEVKİFAT SONRASI KDV'yi gösterir (Luca/GİB özetinde
+# sık görülür), muavin fişinde ise KDV'nin TAMAMI yazılıdır. Bu durumda
+# muavin/fatura oranı = 1/(1-t) çıkar: %20 -> 1.25, %30 -> 1.4286,
+# %40 -> 1.6667, %50 -> 2.0, %60 -> 2.5, %70 -> 3.3333, %90 -> 10.0
+TEVKIFAT_CARPANLARI = (Decimal("1.25"), Decimal("1.4285"), Decimal("1.666"),
+                       Decimal("2.0"), Decimal("2.5"), Decimal("3.333"),
+                       Decimal("10.0"), Decimal("1.1111"), Decimal("1.0526"))
 
 SORUNLU_DURUMLAR = (
     DURUM_TUTAR_FARKI, DURUM_VKN_FARKI, DURUM_KDV_SIFIR, DURUM_CETVELDE_YOK,
@@ -87,6 +104,13 @@ def _oran_yaklasik(f_deger, c_deger, hedef):
 def tevkifat_kes(f, c, ek_oran=None):
     """Fatura ile cetvel KDV/matrahı tevkifat oranıyla ilişkiliyse oranı döndürür, yoksa None.
 
+    İki yönlü denetim:
+    1) Klasik: fatura tam KDV taşır, muavinde tevkifat sonrası kalan
+       (# oranı TEVKIFAT_ORANLARI).
+    2) Ters: fatura özeti tevkifat SONRASI KDV gösterir (Luca/GİB özet
+       Excel'inde yaygın), muavinde KDV'nin TAMAMI kayıtlıdır
+       (çarpım oranı TEVKIFAT_CARPANLARI). Bu durumda pozitif oran
+       döner; tevkifat_orani = 1 - 1/carpan.
     ek_oran: firma kuralından gelen özel kabul oranı (varsayılanların yanında denenir).
     """
     f_kdv = f.get("kdv")
@@ -96,6 +120,12 @@ def tevkifat_kes(f, c, ek_oran=None):
         for oran in oranlar:
             if _oran_yaklasik(f_kdv, c_kdv, oran):
                 return oran
+        # Ters yön: muavin > fatura özeti KDV'si
+        carpanlar = TEVKIFAT_CARPANLARI +             ((1 / (Decimal("1") - ek_oran),) if ek_oran is not None
+             and ek_oran != 1 else ())
+        for carpan in carpanlar:
+            if _oran_yaklasik(f_kdv, c_kdv, carpan):
+                return float(carpan)
     return None
 
 
@@ -108,13 +138,24 @@ def tevkifat_detay(f, c, oran):
             parcalar.append(alan.capitalize() + ": " + fark_metni(f_deger, c_deger))
     f_kdv = f.get("kdv")
     c_kdv = c.get("kdv")
+    ters = bool(oran and Decimal(str(oran)) > 1)
+    if ters:
+        # Ters yön: fatura özeti tevkifat sonrası gösterir, muavin tam KDV
+        tevkifat_oran = 1 - 1 / Decimal(str(oran))
+        t_yuzde = int(round(tevkifat_oran * 100))
+        temel = " | ".join(parcalar)
+        if f_kdv and c_kdv:
+            return (temel + f" | Fatura tevkifatlı (≈%{t_yuzde} tevkifat; "
+                    f"muavin tam KDV {float(c_kdv):,.2f} | özet {float(f_kdv):,.2f})")
+        return temel + f" | Tevkifatlı fatura (≈%{t_yuzde} tevkifat)"
     bant_yuzde = int(round((1 - oran) * 100))
     if f_kdv and c_kdv is not None:
         kayitli = float(c_kdv / f_kdv * 100)
         return (" | ".join(parcalar)
                 + f" | Muavin'de fatura KDV'sinin %{kayitli:.1f}'i kayıtlı"
                 + f" (tevkifat/kısmi kayıt bandı: %{bant_yuzde})")
-    return " | ".join(parcalar) + f" | Muavin KDV tevkifatlı (≈%{bant_yuzde} düşülmüş)"
+    return (" | ".join(parcalar) + f" | Muavin KDV tevkifatlı (≈%{bant_yuzde} düşülmüş)")
+
 
 
 def _tarih_gun_farki(a, b):
