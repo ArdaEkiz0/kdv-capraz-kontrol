@@ -1587,6 +1587,62 @@ def _satir_sayisini_buyut(sayfa, bildir):
         return False
 
 
+def _sonraki_sayfa_var_mi(cerceve):
+    """Luca belge listesinde 'Sonraki' / ileri sayfa düğmesi varsa True."""
+    try:
+        ogeler = cerceve.query_selector_all(
+            "input[type=button], input[type=submit], button, a")
+        for oge in ogeler:
+            try:
+                if not oge.is_visible():
+                    continue
+                metin = ((oge.get_attribute("value") or "")
+                         + " " + (oge.inner_text() or "")).strip()
+                if not metin:
+                    continue
+                k = metin.lower()
+                # 'Sonraki', 'İleri', '>' sayfa ilerleme düğmeleri.
+                # 'Önceki/Geri' değil; 'Sayfa' kelimesi tek başına değil.
+                if (("sonraki" in k or "ileri" in k
+                     or k.strip() in (">", ">>", "»", "→"))
+                        and "onceki" not in k and "geri" not in k):
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        return False
+    return False
+
+
+def _sonraki_sayfaya_git(cerceve):
+    """Listedeki 'Sonraki' / 'İleri' düğmesine tıklar; yönlendirme
+    sonrası yeni sayfa içeriği yüklenir. Dönüş: True/False."""
+    try:
+        ogeler = cerceve.query_selector_all(
+            "input[type=button], input[type=submit], button, a")
+        for oge in ogeler:
+            try:
+                if not oge.is_visible():
+                    continue
+                metin = ((oge.get_attribute("value") or "")
+                         + " " + (oge.inner_text() or "")).strip()
+                if not metin:
+                    continue
+                k = metin.lower()
+                if (("sonraki" in k or "ileri" in k
+                     or k.strip() in (">", ">>", "»", "→"))
+                        and "onceki" not in k and "geri" not in k):
+                    oge.scroll_into_view_if_needed()
+                    oge.click()
+                    cerceve.page.wait_for_timeout(2500)
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False
+
+
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                        hedef_klasor, kategoriler=None, ilerleme=None,
                        gorunur=True, firma_adi=None, duz_yaz=True):
@@ -1656,11 +1712,68 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         bildir(f"{kategori}: GİB'ten getir adımı "
                                f"atlandı ({str(g_hata)[:60]})")
                         _hata_ekrani_kaydet(cerceve, f"getir_{kategori}")
-                    satirlar = _satirlari_ayikla(cerceve.content())
-                    secili = [(sira, belge) for sira, belge in satirlar
-                              if _tarih_araliginda(
-                                  belge.get("belge_tarihi"),
-                                  bas_tarih, bit_tarih)]
+                    # İlk olarak satır sayısını artırmayı dene (500/1000/tümü);
+                    # Luca tek sayfada en fazla ~500 fatura listeler.
+                    try:
+                        _satir_sayisini_buyut(cerceve, bildir)
+                        cerceve.page.wait_for_timeout(1500)
+                    except Exception:
+                        pass
+                    # TÜM SAYFALARI TOPLA: ilk sayfa + 'Sonraki' ile gidilen
+                    # her sayfa. Aynı belgeleri alt alta ekleme (tekrar koru).
+                    tum_satirlar = []
+                    gorulen_belge = set()
+                    for sayfa_sirasi in range(1, 60):  # 500*59≈30k, güvenlik sınırı
+                        sayfa_satirlari = _satirlari_ayikla(cerceve.content())
+                        yeni = 0
+                        for sira, belge in sayfa_satirlari:
+                            anahtar = (str(belge.get("belge_numarasi") or "")
+                                       + "|" + str(belge.get("belge_tarihi") or "")
+                                       + "|" + str(belge.get("ettn") or ""))
+                            if anahtar not in gorulen_belge:
+                                gorulen_belge.add(anahtar)
+                                # Satır indeksi: bu sayfadaki sira korunur;
+                                # ZIP tıklamaları her sayfada 0'dan başlar.
+                                tum_satirlar.append((sira, belge))
+                                yeni += 1
+                        if not sayfa_satirlari or yeni == 0:
+                            break
+                        if sayfa_sirasi >= 30 and _sonraki_sayfa_var_mi(cerceve):
+                            bildir(f"{kategori}: {sayfa_sirasi}. sayfa "
+                                   "toplandı, ilerleniyor...")
+                        if not _sonraki_sayfa_var_mi(cerceve):
+                            break
+                        if not _sonraki_sayfaya_git(cerceve):
+                            break
+                    satirlar = tum_satirlar
+                    # Tarih aralığında kalan ve geçerli (red/iptal olmayan)
+                    # belgelerin tam listesi (belge no, sayac ile).
+                    gorulen_no = {}
+                    tum_secili = []
+                    atlanan_belge = 0
+                    for sira, belge in satirlar:
+                        if not _tarih_araliginda(belge.get("belge_tarihi"),
+                                                 bas_tarih, bit_tarih):
+                            continue
+                        durum_kisa = _turk_kucult(
+                            str(belge.get("onay_durumu") or ""))
+                        iptal_ibare = str(belge.get("iptal_itiraz") or
+                                          belge.get("iptal_itiraz_durumu")
+                                          or "").strip()
+                        if (iptal_ibare
+                                or ("red" in durum_kisa)
+                                or ("iptal" in durum_kisa)
+                                or (durum_kisa and "onay" not in durum_kisa)):
+                            atlanan_belge += 1
+                            continue
+                        belge_no = (belge.get("belge_numarasi")
+                                    or f"belge{sira}").strip()
+                        gorulen_no[belge_no] = \
+                            gorulen_no.get(belge_no, 0) + 1
+                        tum_secili.append((sira, belge, belge_no,
+                                           gorulen_no[belge_no]))
+                    secili = [(sira, belge)
+                              for sira, belge, _, _ in tum_secili]
                     bildir(f"{kategori}: listede {len(satirlar)} belge, "
                            f"tarih aralığında {len(secili)} tanesi var.")
                     if duz_yaz:
@@ -1676,86 +1789,84 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     sayfa2 = cerceve.page
                     zip_yollari = []
                     kayitlar = []
-                    gorulen = {}
-                    atlanan_belge = 0
-                    # Paralel indirme oncesi hazirlik: gecerli belgeler
-                    # icin hedef yollari hesapla; zaten saglam olanlari atla.
-                    gecerli = []
-                    for numara, (sira, belge) in enumerate(secili, 1):
-                        durum_kisa = _turk_kucult(
-                            str(belge.get("onay_durumu") or ""))
-                        iptal_ibare = str(belge.get("iptal_itiraz") or
-                                          belge.get("iptal_itiraz_durumu")
-                                          or "").strip()
-                        if (iptal_ibare
-                                or ("red" in durum_kisa)
-                                or ("iptal" in durum_kisa)
-                                or (durum_kisa and "onay" not in durum_kisa)):
-                            atlanan_belge += 1
-                            continue
-                        belge_no = (belge.get("belge_numarasi")
-                                    or f"belge{sira}").strip()
-                        gorulen[belge_no] = gorulen.get(belge_no, 0) + 1
-                        if gorulen[belge_no] > 1:
-                            dosya_no = (f"{belge_no}_"
-                                        f"{gorulen[belge_no]}")
-                        else:
-                            dosya_no = belge_no
-                        zip_yol = os.path.join(klasor,
-                                               f"{on_ek}{dosya_no}.zip")
-                        if not _dosya_saglam(zip_yol):
-                            gecerli.append((sira, zip_yol))
-                    if gecerli:
-                        bildir(f"{kategori}: {len(gecerli)} belge paralel "
-                               "indiriliyor...")
-                        def _yol_fonk(oneri):
-                            return os.path.join(klasor,
-                                                f"{on_ek}{oneri}")
-                        _zip_toplu_indir(cerceve, sayfa2,
-                                         [s for s, _ in gecerli],
-                                         _yol_fonk, bildir)
-                    yol_esle = dict(gecerli)
-                    for numara, (sira, belge) in enumerate(secili, 1):
-                        durum_kisa = _turk_kucult(
-                            str(belge.get("onay_durumu") or ""))
-                        iptal_ibare = str(belge.get("iptal_itiraz") or
-                                          belge.get("iptal_itiraz_durumu")
-                                          or "").strip()
-                        if (iptal_ibare
-                                or ("red" in durum_kisa)
-                                or ("iptal" in durum_kisa)
-                                or (durum_kisa and "onay" not in durum_kisa)):
-                            continue
-                        belge_no = (belge.get("belge_numarasi")
-                                    or f"belge{sira}").strip()
-                        if sira in yol_esle:
-                            zip_yol = yol_esle[sira]
-                        else:
-                            # Paralel listeye girmeyen (zaten inmis) belge:
-                            # hedef yolunu ayni kurallarla yeniden kur.
-                            gecici_sayac = {}
-                            for s2, b2 in secili[:sira + 1]:
-                                bn2 = (b2.get("belge_numarasi")
-                                       or f"belge{s2}").strip()
-                                if bn2 == belge_no:
-                                    gecici_sayac[bn2] = \
-                                        gecici_sayac.get(bn2, 0) + 1
-                            n2 = gecici_sayac.get(belge_no, 1)
-                            dn = (f"{belge_no}_{n2}" if n2 > 1 else belge_no)
-                            zip_yol = os.path.join(klasor,
-                                                   f"{on_ek}{dn}.zip")
+
+                    def _hedef_zip(no, c):
+                        ad = no if c <= 1 else f"{no}_{c}"
+                        return os.path.join(klasor, f"{on_ek}{ad}.zip")
+
+                    def _zipten_ozet(zip_yol):
+                        o = {}
+                        try:
+                            with zipfile.ZipFile(zip_yol) as zipp:
+                                for ic_ad in zipp.namelist():
+                                    icerik = zipp.read(ic_ad)
+                                    if ic_ad.lower().endswith(".xml"):
+                                        o = _ubl_ozet(icerik)
+                                _guvenli_cikar(zipp, klasor)
+                        except Exception:
+                            pass
+                        return o
+
+                    # ÇOK SAYFALI İNDİRME: her sayfadayken o sayfanın
+                    # sira'larıyla (DOM sırası) ZIP'ler indirilir; sayfa
+                    # geçişleri arasında sira sıfırlandığı için aynı
+                    # sayfada kalan belgelerin tamamı o sayfadayken.
+                    indirilen_yollar = set()
+                    for _sayfa in range(1, 60):
+                        sayfa_satirlari = _satirlari_ayikla(
+                            cerceve.content())
+                        sayfa_hedef = []
+                        for sira, belge in sayfa_satirlari:
+                            if not _tarih_araliginda(
+                                    belge.get("belge_tarihi"),
+                                    bas_tarih, bit_tarih):
+                                continue
+                            durum_kisa = _turk_kucult(
+                                str(belge.get("onay_durumu") or ""))
+                            iptal_ibare = str(
+                                belge.get("iptal_itiraz") or
+                                belge.get("iptal_itiraz_durumu")
+                                or "").strip()
+                            if (iptal_ibare
+                                    or ("red" in durum_kisa)
+                                    or ("iptal" in durum_kisa)
+                                    or (durum_kisa
+                                        and "onay" not in durum_kisa)):
+                                continue
+                            belge_no = (belge.get("belge_numarasi")
+                                        or f"belge{sira}").strip()
+                            # Bu sayfadaki geçerli tekrarlar: ilk_gör =
+                            # global görülme sayısı (tumsayfadaki konum).
+                            g_say = gorulen_no.get(belge_no, 1)
+                            hedef = _hedef_zip(belge_no, g_say)
+                            # Aynı sayfada aynı belge_no ikinci kez varsa
+                            # dosya adı _2 ile devam eder.
+                            sayfa_hedef.append((sira, hedef, belge_no))
+                        # Sadece henüz inmemis olanları indir
+                        bekleyen = []
+                        for sira, hedef, bno in sayfa_hedef:
+                            if hedef not in indirilen_yollar \
+                                    and not _dosya_saglam(hedef):
+                                bekleyen.append((sira, hedef))
+                        if bekleyen:
+                            def _yol_fonk(oneri):
+                                return os.path.join(klasor,
+                                                    f"{on_ek}{oneri}")
+                            _zip_toplu_indir(cerceve, sayfa2,
+                                             [s for s, _ in bekleyen],
+                                             _yol_fonk, bildir)
+                            indirilen_yollar.update(h for _, h in bekleyen)
+                        if not _sonraki_sayfa_var_mi(cerceve):
+                            break
+                        if not _sonraki_sayfaya_git(cerceve):
+                            break
+
+                    # Kayıt oluştur: indirilen/hedef ZIP'lerden özet oku.
+                    for numara, (sira, belge, belge_no, gor_c) \
+                            in enumerate(tum_secili, 1):
+                        zip_yol = _hedef_zip(belge_no, gor_c)
                         ozet = {}
-                        if _dosya_saglam(zip_yol):
-                            try:
-                                with zipfile.ZipFile(zip_yol) as zipp:
-                                    for ic_ad in zipp.namelist():
-                                        icerik = zipp.read(ic_ad)
-                                        if ic_ad.lower().endswith(".xml"):
-                                            ozet = _ubl_ozet(icerik)
-                                    _guvenli_cikar(zipp, klasor)
-                            except Exception:
-                                pass
-                        else:
+                        if not _dosya_saglam(zip_yol):
                             try:
                                 _zip_tikla_indir(cerceve, sayfa2, sira,
                                                  zip_yol)
@@ -1763,15 +1874,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 bildir(f"{kategori}: {belge_no} inmedi "
                                        f"({str(hata)[:50]}), atlanıyor.")
                                 continue
-                            try:
-                                with zipfile.ZipFile(zip_yol) as zipp:
-                                    for ic_ad in zipp.namelist():
-                                        icerik = zipp.read(ic_ad)
-                                        if ic_ad.lower().endswith(".xml"):
-                                            ozet = _ubl_ozet(icerik)
-                                    _guvenli_cikar(zipp, klasor)
-                            except Exception:
-                                pass
+                        ozet = _zipten_ozet(zip_yol)
                         kayitlar.append({
                             "belge_numarasi": belge_no,
                             "belge_tarihi": belge.get("belge_tarihi", ""),
