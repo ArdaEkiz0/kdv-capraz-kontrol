@@ -1049,6 +1049,52 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
     return hedef["t"], donem["t"]
 
 
+def _gibten_getir(cerceve, bildir=None):
+    """Luca e-belge ekranında 'GİB'ten Getir' (İnternetten Getir) adımını çalıştırır.
+
+    Luca'nın gib530 ekranı iki adımlıdır: belgeler önce GİB'den bu butonla
+    çekilir (listeye yüklenir), ardından indirilir. Buton bulunamazsa sessizce
+    döner (bazı ekranlarda otomatik listelenir).
+    """
+    if bildir is None:
+        bildir = lambda s: None
+    try:
+        sayfa = cerceve.page
+        buton = cerceve.query_selector(
+            "input[type=button][value*='Getir' i], "
+            "input[type=submit][value*='Getir' i], "
+            "button:has-text('Getir'), a:has-text('Getir')")
+        if buton is None or not buton.is_visible():
+            # Türkçe/özelleşmiş etiketler: 'GİBten', 'GİB'ten Getir'
+            for d in (r"[Gİ]B.*[Gg]etir", r"[Gg]etir.*[Gİ]B",
+                      r"[İi]nternetten [Gg]etir"):
+                try:
+                    buton = cerceve.query_selector(
+                        f"input[type=button][value*='{d[:1]}'], "
+                        f"button:has-text('{d}')")
+                    if buton is not None and buton.is_visible():
+                        break
+                except Exception:
+                    continue
+        if buton is None or not buton.is_visible():
+            bildir("GİB'ten getir butonu görünmüyor; mevcut liste kullanılır.")
+            return
+        bildir("GİB'ten getir tıklanıyor (belgeler çekiliyor)...")
+        buton.scroll_into_view_if_needed()
+        buton.click()
+        # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
+        time.sleep(1.5)
+        # Bekle: belgeler GİB'ten çekilirken tablo dolar.
+        time.sleep(6)
+        try:
+            sayfa.wait_for_timeout(2000)
+        except Exception:
+            pass
+        bildir("GİB'ten getir tamamlandı; liste güncellendi.")
+    except Exception as hata:
+        bildir(f"GİB'ten getir başarısız: {str(hata)[:50]}")
+
+
 def _gib530_frame(erp, tur, uye_no, bildir=None):
     """Ana icerik cercevesini istenen gib530 ekranina goturur ve frame'i
     dondurur; yuklenmezse None doner.
@@ -1600,6 +1646,16 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     cerceve = _gib530_frame(erp, tur, uye_no, bildir)
                     if cerceve is None:
                         raise RuntimeError("gib530 ekranı yüklenmedi")
+                    # İKİ ADIMLI AKIŞ: Luca'nın e-belge ekranında belgeler
+                    # GİB'ten önce 'çekilir' (GİB'ten Getir / İnternetten
+                    # Getir butonu), sonra listelenip indirilir. Bu adım
+                    # atlanırsa yeni mükelleflerde belge listesi boş kalır.
+                    try:
+                        _gibten_getir(cerceve, bildir)
+                    except Exception as g_hata:
+                        bildir(f"{kategori}: GİB'ten getir adımı "
+                               f"atlandı ({str(g_hata)[:60]})")
+                        _hata_ekrani_kaydet(cerceve, f"getir_{kategori}")
                     satirlar = _satirlari_ayikla(cerceve.content())
                     secili = [(sira, belge) for sira, belge in satirlar
                               if _tarih_araliginda(
