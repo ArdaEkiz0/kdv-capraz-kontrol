@@ -805,6 +805,18 @@ class KdvKontrolApp:
                 self.kok.after(0, lambda a=ad, ss=s, t=toplam: self._log_yaz(f"[{ss}/{t}] Cetvel okunuyor: {a}"))
                 try:
                     c = cetvel_dosya_parse(dosya)
+                    # Hesap etiketi: dosya adından 191/391 türet; çapraz
+                    # kontrolde alış faturalar 191'i, satış faturalar 391'i
+                    # arar (yanlış hesaba eşleşme olmasın).
+                    hesap = ""
+                    ad_kucuk = (ad or "").lower()
+                    if "muavin_191" in ad_kucuk or "_191" in ad_kucuk:
+                        hesap = "191"
+                    elif "muavin_391" in ad_kucuk or "_391" in ad_kucuk:
+                        hesap = "391"
+                    for k in (c["kayitlar"] or []):
+                        if hesap:
+                            k["hesap"] = hesap
                     cetvel_kayitlari.extend(c["kayitlar"])
                     if c["notlar"]:
                         self.kok.after(0, lambda a=ad, n=c["notlar"]: self._log_yaz(f"[Cetvel] {a}: {'; '.join(n)}"))

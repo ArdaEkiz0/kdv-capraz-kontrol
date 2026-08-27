@@ -41,9 +41,15 @@ TEVKIFAT_ORANLARI = (Decimal("0.70"), Decimal("0.60"),
 # sık görülür), muavin fişinde ise KDV'nin TAMAMI yazılıdır. Bu durumda
 # muavin/fatura oranı = 1/(1-t) çıkar: %20 -> 1.25, %30 -> 1.4286,
 # %40 -> 1.6667, %50 -> 2.0, %60 -> 2.5, %70 -> 3.3333, %90 -> 10.0
-TEVKIFAT_CARPANLARI = (Decimal("1.25"), Decimal("1.4285"), Decimal("1.666"),
-                       Decimal("2.0"), Decimal("2.5"), Decimal("3.333"),
-                       Decimal("10.0"), Decimal("1.1111"), Decimal("1.0526"))
+# Ters yön çarpanları: fatura özeti tevkifat SONRASI KDV gösterir, muavin
+# tam KDV içerir. Yaygın Türkiye KDV tevkifat oranlarından türetildi:
+#   %10 -> 1.1111, %20 -> 1.25, %30 -> 1.4286, %33(2/3) -> 1.5,
+#   %40 -> 1.6667, %50 -> 2.0, %60 -> 2.5, %70 -> 3.3333, %80 -> 5.0,
+#   %90 -> 10.0
+TEVKIFAT_CARPANLARI = (Decimal("1.25"), Decimal("1.4286"), Decimal("1.5"),
+                       Decimal("1.667"), Decimal("2.0"), Decimal("2.5"),
+                       Decimal("3.333"), Decimal("5.0"), Decimal("10.0"),
+                       Decimal("1.1111"), Decimal("1.0526"))
 
 SORUNLU_DURUMLAR = (
     DURUM_TUTAR_FARKI, DURUM_VKN_FARKI, DURUM_KDV_SIFIR, DURUM_CETVELDE_YOK,
@@ -401,6 +407,20 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
 
     for anahtar, f_listesi in f_grup.items():
         c_listesi = c_grup.pop(anahtar, [])
+        if not c_listesi:
+            continue
+        # YÖN EŞLEŞMESİ: alış faturalar yalnız 191 hesabıyla, satış
+        # faturalar yalnız 391 hesabıyla karşılaştırılır. Cetvel hesabı
+        # bilinmeyen kayıtlar (eski veri) her iki yöne de açıktır.
+        ilk_f = f_listesi[0]
+        fatura_yon = (ilk_f.get("fatura_tipi") or
+                      ilk_f.get("tip") or "").upper()
+        if "SATIS" in fatura_yon or "GIDEN" in fatura_yon:
+            c_listesi = [c for c in c_listesi
+                         if not c.get("hesap") or c.get("hesap") != "191"]
+        elif "ALIS" in fatura_yon or "GELEN" in fatura_yon or "IADE" in fatura_yon:
+            c_listesi = [c for c in c_listesi
+                         if not c.get("hesap") or c.get("hesap") != "391"]
         if not c_listesi:
             continue
 

@@ -474,12 +474,29 @@ def fatura_luca_ozet_parse(dosya_yolu):
                 "red" in durum_kucuk or "iptal" in durum_kucuk:
             continue
 
+        # Yön bilgisi: 'Tür' kolonu (SATIS/ALIS/OZELMATRAH...) + dosya adı
+        # (luca_*_alis_/luca_*_satis_) birleştirilerek belirlenir. Çapraz
+        # kontrolde alış faturalar 191, satış faturalar 391 muaviniyle
+        # karşılaştırılır.
+        tur_metin = str(hucre("tur") or "").strip().upper()
+        dosya_adi = str(dosya_yolu or "").lower()
+        if "satis" in dosya_adi or "satış" in dosya_adi:
+            yon = "SATIS"
+        elif "alis" in dosya_adi or "alış" in dosya_adi:
+            yon = "ALIS"
+        elif tur_metin:
+            yon = "SATIS" if "SATIS" in tur_metin else \
+                ("ALIS" if "ALIS" in tur_metin else tur_metin)
+        else:
+            yon = ""
+
         tarih_deger = hucre("tarih")
         t = tarih_parse(str(tarih_deger).strip()) if tarih_deger else None
         kayit = {
             "dosya": dosya_yolu, "tip": "excel", "satir": i + 1,
             "belge_no": fatura_no_temizle(str(belge_ham)),
             "tarih": str(t) if t else None,
+            "fatura_tipi": yon or None,
             "satici_vkn": vkn_temizle(str(hucre("vkn") or "")),
             "alici_vkn": None,
             "matrah": tutar_parse(hucre("matrah")),
