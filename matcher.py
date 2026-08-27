@@ -104,8 +104,9 @@ def _oran_yaklasik(f_deger, c_deger, hedef):
         return False
     if f_deger == 0:
         return False
-    oran = c_deger / f_deger
-    return abs(oran - hedef) <= Decimal("0.02")
+    oran = Decimal(str(c_deger)) / Decimal(str(f_deger))
+    hedef_d = Decimal(str(hedef))
+    return abs(oran - hedef_d) <= Decimal("0.02")
 
 
 def tevkifat_kes(f, c, ek_oran=None):
@@ -119,19 +120,49 @@ def tevkifat_kes(f, c, ek_oran=None):
        (çarpım oranı TEVKIFAT_CARPANLARI). Bu durumda pozitif oran
        döner; tevkifat_orani = 1 - 1/carpan.
     ek_oran: firma kuralından gelen özel kabul oranı (varsayılanların yanında denenir).
+
+    YANLIŞ-POZİTİF KORUMASI:
+    Sadece KDV oranı değil, MATRAH oranı da tevkifatla tutarlı olmalı.
+    Eczane/ilaç faturalarında KDV 1.25 çarpanına yakın görünebilir ama
+    matrah oranı (1:1 ya da tamsayı) farklıdır -> tevkifat sayılmaz.
     """
     f_kdv = f.get("kdv")
     c_kdv = c.get("kdv")
-    if f_kdv is not None and c_kdv is not None and f_kdv != 0:
-        oranlar = TEVKIFAT_ORANLARI + ((ek_oran,) if ek_oran is not None else ())
-        for oran in oranlar:
-            if _oran_yaklasik(f_kdv, c_kdv, oran):
+    f_matrah = f.get("matrah")
+    c_matrah = c.get("matrah")
+    if f_kdv is None or c_kdv is None or f_kdv == 0:
+        return None
+
+    oranlar = TEVKIFAT_ORANLARI + ((ek_oran,) if ek_oran is not None else ())
+    for oran in oranlar:
+        if _oran_yaklasik(f_kdv, c_kdv, oran):
+            # Klasik yön: fatura tam KDV; matrah da aynı oranda düşmüş olmalı
+            # (f_matrah / c_matrah ≈ oran). Matrah bilinmiyorsa kabul et.
+            if f_matrah is not None and c_matrah is not None and c_matrah != 0:
+                if abs(Decimal(str(f_matrah)) / Decimal(str(c_matrah))
+                       - Decimal(str(oran))) <= Decimal("0.03"):
+                    return oran
+            else:
                 return oran
-        # Ters yön: muavin > fatura özeti KDV'si
-        carpanlar = TEVKIFAT_CARPANLARI +             ((1 / (Decimal("1") - ek_oran),) if ek_oran is not None
-             and ek_oran != 1 else ())
-        for carpan in carpanlar:
-            if _oran_yaklasik(f_kdv, c_kdv, carpan):
+        # Matrah oranı kontrolüyle yakalanan (matrah yoksa sadece kdv)
+        if f_matrah is not None and c_matrah is not None and c_matrah != 0:
+            if abs(Decimal(str(f_matrah)) / Decimal(str(c_matrah))
+                   - Decimal(str(oran))) <= Decimal("0.03") \
+                    and _oran_yaklasik(f_kdv, c_kdv, oran):
+                return oran
+
+    # Ters yön: muavin > fatura özeti KDV'si
+    carpanlar = TEVKIFAT_CARPANLARI + \
+        ((1 / (Decimal("1") - ek_oran),) if ek_oran is not None
+         and ek_oran != 1 else ())
+    for carpan in carpanlar:
+        if _oran_yaklasik(f_kdv, c_kdv, carpan):
+            # Ters yönde matrah: muavin matrahı / özet matrahı ≈ carpan
+            if f_matrah is not None and c_matrah is not None and f_matrah != 0:
+                if abs(Decimal(str(c_matrah)) / Decimal(str(f_matrah))
+                       - Decimal(str(carpan))) <= Decimal("0.03"):
+                    return float(carpan)
+            else:
                 return float(carpan)
     return None
 
