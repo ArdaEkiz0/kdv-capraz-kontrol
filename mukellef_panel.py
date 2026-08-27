@@ -95,13 +95,15 @@ class MukellefPaneli(tk.Toplevel):
         alt.pack(fill="x", side="bottom")
         kart = tk.Frame(alt, bd=1, relief="solid", padx=10, pady=8)
         kart.pack(fill="x", padx=10)
-        tk.Label(kart, text="Otomatik Fatura Çekme (e-Arşiv alış)",
+        tk.Label(kart, text="Otomatik Fatura Çekme (Luca / GİB)",
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        tk.Label(kart, text=("GİB'ten yalnız e-Arşiv alış faturaları otomatik "
-                             "çekilir (e-Fatura için e-İmza/entegratör gerekir). "
-                             "Sorgu geriye en fazla 2 ay. Entegratör 'Luca / "
-                             "Türmob' seçiliyse 191/391 muavini Luca'dan "
-                             "çekilir."), wraplength=700,
+        tk.Label(kart, text=(
+                    "Entegratör 'Luca / Türmob' tanımlıysa faturalar ve muavin "
+                    "tamamen Luca'dan çekilir: e-Arşiv alış/satış, e-Fatura "
+                    "alış/satış + 191/391 muavin. Luca bilgisi yoksa GİB'ten "
+                    "yalnız e-Arşiv alış çekilir (e-Fatura için e-İmza/"
+                    "entegratör gerekir)."),
+                 wraplength=700,
                  justify="left", fg="#555555").pack(anchor="w")
         satir = tk.Frame(kart)
         satir.pack(fill="x", pady=(6, 0))
