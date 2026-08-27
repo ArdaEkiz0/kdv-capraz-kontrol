@@ -1056,21 +1056,36 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
     Firma secimi sonrasi cerceveler yeniden yuklendigi icin ilk
     denemede 'execution context destroyed' hatasi normaldir; gezinme
     araliklarla yeniden denenir.
+
+    Yeni mükellefte 'E-Fatura Satış' turunun ana menüde takılmasını
+    önlemek için: tur adresi yalnız frm3'e değil, bulunan her
+    gib530 frame'ine uygulanır; ayrıca her denemede tüm frame'ler
+    taranır ve yalnız istenen turdaki gib530 döndürülür (eski turdayken
+    yanlış frame dönmesin diye URL içinde tur de denetlenir).
     """
     adres = f"gib530.do?tur={tur}&c_musteri_id={uye_no}"
-    for deneme in range(10):
+    # Önce eski tur ekranına bağlı frame'leri temizle: frm3'ü sıfırla
+    for deneme in range(14):
         try:
-            if deneme in (0, 3, 6):
+            if deneme in (0, 2, 4, 6, 8, 10):
+                # frm3 yoksa iframe[name='frm3'] olabilir; attribute ile dene
                 erp.evaluate(
-                    "u => { top.frames['frm3'].location.href = u; }",
+                    "u => { const f = top.frames['frm3'];"
+                    " if (f) { f.location.href = u; }"
+                    " else { const el = document.querySelector("
+                    "   'iframe[name=frm3],frame[name=frm3]');"
+                    "   if (el) el.src = u; } }",
                     adres)
         except Exception:
             pass
         time.sleep(2)
         for f in erp.frames:
             try:
-                if "gib530" in f.url and len(f.content()) > 5000:
+                url = f.url or ""
+                if "gib530" in url and tur in url and len(f.content()) > 5000:
                     return f
+                # tur parametresi URL'de yoksa bile gib530 ise (eski tur
+                # kalıntısı) atla; yalnızca istenen tur dönsün.
             except Exception:
                 continue
     if bildir is not None:
