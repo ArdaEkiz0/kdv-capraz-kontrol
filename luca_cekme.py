@@ -1120,13 +1120,17 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
     gib530 frame'ine uygulanır; ayrıca her denemede tüm frame'ler
     taranır ve yalnız istenen turdaki gib530 döndürülür (eski turdayken
     yanlış frame dönmesin diye URL içinde tur de denetlenir).
+
+    Bazen tur geçişi frm3 yönlendirmesiyle olmaz (Luca'nın kimi
+    ekranları farklı frame/sekme kullanır). Bu yüzden yönlendirme
+    başarısız olursa, en-dış sayfada doğrudan gib530.do adresine
+    gidilir ve yükleme beklenir.
     """
     adres = f"gib530.do?tur={tur}&c_musteri_id={uye_no}"
-    # Önce eski tur ekranına bağlı frame'leri temizle: frm3'ü sıfırla
-    for deneme in range(14):
+    # 1) Önce frm3/iframe yönlendirme yoluyla dene.
+    for deneme in range(8):
         try:
-            if deneme in (0, 2, 4, 6, 8, 10):
-                # frm3 yoksa iframe[name='frm3'] olabilir; attribute ile dene
+            if deneme in (0, 2, 4, 6):
                 erp.evaluate(
                     "u => { const f = top.frames['frm3'];"
                     " if (f) { f.location.href = u; }"
@@ -1142,8 +1146,32 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
                 url = f.url or ""
                 if "gib530" in url and tur in url and len(f.content()) > 5000:
                     return f
-                # tur parametresi URL'de yoksa bile gib530 ise (eski tur
-                # kalıntısı) atla; yalnızca istenen tur dönsün.
+            except Exception:
+                continue
+    # 2) Doğrudan sayfa yüklemesi: en-dış çerçevede gib530.do'ya git.
+    #    adres göreli olduğu için, sayfanın mutlak base adresinden üret.
+    try:
+        taban = erp.url
+        if "?" in taban:
+            taban = taban.split("?", 1)[0]
+        if "/" in taban:
+            taban = taban[: taban.rfind("/") + 1]
+        mutlak = taban + adres
+    except Exception:
+        mutlak = adres
+    for deneme in range(10):
+        try:
+            erp.goto(mutlak)
+            break
+        except Exception:
+            time.sleep(2)
+    for _ in range(12):
+        time.sleep(2)
+        for f in erp.frames:
+            try:
+                url = f.url or ""
+                if "gib530" in url and tur in url and len(f.content()) > 5000:
+                    return f
             except Exception:
                 continue
     if bildir is not None:

@@ -303,6 +303,19 @@ class MukellefPaneli(tk.Toplevel):
         ttk.Checkbutton(satir, text="Faturaları çek (Luca)",
                         variable=self.fatura_cekilsin).pack(side="left",
                                                             padx=(0, 8))
+        # 4 e-belge grubu için ayrı seçim (varsayılan hepsi açık).
+        self.grup_cekilsin = {}
+        gruplar = [("efatura_alis", "e-Fat.Alış"),
+                   ("efatura_satis", "e-Fat.Satış"),
+                   ("earsiv_alis", "e-Ar.Alış"),
+                   ("earsiv_satis", "e-Ar.Satış")]
+        tk.Label(satir, text="|", fg="#bbb").pack(side="left", padx=(0, 6))
+        for anahtar, kisa in gruplar:
+            v = tk.BooleanVar(value=True)
+            self.grup_cekilsin[anahtar] = v
+            ttk.Checkbutton(satir, text=kisa, variable=v,
+                            style="TCheckbutton",
+                            ).pack(side="left", padx=(0, 6))
         self.durum = tk.Label(satir, text="", fg="#2563eb", wraplength=300,
                               justify="left")
         self.durum.pack(side="left", fill="x", expand=True)
@@ -554,6 +567,23 @@ class MukellefPaneli(tk.Toplevel):
         fatura_luca_istendi = (luca_planli
                                and self.fatura_cekilsin.get())
 
+        # Seçili e-belge gruplarını belirle (kullanıcının "istediğim türdeki"
+        # faturaları çekebilmesi). Hiçbiri seçilmemişse hepsi çekilmeden
+        # sadece muavin kalır.
+        secili_kategoriler = []
+        if fatura_luca_istendi:
+            grup_var = getattr(self, "grup_cekilsin", None) or {}
+            for anahtar in ("efatura_alis", "efatura_satis",
+                            "earsiv_alis", "earsiv_satis"):
+                v = grup_var.get(anahtar)
+                if v is None or v.get():
+                    secili_kategoriler.append(anahtar)
+            if not secili_kategoriler:
+                secili_kategoriler = ["efatura_alis", "efatura_satis",
+                                      "earsiv_alis", "earsiv_satis"]
+        fatura_kategorileri = tuple(secili_kategoriler) if secili_kategoriler \
+            else None
+
         self.cek_butonu.configure(state="disabled", bg="#64748b")
         self._durum_yaz("GİB'e bağlanılıyor...")
 
@@ -625,8 +655,7 @@ class MukellefPaneli(tk.Toplevel):
                             degerler["ent_kullanici"],
                             degerler["ent_sifre"], bas, bit,
                             hedef_klasor,
-                            kategoriler=("earsiv_alis", "earsiv_satis",
-                                         "efatura_alis", "efatura_satis"),
+                            kategoriler=fatura_kategorileri,
                             ilerleme=self._logla,
                             firma_adi=degerler.get("ad", ""),
                             duz_yaz=True,
