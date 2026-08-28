@@ -1153,12 +1153,6 @@ def _gibten_getir(cerceve, bildir=None):
                 pass
         # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
         time.sleep(1.5)
-        # Tarih aralığı / sorgu formu varsa varsayılanları bırak.
-        time.sleep(6)
-        try:
-            sayfa.wait_for_timeout(2000)
-        except Exception:
-            pass
         # Onay penceresi varsa 'Evet'/'Tamam'a bas.
         try:
             onay = cerceve.query_selector(
@@ -1167,11 +1161,23 @@ def _gibten_getir(cerceve, bildir=None):
             if onay is not None:
                 try:
                     onay.click()
-                    time.sleep(4)
+                    time.sleep(1)
                 except Exception:
                     pass
         except Exception:
             pass
+        # Belgeler listeye gelene kadar kısa aralıklarla bekle (akıllı).
+        # Sabit 6-8 sn beklemek yerine, liste dolmaya başlayınca çık.
+        try:
+            import luca_cekme as _l
+            for _i in range(10):
+                deneme_html = cerceve.content()
+                belge_sayisi = len(_l._satirlari_ayikla(deneme_html))
+                if belge_sayisi > 0:
+                    break
+                time.sleep(1)
+        except Exception:
+            time.sleep(2)
         bildir("GİB'ten getir tamamlandı; liste güncellendi.")
 
         # Güvence: getir sonrası 'Sorgula'/'Listele' butonuna basarak
@@ -1217,13 +1223,13 @@ def _sorgula_listele_butonu(cerceve, bildir=None):
         try:
             oge.click()
             if cerceve.page is not None:
-                cerceve.page.wait_for_timeout(2500)
+                cerceve.page.wait_for_timeout(1300)
             return
         except Exception:
             try:
                 oge.evaluate("e => e.click()")
                 if cerceve.page is not None:
-                    cerceve.page.wait_for_timeout(2500)
+                    cerceve.page.wait_for_timeout(1300)
                 return
             except Exception:
                 continue
@@ -1263,7 +1269,7 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
                     adres)
         except Exception:
             pass
-        time.sleep(2)
+        time.sleep(1.2)
         for f in erp.frames:
             try:
                 url = f.url or ""
@@ -1287,9 +1293,9 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
             erp.goto(mutlak)
             break
         except Exception:
-            time.sleep(2)
-    for _ in range(12):
-        time.sleep(2)
+            time.sleep(1.2)
+    for _ in range(8):
+        time.sleep(1.5)
         for f in erp.frames:
             try:
                 url = f.url or ""
@@ -1810,7 +1816,7 @@ def _sonraki_sayfaya_git(cerceve):
         except Exception:
             continue
         try:
-            cerceve.page.wait_for_timeout(2500)
+            cerceve.page.wait_for_timeout(1300)
         except Exception:
             pass
         # Tıklama sonrası gerçekten sayfa değişti mi? İlk sayfa ile
@@ -1875,7 +1881,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
         sayfa = oturum.new_page()
         try:
             sayfa = giris_yap(sayfa, uye_no, kullanici, parola, bildir)
-            sayfa.wait_for_timeout(2500)
+            sayfa.wait_for_timeout(1300)
             erp = _erp_penceresi(oturum, sayfa, bildir)
             _firma_donem_sec(erp, firma_adi, bas_tarih, bildir)
 
@@ -1910,7 +1916,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # Luca tek sayfada en fazla ~500 fatura listeler.
                     try:
                         _satir_sayisini_buyut(cerceve, bildir)
-                        cerceve.page.wait_for_timeout(1500)
+                        cerceve.page.wait_for_timeout(1000)
                     except Exception:
                         pass
                     # TÜM SAYFALARI TOPLA: ilk sayfa + 'Sonraki' ile gidilen
@@ -1949,7 +1955,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             # tam sayfa ise yine de devam etmeye zorla.
                             if tam_sayfa:
                                 try:
-                                    cerceve.page.wait_for_timeout(2500)
+                                    cerceve.page.wait_for_timeout(1300)
                                     continue
                                 except Exception:
                                     pass
@@ -2076,7 +2082,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         if not _sonraki_sayfaya_git(cerceve):
                             if tam_sayfa:
                                 try:
-                                    cerceve.page.wait_for_timeout(2500)
+                                    cerceve.page.wait_for_timeout(1300)
                                     continue
                                 except Exception:
                                     pass
