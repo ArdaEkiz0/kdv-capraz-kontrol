@@ -1243,6 +1243,31 @@ def _sorgula_listele_butonu(cerceve, bildir=None):
     bildir("Sorgula/Listele butonu bulunamadı; mevcut liste kullanılıyor.")
 
 
+def _tani_kaydet(kategori, cerceve):
+    """Çekim ekranının HTML + URL'sini %TEMP%\\luca_tani\\ altına yazar.
+
+    Gerçek Luca yapısını çözüp çekimi kökten tasarlarken kullanılır;
+    her kategori için ayrı dosya oluşturur.
+    """
+    import time as _t
+    try:
+        klasor = os.path.join(os.environ.get("TEMP", "."), "luca_tani")
+        os.makedirs(klasor, exist_ok=True)
+        damga = _t.strftime("%Y%m%d_%H%M%S")
+        yol = os.path.join(klasor, f"{kategori}_{damga}.html")
+        icerik = cerceve.content() if cerceve is not None else ""
+        with open(yol, "w", encoding="utf-8", errors="replace") as f:
+            f.write(icerik)
+        try:
+            url_yol = os.path.join(klasor, f"{kategori}_{damga}.url.txt")
+            with open(url_yol, "w", encoding="utf-8") as f:
+                f.write((cerceve.url or "") if cerceve is not None else "")
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _gib530_frame(erp, tur, uye_no, bildir=None):
     """Ana icerik cercevesini istenen gib530 ekranina goturur ve frame'i
     dondurur; yuklenmezse None doner.
@@ -1908,6 +1933,12 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                               "durum": "hata", "sayi": 0, "toplam": 0,
                               "mesaj": "gib530 ekranı yüklenemedi"})
                         raise RuntimeError("gib530 ekranı yüklenmedi")
+                    # TANI: gerçek ekran HTML'ini kaydet (çekim kökten
+                    # tasarlanırken kullanılacak).
+                    try:
+                        _tani_kaydet(kategori, cerceve)
+                    except Exception:
+                        pass
                     # İKİ ADIMLI AKIŞ: Luca'nın e-belge ekranında belgeler
                     # GİB'ten önce 'çekilir' (GİB'ten Getir / İnternetten
                     # Getir butonu), sonra listelenip indirilir. Bu adım
