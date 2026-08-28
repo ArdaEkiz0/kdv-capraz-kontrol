@@ -1131,8 +1131,12 @@ def _gibten_getir(cerceve, bildir=None):
             buton = adaylar[0]
 
         if buton is None:
-            bildir("GİB'ten getir butonu hiç bulunamadı; mevcut liste "
-                   "kullanılıyor.")
+            bildir("GİB'ten getir butonu hiç bulunamadı; listeyi "
+                   "sorguyla yenilemeyi deniyorum.")
+            try:
+                _sorgula_listele_butonu(cerceve, bildir)
+            except Exception:
+                pass
             return
         bildir("GİB'ten getir tıklanıyor (belgeler çekiliyor)...")
         try:
@@ -1169,8 +1173,61 @@ def _gibten_getir(cerceve, bildir=None):
         except Exception:
             pass
         bildir("GİB'ten getir tamamlandı; liste güncellendi.")
+
+        # Güvence: getir sonrası 'Sorgula'/'Listele' butonuna basarak
+        # listenin tazelenmesini zorla. Luca bazı ekranlarda getir ile
+        # listeyi yenilemez; sorgu butonu gerekir.
+        try:
+            _sorgula_listele_butonu(cerceve, bildir)
+        except Exception:
+            pass
     except Exception as hata:
         bildir(f"GİB'ten getir başarısız: {str(hata)[:50]}")
+
+
+def _sorgula_listele_butonu(cerceve, bildir=None):
+    """'Sorgula' / 'Listele' / 'Getir' gibi listeyi yenileyen butona basar.
+
+    GİB'ten getir sonrası listenin dolması için gerekli; bulunamazsa
+    sessizce geçer.
+    """
+    if bildir is None:
+        bildir = lambda s: None
+    adaylar = []
+    for secici in ("button", "input", "a", "span", "div"):
+        try:
+            ogeler = cerceve.query_selector_all(secici)
+        except Exception:
+            continue
+        for oge in ogeler:
+            try:
+                metin = ((oge.get_attribute("value") or "")
+                         + " " + (oge.inner_text() or "")
+                         + " " + (oge.get_attribute("onclick") or "")).lower()
+                if any(k in metin for k in ("sorgula", "listele", "liste",
+                                            "getir", "ara", "tazele")):
+                    adaylar.append(oge)
+            except Exception:
+                continue
+    for oge in adaylar:
+        try:
+            oge.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        try:
+            oge.click()
+            if cerceve.page is not None:
+                cerceve.page.wait_for_timeout(2500)
+            return
+        except Exception:
+            try:
+                oge.evaluate("e => e.click()")
+                if cerceve.page is not None:
+                    cerceve.page.wait_for_timeout(2500)
+                return
+            except Exception:
+                continue
+    bildir("Sorgula/Listele butonu bulunamadı; mevcut liste kullanılıyor.")
 
 
 def _gib530_frame(erp, tur, uye_no, bildir=None):
