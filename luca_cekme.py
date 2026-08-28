@@ -1061,7 +1061,7 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
     return hedef["t"], donem["t"]
 
 
-def _gibten_getir(cerceve, bildir=None):
+def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
     """Luca e-belge ekranında 'GİB'ten Getir' (İnternetten Getir) adımını çalıştırır.
 
     Luca'nın gib530 ekranı iki adımlıdır: belgeler önce GİB'den bu butonla
@@ -1077,6 +1077,13 @@ def _gibten_getir(cerceve, bildir=None):
         bildir = lambda s: None
     try:
         sayfa = cerceve.page
+        # ADIM: hangi tarihse onu yaz. Belge ekranındaki tarih aralığı
+        # alanlarına istenen dönem girilir (aynı muavin çekimindeki gibi).
+        try:
+            _tarih_alanlarini_doldur(cerceve, bas_tarih, bit_tarih, bildir)
+        except Exception as th:
+            bildir(f"Tarih alanları doldurulamadı ({str(th)[:50]}); "
+                   "varsayılan kullanılacak.")
         buton = None
 
         # Geniş aday toplama: yalnız görünür/input/button değil, herhangi
@@ -1907,7 +1914,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # Getir butonu), sonra listelenip indirilir. Bu adım
                     # atlanırsa yeni mükelleflerde belge listesi boş kalır.
                     try:
-                        _gibten_getir(cerceve, bildir)
+                        _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir)
                     except Exception as g_hata:
                         bildir(f"{kategori}: GİB'ten getir adımı "
                                f"atlandı ({str(g_hata)[:60]})")
