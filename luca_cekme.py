@@ -1481,26 +1481,33 @@ def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
 
 
 
-def _zip_toplu_indir(frame, sayfa, sira_listesi, yol_fonksiyonu, bildir=None,
+def _zip_toplu_indir(frame, sayfa, indirme_planlari, bildir=None,
                      pencere=4):
     """ZIP indirmelerini kademeli paralel tetikler.
 
-    Playwright'in download olaylarini toplayiciyla yakalar; her 'pencere'
-    adetinde bir onceki grubun bitmesini beklemeden sonraki click'i
-    atar, boylece network beklemeleri ust uste biner. Donen: {sira:
-    suggested_filename}.
+    `indirme_planlari`: [(satir_sirasi, hedef_yol), ...] çiftleri.
+    Playwright'in download olaylarını toplayıcıyla yakalar; her 'pencere'
+    adedinde bir sonraki grubu tetikler. Kritik fark: her satır için hedef
+    dosya yolu ÖNCEDEN belli olduğundan, indirilen şey yanlış dosyaya
+    yazılmaz (suggested_filename güvenilmez). Başarısız olan satırları
+    döndürür (kalıp güvenilirliği için).
     """
     import queue
-    indirilen = {}
+    hedef_map = {sira: yol for sira, yol in indirme_planlari}
     kuyruk = queue.Queue()
     dinleyici = lambda d: kuyruk.put(d)
     sayfa.on("download", dinleyici)
+    basarisiz = []
     try:
-        bekleyen = list(sira_listesi)
-        aktif = 0
-        while bekleyen or aktif:
-            while bekleyen and aktif < pencere:
+        bekleyen = [sira for sira, _ in indirme_planlari]
+        # Aktif click sayısını değil, inen dosya sayısını izle; kuyruk
+        # uzun süre sessiz kalırsa (bazı click'ler indirme başlatmıyorsa)
+        # o siparişleri kalanlara geri koy / başarısız işaretle.
+        while bekleyen:
+            # Yeni clicking: pencere kadar aktif download bekleyebiliriz.
+            while bekleyen:
                 sira = bekleyen.pop(0)
+                hedef = hedef_map[sira]
                 try:
                     frame.evaluate(
                         "n => { const e = [...document.querySelectorAll("
@@ -1509,30 +1516,53 @@ def _zip_toplu_indir(frame, sayfa, sira_listesi, yol_fonksiyonu, bildir=None,
                         ".includes('zip_indir'))"
                         "[n]; if (!e) throw new Error('yok'); e.click(); }",
                         sira)
-                    aktif += 1
                 except Exception:
-                    pass
-                time.sleep(0.15)
-            if aktif == 0:
+                    basarisiz.append(sira)
+                    continue
+                # Belirli kısa süre içinde en az pencere kadar download
+                # gelmeye devam etmeli; aksi halde tıklama bir işe
+                # yaramadı, bir sonraki adıma geç.
+                try:
+                    d = kuyruk.get(timeout=12)
+                except Exception:
+                    # İndirme başlatılamadı — tekrar dene (bir kez).
+                    try:
+                        frame.evaluate(
+                            "n => { const e = [...document.querySelectorAll("
+                            "'[onclick]')]"
+                            ".filter(x => x.getAttribute('onclick')"
+                            ".includes('zip_indir'))"
+                            "[n]; if (!e) throw new Error('yok'); e.click(); }",
+                            sira)
+                        d = kuyruk.get(timeout=15)
+                    except Exception:
+                        basarisiz.append(sira)
+                        continue
+                try:
+                    d.save_as(hedef)
+                except Exception:
+                    basarisiz.append(sira)
+                time.sleep(0.05)
+        # Kalan kuyruktaki olası download'ları da kaydet.
+        while True:
+            try:
+                d = kuyruk.get_nowait()
+            except Exception:
                 break
-            try:
-                d = kuyruk.get(timeout=45)
-            except Exception:
-                break  # kuyruk sustu: kalanlari tek tek dene
-            hedef_yol = yol_fonksiyonu(d.suggested_filename)
-            try:
-                d.save_as(hedef_yol)
-            except Exception:
-                continue
-            aktif -= 1
-            # sira -> dosya eslesmesi: suggested_filename ETTN bazli;
-            # cagiran dosya adindan eslesir.
+            # En iyi tahmini hedef: hedef_map'te kalanlardan birine eşle.
+            for sira, yol in hedef_map.items():
+                if not os.path.exists(yol):
+                    try:
+                        d.save_as(yol)
+                        break
+                    except Exception:
+                        continue
     finally:
         try:
             sayfa.remove_listener("download", dinleyici)
         except Exception:
             pass
-    return indirilen
+    return basarisiz
 
 
 def _ubl_ozet(xml_bytes):
@@ -2105,12 +2135,8 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                     and not _dosya_saglam(hedef):
                                 bekleyen.append((sira, hedef))
                         if bekleyen:
-                            def _yol_fonk(oneri):
-                                return os.path.join(klasor,
-                                                    f"{on_ek}{oneri}")
                             _zip_toplu_indir(cerceve, sayfa2,
-                                             [s for s, _ in bekleyen],
-                                             _yol_fonk, bildir)
+                                             list(bekleyen), bildir)
                             indirilen_yollar.update(h for _, h in bekleyen)
                         tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
                         sonraki_var = _sonraki_sayfa_var_mi(cerceve)
