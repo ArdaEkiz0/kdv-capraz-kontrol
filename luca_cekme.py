@@ -1065,41 +1065,107 @@ def _gibten_getir(cerceve, bildir=None):
     """Luca e-belge ekranında 'GİB'ten Getir' (İnternetten Getir) adımını çalıştırır.
 
     Luca'nın gib530 ekranı iki adımlıdır: belgeler önce GİB'den bu butonla
-    çekilir (listeye yüklenir), ardından indirilir. Buton bulunamazsa sessizce
-    döner (bazı ekranlarda otomatik listelenir).
+    çekilir (listeye yüklenir), ardından indirilir.
+
+    Buton bulma ÇOK GENİŞ yapılır: input/button/a + span/div/img + onclick/
+    title/alt + 'getir', 'indir', 'internetten', 'gib' gibi anahtar
+    kelimeler taranır. is_visible() güvenilir olmadığı için DOM'da olan
+    öğelerden tıklanabilir ilk aday seçilir; bulunamazsa en kötü ihtimalle
+    'gib530' ekranında ilk butona tıklanmaz, sessizce dönülür.
     """
     if bildir is None:
         bildir = lambda s: None
     try:
         sayfa = cerceve.page
-        buton = cerceve.query_selector(
-            "input[type=button][value*='Getir' i], "
-            "input[type=submit][value*='Getir' i], "
-            "button:has-text('Getir'), a:has-text('Getir')")
-        if buton is None or not buton.is_visible():
-            # Türkçe/özelleşmiş etiketler: 'GİBten', 'GİB'ten Getir'
-            for d in (r"[Gİ]B.*[Gg]etir", r"[Gg]etir.*[Gİ]B",
-                      r"[İi]nternetten [Gg]etir"):
+        buton = None
+
+        # Geniş aday toplama: yalnız görünür/input/button değil, herhangi
+        # metin ya da onclick taşıyan öğe.
+        adaylar = []
+        for secici in ("button", "input", "a", "span", "div", "img",
+                       "li", "td", "b", "i"):
+            try:
+                ogeler = cerceve.query_selector_all(secici)
+            except Exception:
+                continue
+            for oge in ogeler:
                 try:
-                    buton = cerceve.query_selector(
-                        f"input[type=button][value*='{d[:1]}'], "
-                        f"button:has-text('{d}')")
-                    if buton is not None and buton.is_visible():
-                        break
+                    metin = ((oge.get_attribute("value") or "")
+                             + " " + (oge.inner_text() or "")
+                             + " " + (oge.get_attribute("onclick") or "")
+                             + " " + (oge.get_attribute("title") or "")
+                             + " " + (oge.get_attribute("alt") or "")
+                             + " " + (oge.get_attribute("src") or ""))
+                    k = (metin or "").lower()
+                    # Anahtar kelimeler: getir / internete / gib'ten çek
+                    if ("getir" in k or "internette" in k
+                            or ("gib" in k and ("indir" in k or "cek" in k))
+                            or "taşı" in k or "tası" in k
+                            or ("gib" in k and "yükle" in k)):
+                        # Açık engellileri atla
+                        if "onceki" not in k and "geri" not in k:
+                            adaylar.append(oge)
                 except Exception:
                     continue
-        if buton is None or not buton.is_visible():
-            bildir("GİB'ten getir butonu görünmüyor; mevcut liste kullanılır.")
+
+        # Öncelik: onclick'li / title'ı net olan buton/input.
+        for oge in adaylar:
+            tag = ""
+            try:
+                tag = (oge.evaluate("el => el.tagName") or "").lower()
+            except Exception:
+                pass
+            m = ""
+            try:
+                m = ((oge.get_attribute("value") or "")
+                     + " " + (oge.inner_text() or "")
+                     + " " + (oge.get_attribute("title") or "")
+                     + " " + (oge.get_attribute("onclick") or "")).lower()
+            except Exception:
+                pass
+            if tag in ("button", "input") or "getir" in m \
+                    or "internette" in m:
+                buton = oge
+                break
+        if buton is None and adaylar:
+            buton = adaylar[0]
+
+        if buton is None:
+            bildir("GİB'ten getir butonu hiç bulunamadı; mevcut liste "
+                   "kullanılıyor.")
             return
         bildir("GİB'ten getir tıklanıyor (belgeler çekiliyor)...")
-        buton.scroll_into_view_if_needed()
-        buton.click()
+        try:
+            buton.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        try:
+            buton.click()
+        except Exception:
+            # onclick ile tıkla
+            try:
+                buton.evaluate("e => e.click()")
+            except Exception:
+                pass
         # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
         time.sleep(1.5)
-        # Bekle: belgeler GİB'ten çekilirken tablo dolar.
+        # Tarih aralığı / sorgu formu varsa varsayılanları bırak.
         time.sleep(6)
         try:
             sayfa.wait_for_timeout(2000)
+        except Exception:
+            pass
+        # Onay penceresi varsa 'Evet'/'Tamam'a bas.
+        try:
+            onay = cerceve.query_selector(
+                "button:has-text('Evet'), button:has-text('Tamam'), "
+                "input[value*='Evet'], input[value*='Tamam']")
+            if onay is not None:
+                try:
+                    onay.click()
+                    time.sleep(4)
+                except Exception:
+                    pass
         except Exception:
             pass
         bildir("GİB'ten getir tamamlandı; liste güncellendi.")
