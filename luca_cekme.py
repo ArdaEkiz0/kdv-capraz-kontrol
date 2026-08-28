@@ -1587,59 +1587,73 @@ def _satir_sayisini_buyut(sayfa, bildir):
         return False
 
 
-def _sonraki_sayfa_var_mi(cerceve):
-    """Luca belge listesinde 'Sonraki' / ileri sayfa düğmesi varsa True."""
+def _sayfa_butonlari(cerceve):
+    """Luca belge listesindeki sayfa ilerleme düğmelerini döndürür.
+
+    Geniş tarama: input/button/a + span/div + onclick içeren her öğe.
+    Metin ya da onclick'te 'sonraki/ileri/next/»/›/>' veya 'sayfa 2'
+    deseni aranır; 'önceki/geri' hariç.
+    """
+    adaylar = []
     try:
         ogeler = cerceve.query_selector_all(
-            "input[type=button], input[type=submit], button, a")
+            "input, button, a, span, div, td, li, img, b, i")
         for oge in ogeler:
             try:
-                if not oge.is_visible():
-                    continue
                 metin = ((oge.get_attribute("value") or "")
-                         + " " + (oge.inner_text() or "")).strip()
+                         + " " + (oge.inner_text() or "")
+                         + " " + (oge.get_attribute("onclick") or "")
+                         + " " + (oge.get_attribute("title") or "")
+                         + " " + (oge.get_attribute("alt") or "")).strip()
                 if not metin:
                     continue
                 k = metin.lower()
-                # 'Sonraki', 'İleri', '>' sayfa ilerleme düğmeleri.
-                # 'Önceki/Geri' değil; 'Sayfa' kelimesi tek başına değil.
-                if (("sonraki" in k or "ileri" in k
-                     or k.strip() in (">", ">>", "»", "→"))
-                        and "onceki" not in k and "geri" not in k):
-                    return True
+                # 'önceki/geri' hariç; ilerleme desenleri
+                if "onceki" in k or "geri" in k:
+                    continue
+                ilerleme = (
+                    "sonraki" in k or "ileri" in k or "next" in k
+                    or "»" in k or "›" in k or ">>" in k
+                    or k.strip() in (">", "→")
+                    or "sayfa 2" in k or "sayfa2" in k
+                    or re.search(r"goPage|nextPage|sayfaGec|ileri", k)
+                    or re.search(r"pager", k)
+                )
+                if ilerleme:
+                    adaylar.append(oge)
             except Exception:
                 continue
     except Exception:
-        return False
-    return False
+        pass
+    return adaylar
+
+
+def _sonraki_sayfa_var_mi(cerceve):
+    """Luca belge listesinde 'Sonraki' / ileri sayfa düğmesi varsa True."""
+    return len(_sayfa_butonlari(cerceve)) > 0
 
 
 def _sonraki_sayfaya_git(cerceve):
     """Listedeki 'Sonraki' / 'İleri' düğmesine tıklar; yönlendirme
     sonrası yeni sayfa içeriği yüklenir. Dönüş: True/False."""
-    try:
-        ogeler = cerceve.query_selector_all(
-            "input[type=button], input[type=submit], button, a")
-        for oge in ogeler:
-            try:
-                if not oge.is_visible():
-                    continue
-                metin = ((oge.get_attribute("value") or "")
-                         + " " + (oge.inner_text() or "")).strip()
-                if not metin:
-                    continue
-                k = metin.lower()
-                if (("sonraki" in k or "ileri" in k
-                     or k.strip() in (">", ">>", "»", "→"))
-                        and "onceki" not in k and "geri" not in k):
-                    oge.scroll_into_view_if_needed()
-                    oge.click()
-                    cerceve.page.wait_for_timeout(2500)
-                    return True
-            except Exception:
-                continue
-    except Exception:
-        pass
+    adaylar = _sayfa_butonlari(cerceve)
+    for oge in adaylar:
+        try:
+            oge.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        try:
+            oge.click()
+        except Exception:
+            continue
+        try:
+            cerceve.page.wait_for_timeout(2500)
+        except Exception:
+            pass
+        # Tıklama sonrası gerçekten sayfa değişti mi? İlk sayfa ile
+        # aynı belgeleri tekrar görüyorsak ilerlememiş olabilir;
+        # yine de döngü dedup ile yönetir.
+        return True
     return False
 
 
@@ -1721,6 +1735,9 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         pass
                     # TÜM SAYFALARI TOPLA: ilk sayfa + 'Sonraki' ile gidilen
                     # her sayfa. Aynı belgeleri alt alta ekleme (tekrar koru).
+                    # Güvence: sayfada tam sayfa limiti (500) belge görünüyorsa
+                    # daha fazlası var demektir -> sonraki sayfa aranır.
+                    SAYFA_LIMITI = 500
                     tum_satirlar = []
                     gorulen_belge = set()
                     for sayfa_sirasi in range(1, 60):  # 500*59≈30k, güvenlik sınırı
@@ -1738,12 +1755,24 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 yeni += 1
                         if not sayfa_satirlari or yeni == 0:
                             break
-                        if sayfa_sirasi >= 30 and _sonraki_sayfa_var_mi(cerceve):
+                        # Sayfada tam limit kadar belge var mı? O zaman
+                        # mutlaka devamı vardır.
+                        tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
+                        sonraki_var = _sonraki_sayfa_var_mi(cerceve)
+                        if sayfa_sirasi >= 30 and sonraki_var:
                             bildir(f"{kategori}: {sayfa_sirasi}. sayfa "
                                    "toplandı, ilerleniyor...")
-                        if not _sonraki_sayfa_var_mi(cerceve):
+                        if not sonraki_var and not tam_sayfa:
                             break
                         if not _sonraki_sayfaya_git(cerceve):
+                            # Düğme görünse de tıklama başarısız olabilir;
+                            # tam sayfa ise yine de devam etmeye zorla.
+                            if tam_sayfa:
+                                try:
+                                    cerceve.page.wait_for_timeout(2500)
+                                    continue
+                                except Exception:
+                                    pass
                             break
                     satirlar = tum_satirlar
                     # Tarih aralığında kalan ve geçerli (red/iptal olmayan)
@@ -1856,9 +1885,17 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                              [s for s, _ in bekleyen],
                                              _yol_fonk, bildir)
                             indirilen_yollar.update(h for _, h in bekleyen)
-                        if not _sonraki_sayfa_var_mi(cerceve):
+                        tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
+                        sonraki_var = _sonraki_sayfa_var_mi(cerceve)
+                        if not sonraki_var and not tam_sayfa:
                             break
                         if not _sonraki_sayfaya_git(cerceve):
+                            if tam_sayfa:
+                                try:
+                                    cerceve.page.wait_for_timeout(2500)
+                                    continue
+                                except Exception:
+                                    pass
                             break
 
                     # Kayıt oluştur: indirilen/hedef ZIP'lerden özet oku.
