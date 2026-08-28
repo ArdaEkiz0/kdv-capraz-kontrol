@@ -1263,17 +1263,23 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
     gidilir ve yükleme beklenir.
     """
     adres = f"gib530.do?tur={tur}&c_musteri_id={uye_no}"
-    # 1) Önce frm3/iframe yönlendirme yoluyla dene.
-    for deneme in range(8):
+    # Yalnız frame-içi yönlendirme: ana pencereyi asla değiştirme (goto
+    # ana ERP'yi bozup çekimi çökertebiliyor). frm3 yanında, kullanıcı
+    # yapılandırmasına göre farklı olabilecek adları da dener.
+    frame_adlari = ["frm3", "frm1", "frm2", "main", "icerik", "content",
+                    "fatura"]
+    for deneme in range(10):
         try:
-            if deneme in (0, 2, 4, 6):
-                erp.evaluate(
-                    "u => { const f = top.frames['frm3'];"
-                    " if (f) { f.location.href = u; }"
-                    " else { const el = document.querySelector("
-                    "   'iframe[name=frm3],frame[name=frm3]');"
-                    "   if (el) el.src = u; } }",
-                    adres)
+            if deneme in (0, 2, 4, 6, 8):
+                for fn in frame_adlari:
+                    erp.evaluate(
+                        "p => { const [fn, u] = p;"
+                        " const f = top.frames[fn];"
+                        " if (f) { f.location.href = u; }"
+                        " else { const el = document.querySelector("
+                        "   'iframe[name=\"' + fn + '\"],frame[name=\"' + fn + '\"]');"
+                        "   if (el) el.src = u; } }",
+                        [fn, adres])
         except Exception:
             pass
         time.sleep(1.2)
@@ -1284,32 +1290,25 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
                     return f
             except Exception:
                 continue
-    # 2) Doğrudan sayfa yüklemesi: en-dış çerçevede gib530.do'ya git.
-    #    adres göreli olduğu için, sayfanın mutlak base adresinden üret.
+    # Frm3 yönlendirmesiyle olmadıysa, TÜM çocuk frame'lere tur adresini
+    # uygula (hangi frame gib530'u taşıyorsa o yüklensin).
     try:
-        taban = erp.url
-        if "?" in taban:
-            taban = taban.split("?", 1)[0]
-        if "/" in taban:
-            taban = taban[: taban.rfind("/") + 1]
-        mutlak = taban + adres
-    except Exception:
-        mutlak = adres
-    for deneme in range(10):
-        try:
-            erp.goto(mutlak)
-            break
-        except Exception:
-            time.sleep(1.2)
-    for _ in range(8):
-        time.sleep(1.5)
         for f in erp.frames:
             try:
-                url = f.url or ""
-                if "gib530" in url and tur in url and len(f.content()) > 5000:
-                    return f
+                if f == erp:
+                    continue
+                f.evaluate("u => { window.location.href = u; }",
+                           adres if adres.startswith("http") else
+                           "gib530.do?tur=" + tur + "&c_musteri_id=" +
+                           str(uye_no))
+                time.sleep(1.5)
+                if "gib530" in (f.url or "") and tur in (f.url or ""):
+                    if len(f.content()) > 5000:
+                        return f
             except Exception:
                 continue
+    except Exception:
+        pass
     if bildir is not None:
         try:
             nerede = erp.evaluate(
