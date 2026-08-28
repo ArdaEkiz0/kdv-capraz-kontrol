@@ -13,6 +13,179 @@ import mukellefler
 AYLAR = [(str(a), a) for a in range(1, 13)]
 ENT_KURUMLAR = ["", "NetteFatura (İşNet)", "Luca / Türmob", "Diğer"]
 
+# 4 e-belge grubu: kısa anahtar, ekranda gösterilecek etiket, renk.
+CEKIM_GRUPLARI = [
+    ("efatura_alis", "e-Fatura Alış", "#2563eb"),
+    ("efatura_satis", "e-Fatura Satış", "#7c3aed"),
+    ("earsiv_alis", "e-Arşiv Alış", "#0d9488"),
+    ("earsiv_satis", "e-Arşiv Satış", "#ea580c"),
+]
+
+
+class CekimTakipPenceresi(tk.Toplevel):
+    """Luca fatura çekimini canlı izleyen pencere.
+
+    4 kategori (e-Arşiv alış/satış, e-Fatura alış/satış) için ayrı durum
+    çubuğu + indirilen/indirilecek belge sayacı; altta canlı log listesi.
+    `guncelle(olay)` ile arka plan iş parçacığından beslenir (ana luut'a
+    güvenli şekilde after() ile aktarır).
+    """
+
+    def __init__(self, uygulama, firma_adi, donem):
+        super().__init__(uygulama.kok)
+        self.uygulama = uygulama
+        self.kok = uygulama.kok
+        self.title(f"Fatura Çekme Takibi — {firma_adi} ({donem})")
+        self.geometry("680x560")
+        self.minsize(560, 400)
+        self.transient(uygulama.kok)
+        self.protocol("WM_DELETE_WINDOW", lambda: None)  # çekimde kapanamaz
+        self._kapandi = False
+
+        # Üst başlık
+        ust = tk.Frame(self, bg="#1e3a8a")
+        ust.pack(fill="x")
+        tk.Label(ust, text=f"⏳ {firma_adi} — {donem}",
+                 font=("Segoe UI", 12, "bold"),
+                 bg="#1e3a8a", fg="#ffffff").pack(side="left", padx=12, pady=10)
+        self.genel_durum = tk.Label(ust, text="Hazırlanıyor...",
+                                    font=("Segoe UI", 9), bg="#1e3a8a",
+                                    fg="#bfdbfe")
+        self.genel_durum.pack(side="right", padx=12)
+
+        govde = tk.Frame(self, padx=12, pady=8)
+        govde.pack(fill="both", expand=True)
+
+        # 4 grup kartı
+        self.grup_widgets = {}
+        for anahtar, etiket, renk in CEKIM_GRUPLARI:
+            kart = tk.LabelFrame(govde, text=f"  {etiket}  ",
+                                 font=("Segoe UI", 9, "bold"),
+                                 fg=renk, padx=8, pady=6)
+            kart.pack(fill="x", pady=(0, 6))
+            ic = tk.Frame(kart)
+            ic.pack(fill="x")
+            tk.Label(ic, text="Durum:", fg="#555").pack(side="left")
+            durum_l = tk.Label(ic, text="Bekliyor", fg="#888", width=14,
+                               anchor="w")
+            durum_l.pack(side="left", padx=(0, 10))
+            sayac_l = tk.Label(ic, text="0 / 0", fg="#2563eb",
+                               font=("Segoe UI", 10, "bold"))
+            sayac_l.pack(side="right")
+            # İlerleme çubuğu
+            bar = ttk.Progressbar(kart, maximum=100, value=0)
+            bar.pack(fill="x", pady=(4, 0))
+            self.grup_widgets[anahtar] = {
+                "durum": durum_l, "sayac": sayac_l, "bar": bar,
+                "tamam": 0, "toplam": 0, "durum_metni": "Bekliyor",
+            }
+
+        # Canlı log
+        log_kap = tk.LabelFrame(govde, text="  Canlı Akış  ", font=("Segoe UI", 9, "bold"))
+        log_kap.pack(fill="both", expand=True)
+        self.log_metin = tk.Text(log_kap, height=10, wrap="word",
+                                 state="disabled", font=("Consolas", 8))
+        self.log_sb = ttk.Scrollbar(log_kap, command=self.log_metin.yview)
+        self.log_metin.configure(yscrollcommand=self.log_sb.set)
+        self.log_sb.pack(side="right", fill="y")
+        self.log_metin.pack(side="left", fill="both", expand=True)
+
+        self.protocol("WM_DELETE_WINDOW", self._kapat_mesaji)
+
+    def _kapat_mesaji(self):
+        if self._kapandi:
+            return
+        if messagebox.askyesno("Çekim Sürüyor",
+                               "Çekim devam ederken bu pencere kapatılabilir "
+                               "mi? İşlem arka planda sürecek, sonucu ana "
+                               "ekrandan izlersiniz.",
+                               parent=self):
+            self._kapandi = True
+            self.destroy()
+
+    def guncelle(self, olay):
+        """Arka plan thread'inden gelen olay sözlüğünü işler (thread-safe)."""
+        try:
+            self.kok.after(0, lambda o=dict(olay): self._isle(o))
+        except Exception:
+            pass
+
+    def _isle(self, o):
+        if self._kapandi:
+            return
+        anahtar = o.get("kategori", "")
+        adim = o.get("adim")
+        sayi = o.get("sayi", 0) or 0
+        toplam = o.get("toplam", 0) or 0
+        mesaj = o.get("mesaj", "") or ""
+        durum_kod = o.get("durum", "")
+
+        # Genel durum
+        self.genel_durum.configure(text=mesaj[:60])
+
+        # Log'a ekle
+        self._log_ekle(mesaj)
+
+        g = self.grup_widgets.get(anahtar)
+        if g is None:
+            return
+        if adim in ("basla",):
+            g["durum"].configure(text="Başlıyor", fg="#2563eb")
+            g["durum_metni"] = "Başlıyor"
+            g["bar"]["value"] = 0
+            g["sayac"].configure(text="0 / 0")
+        elif adim in ("liste",):
+            g["toplam"] = toplam
+            g["durum"].configure(text=f"{toplam} belge", fg="#2563eb")
+            g["durum_metni"] = f"{toplam} belge"
+            g["sayac"].configure(text=f"0 / {toplam}")
+        elif adim in ("indirildi", "indirme"):
+            g["tamam"] = sayi
+            g["toplam"] = toplam
+            g["durum"].configure(text="İndiriliyor", fg="#2563eb")
+            g["durum_metni"] = "İndiriliyor"
+            if toplam:
+                g["bar"]["value"] = (sayi / toplam) * 100
+            g["sayac"].configure(text=f"{sayi} / {toplam}")
+        elif adim in ("bitti",):
+            g["tamam"] = sayi
+            g["durum"].configure(text=f"✓ {sayi} belge", fg="#15803d")
+            g["durum_metni"] = "Tamam"
+            g["bar"]["value"] = 100
+            g["sayac"].configure(text=f"{sayi} / {sayi}")
+        elif adim in ("hata",):
+            g["durum"].configure(text="✗ Hata", fg="#dc2626")
+            g["durum_metni"] = "Hata"
+            g["bar"]["value"] = 0
+            g["sayac"].configure(text="0 / 0")
+
+    def _log_ekle(self, metin):
+        if not metin:
+            return
+        try:
+            self.log_metin.configure(state="normal")
+            self.log_metin.insert("end", metin + "\n")
+            self.log_metin.see("end")
+            self.log_metin.configure(state="disabled")
+            # Aşırı uzamayı kırp
+            if float(self.log_metin.index("end-1c").split(".")[0]) > 500:
+                self.log_metin.configure(state="normal")
+                self.log_metin.delete("1.0", "100.0")
+                self.log_metin.configure(state="disabled")
+        except Exception:
+            pass
+
+    def bitti(self, ozet):
+        """Tüm kategoriler bittiğinde genel durumu günceller."""
+        if self._kapandi:
+            return
+        try:
+            toplam = sum(v.get("belge_sayisi", 0) for v in (ozet or {}).values())
+            self.genel_durum.configure(text=f"✓ Tamamlandı — {toplam} belge")
+            self._log_ekle(f"✅ Tüm çekim tamamlandı: {toplam} belge")
+        except Exception:
+            pass
+
 
 def ac(uygulama):
     return MukellefPaneli(uygulama)
@@ -384,6 +557,32 @@ class MukellefPaneli(tk.Toplevel):
         self.cek_butonu.configure(state="disabled", bg="#64748b")
         self._durum_yaz("GİB'e bağlanılıyor...")
 
+        # Takip penceresi: 4 grubun canlı durumu.
+        donem_etiketi = f"{bas.strftime('%m.%Y')}"
+        self.takip_penceresi = None
+        try:
+            from mukellef_panel import CekimTakipPenceresi
+            self.takip_penceresi = CekimTakipPenceresi(
+                self.uygulama,
+                degerler.get("ad") or degerler.get("vkn") or "Mükellef",
+                donem_etiketi)
+        except Exception:
+            self.takip_penceresi = None
+
+        def ogle(olay):
+            """Arka plan thread'inden gelen yapılandırılmış olay."""
+            try:
+                if self.takip_penceresi is not None:
+                    self.takip_penceresi.guncelle(olay)
+            except Exception:
+                pass
+            # Ana log'a da düş (metin olarak)
+            try:
+                if olay.get("mesaj"):
+                    self._logla(olay["mesaj"])
+            except Exception:
+                pass
+
         def is_parcasi():
             try:
                 kullanilacak = list(cetvel_dosyalari)
@@ -409,6 +608,13 @@ class MukellefPaneli(tk.Toplevel):
                         else:
                             self.after(0, lambda h="Luca muavin çekimi "
                                        f"başarısız: {lhata}": self._cek_hata(h))
+                            if self.takip_penceresi is not None:
+                                try:
+                                    self.after(0,
+                                               self.takip_penceresi.destroy)
+                                except Exception:
+                                    pass
+                                self.takip_penceresi = None
                             return
                 # Luca'dan TUM e-Belgeler: bagimsiz olarak fatura kutusuna
                 # bagli (muavin secilmese de calisir).
@@ -423,7 +629,8 @@ class MukellefPaneli(tk.Toplevel):
                                          "efatura_alis", "efatura_satis"),
                             ilerleme=self._logla,
                             firma_adi=degerler.get("ad", ""),
-                            duz_yaz=True)
+                            duz_yaz=True,
+                            olay=ogle)
                         luca_ozetler = [v.get("ozet") for v in
                                         (belge_sonuc or {}).values()
                                         if v.get("ozet")]
@@ -432,9 +639,29 @@ class MukellefPaneli(tk.Toplevel):
                                         "belge kümesi indirildi "
                                         "(e-Arşiv/e-Fatura, alış/satış).")
                             luca_yedek.extend(luca_ozetler)
+                        # Takip penceresi: tüm belgeleri Ayrı kategorilerde
+                        # göstermiştik; genel "tamam" mesajını bas.
+                        if self.takip_penceresi is not None:
+                            try:
+                                self.after(0, lambda s=belge_sonuc:
+                                           self.takip_penceresi.bitti(s))
+                            except Exception:
+                                pass
                     except luca_cekme.LucaHata as bhata:
                         self._logla(f"Luca belge çekimi atlandı: "
                                     f"{str(bhata)[:80]}")
+                        if self.takip_penceresi is not None:
+                            try:
+                                self.after(
+                                    0,
+                                    lambda h=str(bhata):
+                                    self.takip_penceresi.guncelle(
+                                        {"kategori": "efatura_alis",
+                                         "adim": "hata", "durum": "hata",
+                                         "sayi": 0, "toplam": 0,
+                                         "mesaj": f"Hata: {h[:60]}"}))
+                            except Exception:
+                                pass
 
                 # Luca planliysa GİB HİÇ kullanilmaz; her sey Luca'dan.
                 if luca_planli:
@@ -631,11 +858,25 @@ class MukellefPaneli(tk.Toplevel):
     def _cek_hata(self, mesaj):
         self.cek_butonu.configure(state="normal", bg="#2563eb")
         self._durum_yaz("Hata: " + mesaj[:120])
+        try:
+            if self.takip_penceresi is not None:
+                self.takip_penceresi.destroy()
+                self.takip_penceresi = None
+        except Exception:
+            self.takip_penceresi = None
         messagebox.showerror("GİB Çekim Hatası", mesaj, parent=self)
 
     def _cek_bitti(self, yollar, cetvel_dosyalari):
         self.cek_butonu.configure(state="normal", bg="#2563eb")
         self._durum_yaz(f"{len(yollar)} dosya indirildi, kontrol başlıyor...")
+        # Çekim bitti: takip penceresini kapat (kısa gecikmeyle son mesaj
+        # okunsun).
+        try:
+            if self.takip_penceresi is not None:
+                self.after(300, self.takip_penceresi.destroy)
+                self.takip_penceresi = None
+        except Exception:
+            self.takip_penceresi = None
         self.uygulama.fatura_dosyalari = yollar
         self.uygulama.cetvel_dosyalari = cetvel_dosyalari
         if getattr(self.uygulama, "ayarlar", None):

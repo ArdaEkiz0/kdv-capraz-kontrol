@@ -886,6 +886,18 @@ LUCA_GIB_TURLER = {
     "earsiv_satis": "gib_ebelge_satis",
 }
 
+# 4 grup için okunaklı Türkçe etiketler (takip ekranında kullanılır).
+_KATEGORI_ETIKET = {
+    "earsiv_alis": "e-Arşiv Alış",
+    "earsiv_satis": "e-Arşiv Satış",
+    "efatura_alis": "e-Fatura Alış",
+    "efatura_satis": "e-Fatura Satış",
+}
+
+
+def _kategori_etiketi(kategori):
+    return _KATEGORI_ETIKET.get(kategori, kategori)
+
 
 def _turk_kucult(metin):
     """Turkce buyuk harfleri de kuculterek karsilastirma metni uretir.
@@ -1659,7 +1671,8 @@ def _sonraki_sayfaya_git(cerceve):
 
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                        hedef_klasor, kategoriler=None, ilerleme=None,
-                       gorunur=True, firma_adi=None, duz_yaz=True):
+                       gorunur=True, firma_adi=None, duz_yaz=True,
+                       olay=None):
     """Luca ERP Akıllı Entegrasyon ekranlarından e-Belgeleri indirir.
 
     Gerçek akış: giriş → portalda gonder('formTarget') ile MM Paketi
@@ -1679,10 +1692,19 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
       luca_{kategori}_{bas}_{bit}/        → alt klasör (duz_yaz=False)
       luca_{kategori}_{bas}_{bit}.xlsx    → özet tablo
 
+    olay: yapılandırılmış ilerleme takibi için sözlük alan callback.
+    Her çağrı şöyledir (UI takip ekranı için):
+      {\"kategori\": ..., \"adim\": ..., \"durum\": ..., \"sayi\": ...,
+       \"toplam\": ..., \"mesaj\": ...}
+    adim: 'basla'|'liste'|'indirme'|'indirildi'|'ozet'|'hata'|'bitti'
+    durum: 'calisiyor'|'tamam'|'hata'|'atlandi'
+
     Dönen değer: {kategori: {"zip": [yollar], "ozet": xlsx_yolu,
     "belge_sayisi": n}}. Hiçbir kategori inmezse LucaHata.
     """
     bildir = _bildir_fonksiyonu(ilerleme)
+    if not olay:
+        olay = lambda o: None
     if not gorunur:
         raise LucaHata(
             "Captcha kullanıcı tarafından elle girildiği için Luca çekimi "
@@ -1711,10 +1733,17 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                 if tur is None:
                     bildir(f"Bilinmeyen kategori atlandı: {kategori}")
                     continue
+                birim = _kategori_etiketi(kategori)
+                olay({"kategori": kategori, "adim": "basla",
+                      "durum": "calisiyor", "sayi": 0, "toplam": 0,
+                      "mesaj": f"{birim} ekranı açılıyor..."})
                 bildir(f"{kategori}: ekran açılıyor...")
                 try:
                     cerceve = _gib530_frame(erp, tur, uye_no, bildir)
                     if cerceve is None:
+                        olay({"kategori": kategori, "adim": "hata",
+                              "durum": "hata", "sayi": 0, "toplam": 0,
+                              "mesaj": "gib530 ekranı yüklenemedi"})
                         raise RuntimeError("gib530 ekranı yüklenmedi")
                     # İKİ ADIMLI AKIŞ: Luca'nın e-belge ekranında belgeler
                     # GİB'ten önce 'çekilir' (GİB'ten Getir / İnternetten
@@ -1805,6 +1834,10 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                               for sira, belge, _, _ in tum_secili]
                     bildir(f"{kategori}: listede {len(satirlar)} belge, "
                            f"tarih aralığında {len(secili)} tanesi var.")
+                    olay({"kategori": kategori, "adim": "liste",
+                          "durum": "calisiyor", "sayi": len(secili),
+                          "toplam": len(secili),
+                          "mesaj": f"{birim}: {len(secili)} belge bulundu"})
                     if duz_yaz:
                         klasor = hedef_klasor
                     else:
@@ -1923,6 +1956,13 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             "ettn": belge.get("ettn", ""),
                             "dosya": os.path.basename(zip_yol),
                             **ozet})
+                        # Her belge indikçe takip ekranı güncellensin.
+                        olay({"kategori": kategori, "adim": "indirildi",
+                              "durum": "calisiyor",
+                              "sayi": len(kayitlar),
+                              "toplam": len(secili),
+                              "mesaj": f"{birim}: {len(kayitlar)}/"
+                                       f"{len(secili)} indirildi"})
                         kayit = kayitlar[-1]
                         if ozet.get("oran_kalemleri"):
                             kayit["oranlar_metni"] = "; ".join(
@@ -1947,9 +1987,17 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         "zip": zip_yollari,
                         "ozet": ozet_yol,
                         "belge_sayisi": len(kayitlar)}
+                    bildir(f"{kategori}: TAMAMLANDI — {len(kayitlar)} belge.")
+                    olay({"kategori": kategori, "adim": "bitti",
+                          "durum": "tamam", "sayi": len(kayitlar),
+                          "toplam": len(secili),
+                          "mesaj": f"{birim}: {len(kayitlar)} belge tamam"})
                 except Exception as hata:
                     # Tek kategori inmedi: digerlerini engelleme.
-                    bildir(f"{kategori} çekilemedi: {str(hata)[:80]}")
+                    bildir(f"{kategori}: HATA — {str(hata)[:80]}")
+                    olay({"kategori": kategori, "adim": "hata",
+                          "durum": "hata", "sayi": 0, "toplam": 0,
+                          "mesaj": f"{birim}: {str(hata)[:80]}"})
                     _hata_ekrani_kaydet(sayfa, f"belge_{kategori}")
         finally:
             tarayici.close()
