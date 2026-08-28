@@ -118,14 +118,21 @@ def tevkifat_kes(f, c, ek_oran=None):
     2) Ters: fatura özeti tevkifat SONRASI KDV gösterir (Luca/GİB özet
        Excel'inde yaygın), muavinde KDV'nin TAMAMI kayıtlıdır
        (çarpım oranı TEVKIFAT_CARPANLARI). Bu durumda pozitif oran
-       döner; tevkifat_orani = 1 - 1/carpan.
+       döner; tevkifat_oranı = 1 - 1/carpan.
     ek_oran: firma kuralından gelen özel kabul oranı (varsayılanların yanında denenir).
 
     YANLIŞ-POZİTİF KORUMASI:
     Sadece KDV oranı değil, MATRAH oranı da tevkifatla tutarlı olmalı.
     Eczane/ilaç faturalarında KDV 1.25 çarpanına yakın görünebilir ama
     matrah oranı (1:1 ya da tamsayı) farklıdır -> tevkifat sayılmaz.
+    TEVKİFAT GATE (kullanıcı kuralı): tevkifat faturadan bilinmedikçe
+    muavin KDV-oranı tek başına tevkifat üretmez. Faturanın kendi tipi
+    "TEVKIFAT" (veya fatura_tevkifatli bayrağı) yoksa bu işlev None döner.
+    Fatura tipi boş (özet-xlsx kaynağı) ise eski davranış korunur.
     """
+    ft = str((f or {}).get("fatura_tipi") or "").strip().upper()
+    if ft and ft != "TEVKIFAT" and not (f or {}).get("fatura_tevkifatli"):
+        return None
     f_kdv = f.get("kdv")
     c_kdv = c.get("kdv")
     f_matrah = f.get("matrah")
