@@ -290,9 +290,14 @@ class MukellefPaneli(tk.Toplevel):
                                    "lütfen bekleyin.", parent=self)
             return
         degerler = self._form_degerleri()
-        if not degerler["gib_tc"] or not degerler["gib_sifre"]:
+        luca_planli = (degerler.get("ent_kurum") == "Luca / Türmob"
+                       and degerler.get("luca_uye")
+                       and degerler.get("ent_kullanici")
+                       and degerler.get("ent_sifre"))
+        if not luca_planli and (not degerler["gib_tc"] or not degerler["gib_sifre"]):
             messagebox.showwarning(
-                "Uyarı", "GİB (DVD) kullanıcı ve şifre alanlarını doldurun.",
+                "Uyarı", "Luca entegratörü seçili değilse GİB (DVD) "
+                "kullanıcı ve şifre alanlarını doldurun.",
                 parent=self)
             return
         try:
