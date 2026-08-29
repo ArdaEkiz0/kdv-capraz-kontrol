@@ -50,23 +50,8 @@ def _ocr_hazir():
                        "(C:\\Program Files\\Tesseract-OCR)")
     komut = shutil.which("tesseract")
     if not komut:
-        adaylar = [r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                   r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"]
-        # Kayit defterinden kurulum yolu (UB-Mannheim kurucusu yazar):
-        try:
-            import winreg
-            for kok_anahtar in (winreg.HKEY_LOCAL_MACHINE,
-                                winreg.HKEY_CURRENT_USER):
-                try:
-                    ana = winreg.OpenKey(kok_anahtar,
-                                         r"SOFTWARE\Tesseract-OCR")
-                    yol, _ = winreg.QueryValueEx(ana, "InstallPath")
-                    adaylar.append(os.path.join(yol, "tesseract.exe"))
-                except OSError:
-                    continue
-        except Exception:
-            pass
-        for aday in adaylar:
+        for aday in (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                     r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
             if os.path.exists(aday):
                 komut = aday
                 break
@@ -74,12 +59,7 @@ def _ocr_hazir():
         import pytesseract
         pytesseract.pytesseract.tesseract_cmd = komut
         return True, ""
-    # Tesseract kurulu ama PATH'te degil olabilir; yaygin kurulum yolu
-    # zaten yukarida denendi. Buraya gelindiyse gercekten yok:
-    return False, ("Tesseract OCR programı bulunamadı.\n"
-                   "Kurulum: https://github.com/UB-Mannheim/tesseract/wiki\n"
-                   "(Kurulumda 'Add to PATH' kutusunu işaretleyin;\n"
-                   "kurduktan sonra uygulamayı kapat-aç yapın.)")
+    return False, "Tesseract OCR bulunamadı. https://github.com/UB-Mannheim/tesseract/wiki"
 
 
 def _tarih_araligini_bol(bas, bit, parca_gun=7):
@@ -245,13 +225,19 @@ def _parca_guncel_mi(dosya_yolu, bas_tarih, bit_tarih):
 
 
 def cek_e_arsiv_alis(gib_tc, gib_sifre, bas_tarih, bit_tarih, hedef_klasor,
-                     ilerleme=None, ivd_kod=None, ivd_sifre=None):
+                     ilerleme=None, ivd_kod=None, ivd_sifre=None,
+                     onay_callback=None):
     """Adınıza düzenlenen e-Arşiv faturalarını Excel olarak indirer.
+
+    onay_callback: indirme başlamadan önce çağrılır. True dönerse devam
+    eder, False/None dönerse GibHata fırlatır.
 
     bas_tarih/bit_tarih: datetime.date. Dönen değer: indirilen dosya yolları.
     ivd_kod/ivd_sifre verilirse çekim öncesi e-Arşiv REST API'si ile hızlı
     doğrulama yapılır; dönemde belge yoksa tarayıcı hiç açılmadan [] döner.
     """
+    if onay_callback and not onay_callback():
+        raise GibHata("Kullanıcı indirmeyi iptal etti.")
     hazir, mesaj = _ocr_hazir()
     if not hazir:
         raise GibHata(mesaj)

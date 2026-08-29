@@ -14,6 +14,7 @@ import html as html_cevir
 import io
 import json
 import os
+import queue
 import re
 import time
 import zipfile
@@ -391,7 +392,7 @@ def _luca_metin_gir(oge, metin):
         pass
     try:
         oge.type(metin, delay=45)
-        oge.press("Enter")
+        oge.press("Tab")
     except Exception:
         try:
             oge.fill(metin, force=True)
@@ -408,23 +409,43 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
 
     Muavin ekranındaki bilinen kimlikler (#tarih_ilk/#tarih_son) önce
     denenir; değer özellikten geri okunarak doğrulanır, tutmazsa genel
-    seçicilerle tarama yapılır.
+    seçicilerle tarama yapılır. Luca'nın takvim aracı dd/MM/yyyy
+    formatını bekler; ayraç-bağımsız karşılaştırma yapılır.
     """
-    bas_metin = bas_tarih.strftime("%d.%m.%Y")
-    bit_metin = bit_tarih.strftime("%d.%m.%Y")
+    bas_metin = bas_tarih.strftime("%d/%m/%Y")
+    bit_metin = bit_tarih.strftime("%d/%m/%Y")
+    bas_noktali = bas_tarih.strftime("%d.%m.%Y")
+    bit_noktali = bit_tarih.strftime("%d.%m.%Y")
     doldurulan = 0
-    for secici, metin in (("#tarih_ilk", bas_metin),
-                          ("#tarih_son", bit_metin)):
+
+    # Debug: frame'de tarih alanları var mı?
+    try:
+        tarih_var = sayfa.evaluate(
+            "() => !!document.getElementById('tarih_ilk')")
+        bildir(f"[debug] tarih_ilk var mı: {tarih_var}")
+    except Exception as ex:
+        bildir(f"[debug] tarih_ilk kontrolü hatası: {str(ex)[:60]}")
+
+    # 1) Playwright selector ile dene (en güvenilir yol).
+    for secici, metin, metin_n in (("#tarih_ilk", bas_metin, bas_noktali),
+                                   ("#tarih_son", bit_metin, bit_noktali)):
         try:
             oge = sayfa.query_selector(secici)
             if oge is None or not oge.is_visible():
                 continue
-            if _luca_metin_gir(oge, metin) == metin:
+            sonuc = _luca_metin_gir(oge, metin)
+            if sonuc and (sonuc.replace("/", ".") == metin_n
+                          or sonuc == metin):
                 doldurulan += 1
         except Exception:
             continue
+
+    # 2) Luca frame'leri input_id bazlı dene (tarih_ilk/tarih_son + belge tarihi).
     if doldurulan < 2:
-        for secici in ("input[name*='Tarih' i]", "input[id*='Tarih' i]",
+        for secici in ("#tarih_ilk", "#tarih_son",
+                       "#ilk_belge_tarihi", "#son_belge_tarihi",
+                       "#ilk_evrak_tarihi", "#son_evrak_tarihi",
+                       "input[name*='Tarih' i]", "input[id*='Tarih' i]",
                        "input[name*='tarih']", "input[id*='tarih']"):
             try:
                 ogeler = sayfa.query_selector_all(secici)
@@ -435,10 +456,15 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
                     if not oge.is_visible():
                         continue
                     deger = (oge.input_value() or "").strip()
-                    if deger and re.match(r"^\d{2}\.\d{2}\.\d{4}$", deger):
+                    # Zaten dolu ve tarih formatındaysa atla
+                    if deger and re.match(r"^\d{2}[./]\d{2}[./]\d{4}$",
+                                          deger):
                         continue
                     hedef = bas_metin if doldurulan == 0 else bit_metin
-                    if _luca_metin_gir(oge, hedef) == hedef:
+                    hedef_n = bas_noktali if doldurulan == 0 else bit_noktali
+                    sonuc = _luca_metin_gir(oge, hedef)
+                    if sonuc and (sonuc.replace("/", ".") == hedef_n
+                                  or sonuc == hedef):
                         doldurulan += 1
                     if doldurulan >= 2:
                         break
@@ -446,6 +472,28 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
                     continue
             if doldurulan >= 2:
                 break
+
+    # 3) JavaScript ile doğrudan değer ata (DOM erişilemezse en son çare).
+    if doldurulan < 2:
+        for alan_id, metin, metin_n in (("tarih_ilk", bas_metin, bas_noktali),
+                                        ("tarih_son", bit_metin, bit_noktali)):
+            try:
+                sonuc = sayfa.evaluate(
+                    """(args) => {
+                        const [id, val] = args;
+                        const el = document.getElementById(id);
+                        if (!el) return false;
+                        el.value = val;
+                        el.dispatchEvent(new Event('change', {bubbles:true}));
+                        el.dispatchEvent(new Event('input', {bubbles:true}));
+                        return el.value === val;
+                    }""",
+                    [alan_id, metin])
+                if sonuc:
+                    doldurulan += 1
+            except Exception:
+                pass
+
     if doldurulan < 2:
         bildir("UYARI: Tarih alanları otomatik doldurulamadı; sayfanın kendi "
                "varsayılan dönemi kullanılacak.")
@@ -641,11 +689,16 @@ def _hesap_alanlarini_doldur(sayfa, hesap_kodu, bildir=None):
 
 
 def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
-               hesap_kodlari=("191", "391"), firma_adi="", ilerleme=None):
+               hesap_kodlari=("191", "391"), firma_adi="", ilerleme=None,
+               onay_callback=None):
     """Luca'dan muavin dökümünü Excel olarak indirir.
 
+    onay_callback: indirme başlamadan önce çağrılır. True dönerse devam
+    eder, False/None dönerse LucaHata fırlatır.
     Dönen değer: indirilen dosya yolları listesi.
     """
+    if onay_callback and not onay_callback():
+        raise LucaHata("Kullanıcı indirmeyi iptal etti.")
     bildir = _bildir_fonksiyonu(ilerleme)
     os.makedirs(hedef_klasor, exist_ok=True)
 
@@ -886,6 +939,18 @@ LUCA_GIB_TURLER = {
     "earsiv_satis": "gib_ebelge_satis",
 }
 
+# 4 grup için okunaklı Türkçe etiketler (takip ekranında kullanılır).
+_KATEGORI_ETIKET = {
+    "earsiv_alis": "e-Arşiv Alış",
+    "earsiv_satis": "e-Arşiv Satış",
+    "efatura_alis": "e-Fatura Alış",
+    "efatura_satis": "e-Fatura Satış",
+}
+
+
+def _kategori_etiketi(kategori):
+    return _KATEGORI_ETIKET.get(kategori, kategori)
+
 
 def _turk_kucult(metin):
     """Turkce buyuk harfleri de kuculterek karsilastirma metni uretir.
@@ -969,12 +1034,21 @@ def _erp_penceresi(oturum, sayfa, bildir):
 
     Yeni sekme auygs.luca.com.tr SSO'sundan gecer; otomasyon bayraklari
     kapali degilse sunucu 500 dondurdugu icin _tarayici_ac zorunludur.
+
+    gonder() basarisizsa veya popup acilmadiysa, portal ekranindaki
+    'Mali Mubavir Paketi' dugmesine dogrudan tiklayarak ERP'yi acmaya
+    calisir.
     """
     popuplar = []
     oturum.on("page", lambda y: popuplar.append(y))
-    sayfa.evaluate("gonder('formTarget')")
+
+    # 1. deneme: gonder('formTarget') ile popup ac
+    try:
+        sayfa.evaluate("gonder('formTarget')")
+    except Exception:
+        pass
     bildir("Mali Müşavir Paketi penceresi açılıyor...")
-    for _ in range(30):
+    for _ in range(15):
         time.sleep(2)
         if not popuplar:
             continue
@@ -985,9 +1059,70 @@ def _erp_penceresi(oturum, sayfa, bildir):
                 return hedef
         except Exception:
             continue
+
+    # 2. deneme: mevcut sayfada ERP acik mi kontrol et
+    try:
+        for f in oturum.pages:
+            if f is not sayfa and not f.is_closed():
+                icerik = f.content() or ""
+                if len(icerik) > 3000 and ("gib530" in icerik
+                                          or "SirketCombo" in icerik
+                                          or "frm3" in icerik):
+                    f.wait_for_timeout(3000)
+                    return f
+    except Exception:
+        pass
+
+    # 3. deneme: portal ekraninda 'Mali Mubavir Paketi' dugmesine tikla
+    bildir("Portal ekranında 'Mali Müşavir Paketi' aranıyor...")
+    try:
+        for secici in ("text=LUCA MALİ MÜŞAVİR PAKETİ",
+                       "text=LUCA MALI MÜŞAVİR PAKETİ",
+                       "text=Mali Müşavir Paketi",
+                       "text=Mali Musavir Paketi",
+                       "a[href*='erp']", "a[href*='ERP']",
+                       "div[onclick*='erp']", "div[onclick*='ERP']",
+                       "td[onclick*='erp']", "td[onclick*='ERP']"):
+            try:
+                oge = sayfa.query_selector(secici)
+                if oge and oge.is_visible():
+                    bildir(f"Portal butonu bulundu: {secici}")
+                    oge.click()
+                    time.sleep(4)
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Popup kontrolü: yeni sekme açıldı mı?
+    for _ in range(10):
+        time.sleep(2)
+        if popuplar:
+            hedef = popuplar[-1]
+            try:
+                if len(hedef.content()) > 3000 or len(hedef.frames) > 1:
+                    hedef.wait_for_timeout(4000)
+                    return hedef
+            except Exception:
+                continue
+        # Mevcut sayfalarda ERP var mı?
+        try:
+            for f in oturum.pages:
+                if f is not sayfa and not f.is_closed():
+                    icerik = f.content() or ""
+                    if len(icerik) > 3000 and ("gib530" in icerik
+                                              or "SirketCombo" in icerik
+                                              or "frm3" in icerik):
+                        f.wait_for_timeout(3000)
+                        return f
+        except Exception:
+            pass
+
     raise LucaHata(
-        "Luca ERP penceresi açılamadı. Sunucu SSO isteğini reddetti "
-        "(oturum çakışması olabilir; birkaç dakika sonra deneyin).")
+        "Luca ERP penceresi açılamadı. Portal ekranında kalındı; "
+        "tarayıcıda 'Mali Müşavir Paketi' butonuna manuel tıklayıp "
+        "devam edebilirsiniz.")
 
 
 def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
@@ -1049,50 +1184,254 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
     return hedef["t"], donem["t"]
 
 
-def _gibten_getir(cerceve, bildir=None):
+def _gib530_frame_yenile(sayfa, bildir=None):
+    """Sayfadaki frame'ler arasından güncel gib530 frame'ini bulur.
+
+    Tarih doldurma sonrası sayfa yenilenebilir; eski frame referansı
+    stale olur. Bu fonksiyon güncel frame'i bulup döndürür.
+    """
+    if bildir is None:
+        bildir = lambda s: None
+    try:
+        for f in sayfa.frames:
+            try:
+                url = f.url or ""
+                if "gib530" in url and len(f.content() or "") > 5000:
+                    return f
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
     """Luca e-belge ekranında 'GİB'ten Getir' (İnternetten Getir) adımını çalıştırır.
 
     Luca'nın gib530 ekranı iki adımlıdır: belgeler önce GİB'den bu butonla
-    çekilir (listeye yüklenir), ardından indirilir. Buton bulunamazsa sessizce
-    döner (bazı ekranlarda otomatik listelenir).
+    çekilir (listeye yüklenir), ardından indirilir.
+
+    Buton bulma ÇOK GENİŞ yapılır: input/button/a + span/div/img + onclick/
+    title/alt + 'getir', 'indir', 'internetten', 'gib' gibi anahtar
+    kelimeler taranır. is_visible() güvenilir olmadığı için DOM'da olan
+    öğelerden tıklanabilir ilk aday seçilir; bulunamazsa en kötü ihtimalle
+    'gib530' ekranında ilk butona tıklanmaz, sessizce dönülür.
     """
     if bildir is None:
         bildir = lambda s: None
     try:
         sayfa = cerceve.page
-        buton = cerceve.query_selector(
-            "input[type=button][value*='Getir' i], "
-            "input[type=submit][value*='Getir' i], "
-            "button:has-text('Getir'), a:has-text('Getir')")
-        if buton is None or not buton.is_visible():
-            # Türkçe/özelleşmiş etiketler: 'GİBten', 'GİB'ten Getir'
-            for d in (r"[Gİ]B.*[Gg]etir", r"[Gg]etir.*[Gİ]B",
-                      r"[İi]nternetten [Gg]etir"):
+        # ADIM: hangi tarihse onu yaz. Belge ekranındaki tarih aralığı
+        # alanlarına istenen dönem girilir (aynı muavin çekimindeki gibi).
+        try:
+            doldurulan = _tarih_alanlarini_doldur(cerceve, bas_tarih, bit_tarih, bildir)
+            bildir(f"[debug] tarih_dolduruldu: {doldurulan}/2")
+        except Exception as th:
+            bildir(f"Tarih alanları doldurulamadı ({str(th)[:50]}); "
+                   "varsayılan kullanılacak.")
+        # Enter tuşu Luca'da sayfa yenilemesi tetikleyebilir; frame
+        # stale olursa query_selector_all sonsuza kadar takılır.
+        # Bu yüzden kısa bekleme + frame tazeleme.
+        time.sleep(2.5)
+        cerceve = _gib530_frame_yenile(sayfa, bildir) or cerceve
+        buton = None
+
+        # Geniş aday toplama: yalnız görünür/input/button değil, herhangi
+        # metin ya da onclick taşıyan öğe.
+        adaylar = []
+        for secici in ("button", "input", "a", "span", "div", "img",
+                       "li", "td", "b", "i"):
+            try:
+                ogeler = cerceve.query_selector_all(secici)
+            except Exception:
+                continue
+            for oge in ogeler:
                 try:
-                    buton = cerceve.query_selector(
-                        f"input[type=button][value*='{d[:1]}'], "
-                        f"button:has-text('{d}')")
-                    if buton is not None and buton.is_visible():
-                        break
+                    metin = ((oge.get_attribute("value") or "")
+                             + " " + (oge.inner_text() or "")
+                             + " " + (oge.get_attribute("onclick") or "")
+                             + " " + (oge.get_attribute("title") or "")
+                             + " " + (oge.get_attribute("alt") or "")
+                             + " " + (oge.get_attribute("src") or ""))
+                    k = (metin or "").lower()
+                    # Anahtar kelimeler: getir / internete / gib'ten çek
+                    if ("getir" in k or "internette" in k
+                            or ("gib" in k and ("indir" in k or "cek" in k))
+                            or "taşı" in k or "tası" in k
+                            or ("gib" in k and "yükle" in k)):
+                        # Açık engellileri atla
+                        if "onceki" not in k and "geri" not in k:
+                            adaylar.append(oge)
                 except Exception:
                     continue
-        if buton is None or not buton.is_visible():
-            bildir("GİB'ten getir butonu görünmüyor; mevcut liste kullanılır.")
+
+        # Öncelik: onclick'li / title'ı net olan buton/input.
+        bildir(f"[debug] {len(adaylar)} aday bulundu")
+        for oge in adaylar:
+            tag = ""
+            try:
+                tag = (oge.evaluate("el => el.tagName") or "").lower()
+            except Exception:
+                pass
+            m = ""
+            try:
+                m = ((oge.get_attribute("value") or "")
+                     + " " + (oge.inner_text() or "")
+                     + " " + (oge.get_attribute("title") or "")
+                     + " " + (oge.get_attribute("onclick") or "")).lower()
+            except Exception:
+                pass
+            if tag in ("button", "input") or "getir" in m \
+                    or "internette" in m:
+                buton = oge
+                break
+        if buton is None and adaylar:
+            buton = adaylar[0]
+        if buton is not None and buton != "js_called":
+            bildir(f"[debug] buton bulundu: {getattr(buton, 'inner_text', lambda: 'N/A')()}")
+        elif buton is None:
+            bildir("[debug] buton bulunamadı")
+
+        if buton is None:
+            # JS ile gonder('indir-window') çağrısını dene (popup'a ihtiyaç
+            # duymadan Luca'nın kendi akışını başlatır).
+            bildir("GİB'ten getir butonu DOM'da bulunamadı; "
+                   "JS ile deneniyor...")
+            try:
+                cerceve.evaluate("gonder('indir-window')")
+                buton = "js_called"
+            except Exception:
+                pass
+        if buton is None:
+            bildir("GİB'ten getir butonu hiç bulunamadı; listeyi "
+                   "sorguyla yenilemeyi deniyorum.")
+            try:
+                _sorgula_listele_butonu(cerceve, bildir)
+            except Exception:
+                pass
             return
         bildir("GİB'ten getir tıklanıyor (belgeler çekiliyor)...")
-        buton.scroll_into_view_if_needed()
-        buton.click()
+        if buton != "js_called":
+            try:
+                buton.scroll_into_view_if_needed()
+            except Exception:
+                pass
+            try:
+                buton.click()
+            except Exception:
+                # onclick ile tıkla
+                try:
+                    buton.evaluate("e => e.click()")
+                except Exception:
+                    pass
         # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
         time.sleep(1.5)
-        # Bekle: belgeler GİB'ten çekilirken tablo dolar.
-        time.sleep(6)
+        # Onay penceresi varsa 'Evet'/'Tamam'a bas.
         try:
-            sayfa.wait_for_timeout(2000)
+            onay = cerceve.query_selector(
+                "button:has-text('Evet'), button:has-text('Tamam'), "
+                "input[value*='Evet'], input[value*='Tamam']")
+            if onay is not None:
+                try:
+                    onay.click()
+                    time.sleep(1)
+                except Exception:
+                    pass
         except Exception:
             pass
+        # Belgeler listeye gelene kadar kısa aralıklarla bekle (akıllı).
+        # Sabit 6-8 sn beklemek yerine, liste dolmaya başlayınca çık.
+        try:
+            import luca_cekme as _l
+            for _i in range(10):
+                deneme_html = cerceve.content()
+                belge_sayisi = len(_l._satirlari_ayikla(deneme_html))
+                if belge_sayisi > 0:
+                    break
+                time.sleep(1)
+        except Exception:
+            time.sleep(2)
         bildir("GİB'ten getir tamamlandı; liste güncellendi.")
+
+        # Güvence: getir sonrası 'Sorgula'/'Listele' butonuna basarak
+        # listenin tazelenmesini zorla. Luca bazı ekranlarda getir ile
+        # listeyi yenilemez; sorgu butonu gerekir.
+        try:
+            _sorgula_listele_butonu(cerceve, bildir)
+        except Exception:
+            pass
     except Exception as hata:
         bildir(f"GİB'ten getir başarısız: {str(hata)[:50]}")
+
+
+def _sorgula_listele_butonu(cerceve, bildir=None):
+    """'Sorgula' / 'Listele' / 'Getir' gibi listeyi yenileyen butona basar.
+
+    GİB'ten getir sonrası listenin dolması için gerekli; bulunamazsa
+    sessizce geçer.
+    """
+    if bildir is None:
+        bildir = lambda s: None
+    adaylar = []
+    for secici in ("button", "input", "a", "span", "div"):
+        try:
+            ogeler = cerceve.query_selector_all(secici)
+        except Exception:
+            continue
+        for oge in ogeler:
+            try:
+                metin = ((oge.get_attribute("value") or "")
+                         + " " + (oge.inner_text() or "")
+                         + " " + (oge.get_attribute("onclick") or "")).lower()
+                if any(k in metin for k in ("sorgula", "listele", "liste",
+                                            "getir", "ara", "tazele")):
+                    adaylar.append(oge)
+            except Exception:
+                continue
+    for oge in adaylar:
+        try:
+            oge.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        try:
+            oge.click()
+            if cerceve.page is not None:
+                cerceve.page.wait_for_timeout(1300)
+            return
+        except Exception:
+            try:
+                oge.evaluate("e => e.click()")
+                if cerceve.page is not None:
+                    cerceve.page.wait_for_timeout(1300)
+                return
+            except Exception:
+                continue
+    bildir("Sorgula/Listele butonu bulunamadı; mevcut liste kullanılıyor.")
+
+
+def _tani_kaydet(kategori, cerceve):
+    """Çekim ekranının HTML + URL'sini %TEMP%\\luca_tani\\ altına yazar.
+
+    Gerçek Luca yapısını çözüp çekimi kökten tasarlarken kullanılır;
+    her kategori için ayrı dosya oluşturur.
+    """
+    import time as _t
+    try:
+        klasor = os.path.join(os.environ.get("TEMP", "."), "luca_tani")
+        os.makedirs(klasor, exist_ok=True)
+        damga = _t.strftime("%Y%m%d_%H%M%S")
+        yol = os.path.join(klasor, f"{kategori}_{damga}.html")
+        icerik = cerceve.content() if cerceve is not None else ""
+        with open(yol, "w", encoding="utf-8", errors="replace") as f:
+            f.write(icerik)
+        try:
+            url_yol = os.path.join(klasor, f"{kategori}_{damga}.url.txt")
+            with open(url_yol, "w", encoding="utf-8") as f:
+                f.write((cerceve.url or "") if cerceve is not None else "")
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 
 def _gib530_frame(erp, tur, uye_no, bildir=None):
@@ -1108,32 +1447,80 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
     gib530 frame'ine uygulanır; ayrıca her denemede tüm frame'ler
     taranır ve yalnız istenen turdaki gib530 döndürülür (eski turdayken
     yanlış frame dönmesin diye URL içinde tur de denetlenir).
+
+    Bazen tur geçişi frm3 yönlendirmesiyle olmaz (Luca'nın kimi
+    ekranları farklı frame/sekme kullanır). Bu yüzden yönlendirme
+    başarısız olursa, en-dış sayfada doğrudan gib530.do adresine
+    gidilir ve yükleme beklenir.
     """
     adres = f"gib530.do?tur={tur}&c_musteri_id={uye_no}"
-    # Önce eski tur ekranına bağlı frame'leri temizle: frm3'ü sıfırla
-    for deneme in range(14):
+    # Yalnız frame-içi yönlendirme: ana pencereyi asla değiştirme (goto
+    # ana ERP'yi bozup çekimi çökertebiliyor). frm3 yanında, kullanıcı
+    # yapılandırmasına göre farklı olabilecek adları da dener.
+    frame_adlari = ["frm3", "frm1", "frm2", "main", "icerik", "content",
+                    "fatura"]
+    for deneme in range(10):
         try:
-            if deneme in (0, 2, 4, 6, 8, 10):
-                # frm3 yoksa iframe[name='frm3'] olabilir; attribute ile dene
-                erp.evaluate(
-                    "u => { const f = top.frames['frm3'];"
-                    " if (f) { f.location.href = u; }"
-                    " else { const el = document.querySelector("
-                    "   'iframe[name=frm3],frame[name=frm3]');"
-                    "   if (el) el.src = u; } }",
-                    adres)
+            if deneme in (0, 2, 4, 6, 8):
+                for fn in frame_adlari:
+                    erp.evaluate(
+                        "p => { const [fn, u] = p;"
+                        " const f = top.frames[fn];"
+                        " if (f) { f.location.href = u; }"
+                        " else { const el = document.querySelector("
+                        "   'iframe[name=\"' + fn + '\"],frame[name=\"' + fn + '\"]');"
+                        "   if (el) el.src = u; } }",
+                        [fn, adres])
         except Exception:
             pass
-        time.sleep(2)
+        time.sleep(1.2)
         for f in erp.frames:
             try:
                 url = f.url or ""
                 if "gib530" in url and tur in url and len(f.content()) > 5000:
                     return f
-                # tur parametresi URL'de yoksa bile gib530 ise (eski tur
-                # kalıntısı) atla; yalnızca istenen tur dönsün.
             except Exception:
                 continue
+    # Frm3 yönlendirmesiyle olmadıysa, TÜM çocuk frame'lere tur adresini
+    # uygula (hangi frame gib530'u taşıyorsa o yüklensin).
+    try:
+        for f in erp.frames:
+            try:
+                if f == erp:
+                    continue
+                f.evaluate("u => { window.location.href = u; }",
+                           adres if adres.startswith("http") else
+                           "gib530.do?tur=" + tur + "&c_musteri_id=" +
+                           str(uye_no))
+                time.sleep(1.5)
+                if "gib530" in (f.url or "") and tur in (f.url or ""):
+                    if len(f.content()) > 5000:
+                        return f
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # Son çare: ERP sayfasında tüm frame'leri tara, herhangi birinde
+    # gib530 yüklenmiş mi bak (farklı isimlendirme olabilir).
+    try:
+        for f in erp.frames:
+            try:
+                url = f.url or ""
+                icerik = f.content() or ""
+                if ("gib530" in url or "gib_ebelge" in url
+                        or "gib_efatura" in url) and len(icerik) > 5000:
+                    return f
+                # Frame URL'de yok ama içerikte form alanları var mı?
+                if len(icerik) > 10000 and ("Belge Türü" in icerik
+                                            or "başlangıç" in icerik.lower()
+                                            or "gelen" in icerik.lower()):
+                    return f
+            except Exception:
+                continue
+    except Exception:
+        pass
+
     if bildir is not None:
         try:
             nerede = erp.evaluate(
@@ -1229,6 +1616,22 @@ def _muavin_frame(erp, uye_no, bildir=None):
                     return f
             except Exception:
                 continue
+    # Son çare: tüm frame'leri tara
+    try:
+        for f in erp.frames:
+            try:
+                url = f.url or ""
+                icerik = f.content() or ""
+                if "raporMizanDetayHazirla" in url and len(icerik) > 5000:
+                    return f
+                if len(icerik) > 10000 and ("Muavin" in icerik
+                                            or "Hesap Kodu" in icerik):
+                    return f
+            except Exception:
+                continue
+    except Exception:
+        pass
+
     if bildir is not None:
         try:
             nerede = erp.evaluate(
@@ -1268,71 +1671,148 @@ def _tarih_araliginda(metin, bas_tarih, bit_tarih):
 
 
 def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
-    """Satirdaki ZIP ikonuna tiklar; indigi dosyayi kaydeder."""
-    with sayfa.expect_download(timeout=30000) as bekle:
+    """Satirdaki ZIP ikonuna tiklar; indigi dosyayi kaydeder.
+
+    zip_indir(this) seklinde cagrilan JS'te 'this' dogru eleman olmalidir;
+    bunun icin dogrudan zip_indir(e) seklinde cagiri yapilir. Ayrica
+    download olayi hem ana sayfada hem frame'de, ayrica yeni sekmede de
+    dinlenir (zip_indir bazen yeni sekme acar).
+    """
+    kuyruk = queue.Queue()
+    yeni_sekmeler = []
+    dinleyici = lambda d: kuyruk.put(d)
+    sayfa.on("download", dinleyici)
+    # Yeni sekme/tan popup da dinlenir
+    oturum = sayfa.context
+    oturum.on("page", lambda p: yeni_sekmeler.append(p))
+    try:
         frame.evaluate(
             "n => { const e = [...document.querySelectorAll('[onclick]')]"
             ".filter(x => x.getAttribute('onclick').includes('zip_indir'))"
-            "[n]; if (!e) throw new Error('ZIP düğmesi yok'); e.click(); }",
+            "[n]; if (!e) throw new Error('ZIP düğmesi yok');"
+            " zip_indir(e); }",
             satir_sirasi)
-    indirme = bekle.value
-    indirme.save_as(hedef_yol)
-    return indirme.suggested_filename
+        # Download 25sn icinde gelmeli
+        try:
+            indirme = kuyruk.get(timeout=25)
+            indirme.save_as(hedef_yol)
+            return indirme.suggested_filename
+        except queue.Empty:
+            pass
+        # Yeni sekmede download baslamis olabilir
+        for sy in yeni_sekmeler:
+            try:
+                sy.wait_for_timeout(3000)
+                # Sekmede download var mi?
+                if not sy.is_closed():
+                    # Sayfada download linki var mi?
+                    sy.on("download", dinleyici)
+                    try:
+                        indirme = kuyruk.get(timeout=8)
+                        indirme.save_as(hedef_yol)
+                        return indirme.suggested_filename
+                    except queue.Empty:
+                        pass
+            except Exception:
+                continue
+        # Hala yoksa fallback: click event dispatch et
+        sayfa2 = frame.page
+        with sayfa2.expect_download(timeout=20000) as bekle:
+            frame.evaluate(
+                "n => { const e = [...document.querySelectorAll('[onclick]')]"
+                ".filter(x => x.getAttribute('onclick')"
+                ".includes('zip_indir'))[n];"
+                " if (!e) throw new Error('ZIP düğmesi yok');"
+                " const evt = new MouseEvent('click', {bubbles:true});"
+                " e.dispatchEvent(evt); }",
+                satir_sirasi)
+        indirme = bekle.value
+        indirme.save_as(hedef_yol)
+        return indirme.suggested_filename
+    finally:
+        try:
+            sayfa.remove_listener("download", dinleyici)
+        except Exception:
+            pass
 
 
 
-def _zip_toplu_indir(frame, sayfa, sira_listesi, yol_fonksiyonu, bildir=None,
+def _zip_toplu_indir(frame, sayfa, indirme_planlari, bildir=None,
                      pencere=4):
     """ZIP indirmelerini kademeli paralel tetikler.
 
-    Playwright'in download olaylarini toplayiciyla yakalar; her 'pencere'
-    adetinde bir onceki grubun bitmesini beklemeden sonraki click'i
-    atar, boylece network beklemeleri ust uste biner. Donen: {sira:
-    suggested_filename}.
+    `indirme_planlari`: [(satir_sirasi, hedef_yol), ...] çiftleri.
+    Playwright'in download olaylarını toplayıcıyla yakalar; her 'pencere'
+    adedinde bir sonraki grubu tetikler. Kritik fark: her satır için hedef
+    dosya yolu ÖNCEDEN belli olduğundan, indirilen şey yanlış dosyaya
+    yazılmaz (suggested_filename güvenilmez). Başarısız olan satırları
+    döndürür (kalıp güvenilirliği için).
+
+    zip_indir(this) cagrisinda 'this' dogru eleman olmalidir; dogrudan
+    zip_indir(e) seklinde cagiri yapilir.
     """
-    import queue
-    indirilen = {}
+    hedef_map = {sira: yol for sira, yol in indirme_planlari}
     kuyruk = queue.Queue()
     dinleyici = lambda d: kuyruk.put(d)
     sayfa.on("download", dinleyici)
+    basarisiz = []
     try:
-        bekleyen = list(sira_listesi)
-        aktif = 0
-        while bekleyen or aktif:
-            while bekleyen and aktif < pencere:
+        bekleyen = [sira for sira, _ in indirme_planlari]
+        while bekleyen:
+            while bekleyen:
                 sira = bekleyen.pop(0)
+                hedef = hedef_map[sira]
                 try:
                     frame.evaluate(
                         "n => { const e = [...document.querySelectorAll("
                         "'[onclick]')]"
                         ".filter(x => x.getAttribute('onclick')"
                         ".includes('zip_indir'))"
-                        "[n]; if (!e) throw new Error('yok'); e.click(); }",
+                        "[n]; if (!e) throw new Error('yok');"
+                        " zip_indir(e); }",
                         sira)
-                    aktif += 1
                 except Exception:
-                    pass
-                time.sleep(0.15)
-            if aktif == 0:
+                    basarisiz.append(sira)
+                    continue
+                try:
+                    d = kuyruk.get(timeout=15)
+                except Exception:
+                    try:
+                        frame.evaluate(
+                            "n => { const e = [...document.querySelectorAll("
+                            "'[onclick]')]"
+                            ".filter(x => x.getAttribute('onclick')"
+                            ".includes('zip_indir'))"
+                            "[n]; if (!e) throw new Error('yok');"
+                            " zip_indir(e); }",
+                            sira)
+                        d = kuyruk.get(timeout=18)
+                    except Exception:
+                        basarisiz.append(sira)
+                        continue
+                try:
+                    d.save_as(hedef)
+                except Exception:
+                    basarisiz.append(sira)
+                time.sleep(0.05)
+        while True:
+            try:
+                d = kuyruk.get_nowait()
+            except Exception:
                 break
-            try:
-                d = kuyruk.get(timeout=45)
-            except Exception:
-                break  # kuyruk sustu: kalanlari tek tek dene
-            hedef_yol = yol_fonksiyonu(d.suggested_filename)
-            try:
-                d.save_as(hedef_yol)
-            except Exception:
-                continue
-            aktif -= 1
-            # sira -> dosya eslesmesi: suggested_filename ETTN bazli;
-            # cagiran dosya adindan eslesir.
+            for sira, yol in hedef_map.items():
+                if not os.path.exists(yol):
+                    try:
+                        d.save_as(yol)
+                        break
+                    except Exception:
+                        continue
     finally:
         try:
             sayfa.remove_listener("download", dinleyici)
         except Exception:
             pass
-    return indirilen
+    return basarisiz
 
 
 def _ubl_ozet(xml_bytes):
@@ -1577,6 +2057,129 @@ def _dosya_saglam(yol):
         return False
 
 
+def _tumu_sec_ve_indir(cerceve, bildir=None):
+    """Luca belge listesindeki 'Tümünü Seç + Seçilenleri İndir' akışını
+    çalıştırır.
+
+    Luca'nın gib530 ekranında popup dialog kullanılır; bu dialog
+    Playwright erişilebilirliğinde görünmez. Bunun yerine doğrudan
+    JavaScript fonksiyonları çağrılır:
+      - hepsini_sec('all') → tüm faturaları seçer
+      - gonder('zip') → seçilen faturaları ZIP olarak indirir
+
+    Akış:
+    1. hepsini_sec('all') ile tümünü seç
+    2. gonder('zip') ile indirmeyi tetikle
+    3. ZIP indirmesini bekle ve kaydet
+
+    Dönüş: indirilen ZIP dosya yolu veya None.
+    """
+    if bildir is None:
+        bildir = lambda s: None
+    sayfa = cerceve.page
+
+    # ADIM 1: Tümünü seç — doğrudan JavaScript ile
+    bildir("Tüm belgeler seçiliyor (hepsini_sec)...")
+    try:
+        cerceve.evaluate("hepsini_sec('all')")
+        cerceve.page.wait_for_timeout(1200)
+        bildir("Tüm faturalar seçildi.")
+    except Exception as hata:
+        bildir(f"hepsini_sec hatası: {str(hata)[:60]}; "
+               "fallback deneniyor...")
+        # Fallback: checkbox başlığı veya tek tek işaretle
+        secildi = False
+        try:
+            baslik_cb = cerceve.query_selector(
+                "th input[type='checkbox'], thead input[type='checkbox']")
+            if baslik_cb and baslik_cb.is_visible():
+                baslik_cb.click()
+                secildi = True
+                cerceve.page.wait_for_timeout(800)
+        except Exception:
+            pass
+        if not secildi:
+            try:
+                tum_cb = cerceve.query_selector_all(
+                    "td input[type='checkbox'], "
+                    "tbody input[type='checkbox']")
+                for cb in tum_cb:
+                    try:
+                        if cb.is_visible() and not cb.is_checked():
+                            cb.click()
+                    except Exception:
+                        continue
+                if tum_cb:
+                    secildi = True
+                    cerceve.page.wait_for_timeout(500)
+            except Exception:
+                pass
+        if not secildi:
+            bildir("UYARI: Tümünü seç başarısız.")
+            return None
+
+    # ADIM 2: İndirmeyi tetikle — doğrudan gonder('zip') ile
+    bildir("Seçilenleri indiriliyor (gonder('zip'))...")
+    kuyruk = queue.Queue()
+    dinleyici = lambda d: kuyruk.put(d)
+    sayfa.on("download", dinleyici)
+    try:
+        try:
+            cerceve.evaluate("gonder('zip')")
+        except Exception:
+            # gonder('zip') popup açabilir; Onay/Tamam varsa kapat
+            cerceve.page.wait_for_timeout(1500)
+            try:
+                onay = cerceve.query_selector(
+                    "button:has-text('Tamam'), button:has-text('Evet'), "
+                    ".swal2-confirm")
+                if onay and onay.is_visible():
+                    onay.click()
+            except Exception:
+                pass
+            # Tekrar dene
+            try:
+                cerceve.evaluate("gonder('zip')")
+            except Exception:
+                pass
+
+        # Popup'taki indirme onayını veyaTamam'ı otomatik tıkla
+        cerceve.page.wait_for_timeout(2000)
+        for _ in range(3):
+            try:
+                for pat in ("button:has-text('Tamam')",
+                            "button:has-text('İndir')",
+                            "button:has-text('Evet')",
+                            ".swal2-confirm",
+                            "input[value*='Tamam']",
+                            "input[value*='İndir']"):
+                    dugme = cerceve.query_selector(pat)
+                    if dugme and dugme.is_visible():
+                        dugme.click()
+                        cerceve.page.wait_for_timeout(1000)
+                        break
+            except Exception:
+                pass
+
+        # ADIM 3: İndirmeyi bekle
+        try:
+            indirme = kuyruk.get(timeout=60)
+            import tempfile
+            hedef_yol = os.path.join(tempfile.gettempdir(),
+                                     f"luca_toplu_{id(cerceve)}.zip")
+            indirme.save_as(hedef_yol)
+            bildir(f"Toplu indirme tamamlandı: {os.path.basename(hedef_yol)}")
+            return hedef_yol
+        except queue.Empty:
+            bildir("UYARI: İndirme başlatılamadı (60sn timeout).")
+            return None
+    finally:
+        try:
+            sayfa.remove_listener("download", dinleyici)
+        except Exception:
+            pass
+
+
 def _satir_sayisini_buyut(sayfa, bildir):
     """Sayfalama satır seçicisinde yüksek değer/‘tümü’ seçer (best effort)."""
     try:
@@ -1587,66 +2190,84 @@ def _satir_sayisini_buyut(sayfa, bildir):
         return False
 
 
-def _sonraki_sayfa_var_mi(cerceve):
-    """Luca belge listesinde 'Sonraki' / ileri sayfa düğmesi varsa True."""
+def _sayfa_butonlari(cerceve):
+    """Luca belge listesindeki sayfa ilerleme düğmelerini döndürür.
+
+    Geniş tarama: input/button/a + span/div + onclick içeren her öğe.
+    Metin ya da onclick'te 'sonraki/ileri/next/»/›/>' veya 'sayfa 2'
+    deseni aranır; 'önceki/geri' hariç.
+    """
+    adaylar = []
     try:
         ogeler = cerceve.query_selector_all(
-            "input[type=button], input[type=submit], button, a")
+            "input, button, a, span, div, td, li, img, b, i")
         for oge in ogeler:
             try:
-                if not oge.is_visible():
-                    continue
                 metin = ((oge.get_attribute("value") or "")
-                         + " " + (oge.inner_text() or "")).strip()
+                         + " " + (oge.inner_text() or "")
+                         + " " + (oge.get_attribute("onclick") or "")
+                         + " " + (oge.get_attribute("title") or "")
+                         + " " + (oge.get_attribute("alt") or "")).strip()
                 if not metin:
                     continue
                 k = metin.lower()
-                # 'Sonraki', 'İleri', '>' sayfa ilerleme düğmeleri.
-                # 'Önceki/Geri' değil; 'Sayfa' kelimesi tek başına değil.
-                if (("sonraki" in k or "ileri" in k
-                     or k.strip() in (">", ">>", "»", "→"))
-                        and "onceki" not in k and "geri" not in k):
-                    return True
+                # 'önceki/geri' hariç; ilerleme desenleri
+                if "onceki" in k or "geri" in k:
+                    continue
+                ilerleme = (
+                    "sonraki" in k or "ileri" in k or "next" in k
+                    or "»" in k or "›" in k or ">>" in k
+                    or k.strip() in (">", "→")
+                    or "sayfa 2" in k or "sayfa2" in k
+                    or re.search(r"goPage|nextPage|sayfaGec|ileri", k)
+                    or re.search(r"pager", k)
+                )
+                if ilerleme:
+                    adaylar.append(oge)
             except Exception:
                 continue
     except Exception:
-        return False
-    return False
+        pass
+    return adaylar
+
+
+def _sonraki_sayfa_var_mi(cerceve):
+    """Luca belge listesinde 'Sonraki' / ileri sayfa düğmesi varsa True."""
+    return len(_sayfa_butonlari(cerceve)) > 0
 
 
 def _sonraki_sayfaya_git(cerceve):
     """Listedeki 'Sonraki' / 'İleri' düğmesine tıklar; yönlendirme
     sonrası yeni sayfa içeriği yüklenir. Dönüş: True/False."""
-    try:
-        ogeler = cerceve.query_selector_all(
-            "input[type=button], input[type=submit], button, a")
-        for oge in ogeler:
-            try:
-                if not oge.is_visible():
-                    continue
-                metin = ((oge.get_attribute("value") or "")
-                         + " " + (oge.inner_text() or "")).strip()
-                if not metin:
-                    continue
-                k = metin.lower()
-                if (("sonraki" in k or "ileri" in k
-                     or k.strip() in (">", ">>", "»", "→"))
-                        and "onceki" not in k and "geri" not in k):
-                    oge.scroll_into_view_if_needed()
-                    oge.click()
-                    cerceve.page.wait_for_timeout(2500)
-                    return True
-            except Exception:
-                continue
-    except Exception:
-        pass
+    adaylar = _sayfa_butonlari(cerceve)
+    for oge in adaylar:
+        try:
+            oge.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        try:
+            oge.click()
+        except Exception:
+            continue
+        try:
+            cerceve.page.wait_for_timeout(1300)
+        except Exception:
+            pass
+        # Tıklama sonrası gerçekten sayfa değişti mi? İlk sayfa ile
+        # aynı belgeleri tekrar görüyorsak ilerlememiş olabilir;
+        # yine de döngü dedup ile yönetir.
+        return True
     return False
 
 
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                        hedef_klasor, kategoriler=None, ilerleme=None,
-                       gorunur=True, firma_adi=None, duz_yaz=True):
+                       gorunur=True, firma_adi=None, duz_yaz=True,
+                       olay=None, onay_callback=None):
     """Luca ERP Akıllı Entegrasyon ekranlarından e-Belgeleri indirir.
+
+    onay_callback: indirme başlamadan önce çağrılır. True dönerse devam
+    eder, False/None dönerse LucaHata fırlatır.
 
     Gerçek akış: giriş → portalda gonder('formTarget') ile MM Paketi
     penceresi → SirketCombo/DonemCombo ile firma+dönem seçimi → her
@@ -1665,10 +2286,21 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
       luca_{kategori}_{bas}_{bit}/        → alt klasör (duz_yaz=False)
       luca_{kategori}_{bas}_{bit}.xlsx    → özet tablo
 
+    olay: yapılandırılmış ilerleme takibi için sözlük alan callback.
+    Her çağrı şöyledir (UI takip ekranı için):
+      {\"kategori\": ..., \"adim\": ..., \"durum\": ..., \"sayi\": ...,
+       \"toplam\": ..., \"mesaj\": ...}
+    adim: 'basla'|'liste'|'indirme'|'indirildi'|'ozet'|'hata'|'bitti'
+    durum: 'calisiyor'|'tamam'|'hata'|'atlandi'
+
     Dönen değer: {kategori: {"zip": [yollar], "ozet": xlsx_yolu,
     "belge_sayisi": n}}. Hiçbir kategori inmezse LucaHata.
     """
     bildir = _bildir_fonksiyonu(ilerleme)
+    if not olay:
+        olay = lambda o: None
+    if onay_callback and not onay_callback():
+        raise LucaHata("Kullanıcı indirmeyi iptal etti.")
     if not gorunur:
         raise LucaHata(
             "Captcha kullanıcı tarafından elle girildiği için Luca çekimi "
@@ -1688,7 +2320,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
         sayfa = oturum.new_page()
         try:
             sayfa = giris_yap(sayfa, uye_no, kullanici, parola, bildir)
-            sayfa.wait_for_timeout(2500)
+            sayfa.wait_for_timeout(1300)
             erp = _erp_penceresi(oturum, sayfa, bildir)
             _firma_donem_sec(erp, firma_adi, bas_tarih, bildir)
 
@@ -1697,17 +2329,30 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                 if tur is None:
                     bildir(f"Bilinmeyen kategori atlandı: {kategori}")
                     continue
+                birim = _kategori_etiketi(kategori)
+                olay({"kategori": kategori, "adim": "basla",
+                      "durum": "calisiyor", "sayi": 0, "toplam": 0,
+                      "mesaj": f"{birim} ekranı açılıyor..."})
                 bildir(f"{kategori}: ekran açılıyor...")
                 try:
                     cerceve = _gib530_frame(erp, tur, uye_no, bildir)
                     if cerceve is None:
+                        olay({"kategori": kategori, "adim": "hata",
+                              "durum": "hata", "sayi": 0, "toplam": 0,
+                              "mesaj": "gib530 ekranı yüklenemedi"})
                         raise RuntimeError("gib530 ekranı yüklenmedi")
+                    # TANI: gerçek ekran HTML'ini kaydet (çekim kökten
+                    # tasarlanırken kullanılacak).
+                    try:
+                        _tani_kaydet(kategori, cerceve)
+                    except Exception:
+                        pass
                     # İKİ ADIMLI AKIŞ: Luca'nın e-belge ekranında belgeler
                     # GİB'ten önce 'çekilir' (GİB'ten Getir / İnternetten
                     # Getir butonu), sonra listelenip indirilir. Bu adım
                     # atlanırsa yeni mükelleflerde belge listesi boş kalır.
                     try:
-                        _gibten_getir(cerceve, bildir)
+                        _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir)
                     except Exception as g_hata:
                         bildir(f"{kategori}: GİB'ten getir adımı "
                                f"atlandı ({str(g_hata)[:60]})")
@@ -1716,11 +2361,14 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # Luca tek sayfada en fazla ~500 fatura listeler.
                     try:
                         _satir_sayisini_buyut(cerceve, bildir)
-                        cerceve.page.wait_for_timeout(1500)
+                        cerceve.page.wait_for_timeout(1000)
                     except Exception:
                         pass
                     # TÜM SAYFALARI TOPLA: ilk sayfa + 'Sonraki' ile gidilen
                     # her sayfa. Aynı belgeleri alt alta ekleme (tekrar koru).
+                    # Güvence: sayfada tam sayfa limiti (500) belge görünüyorsa
+                    # daha fazlası var demektir -> sonraki sayfa aranır.
+                    SAYFA_LIMITI = 500
                     tum_satirlar = []
                     gorulen_belge = set()
                     for sayfa_sirasi in range(1, 60):  # 500*59≈30k, güvenlik sınırı
@@ -1738,12 +2386,24 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 yeni += 1
                         if not sayfa_satirlari or yeni == 0:
                             break
-                        if sayfa_sirasi >= 30 and _sonraki_sayfa_var_mi(cerceve):
+                        # Sayfada tam limit kadar belge var mı? O zaman
+                        # mutlaka devamı vardır.
+                        tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
+                        sonraki_var = _sonraki_sayfa_var_mi(cerceve)
+                        if sayfa_sirasi >= 30 and sonraki_var:
                             bildir(f"{kategori}: {sayfa_sirasi}. sayfa "
                                    "toplandı, ilerleniyor...")
-                        if not _sonraki_sayfa_var_mi(cerceve):
+                        if not sonraki_var and not tam_sayfa:
                             break
                         if not _sonraki_sayfaya_git(cerceve):
+                            # Düğme görünse de tıklama başarısız olabilir;
+                            # tam sayfa ise yine de devam etmeye zorla.
+                            if tam_sayfa:
+                                try:
+                                    cerceve.page.wait_for_timeout(1300)
+                                    continue
+                                except Exception:
+                                    pass
                             break
                     satirlar = tum_satirlar
                     # Tarih aralığında kalan ve geçerli (red/iptal olmayan)
@@ -1776,6 +2436,10 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                               for sira, belge, _, _ in tum_secili]
                     bildir(f"{kategori}: listede {len(satirlar)} belge, "
                            f"tarih aralığında {len(secili)} tanesi var.")
+                    olay({"kategori": kategori, "adim": "liste",
+                          "durum": "calisiyor", "sayi": len(secili),
+                          "toplam": len(secili),
+                          "mesaj": f"{birim}: {len(secili)} belge bulundu"})
                     if duz_yaz:
                         klasor = hedef_klasor
                     else:
@@ -1807,93 +2471,150 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             pass
                         return o
 
-                    # ÇOK SAYFALI İNDİRME: her sayfadayken o sayfanın
-                    # sira'larıyla (DOM sırası) ZIP'ler indirilir; sayfa
-                    # geçişleri arasında sira sıfırlandığı için aynı
-                    # sayfada kalan belgelerin tamamı o sayfadayken.
-                    indirilen_yollar = set()
-                    for _sayfa in range(1, 60):
-                        sayfa_satirlari = _satirlari_ayikla(
-                            cerceve.content())
-                        sayfa_hedef = []
-                        for sira, belge in sayfa_satirlari:
-                            if not _tarih_araliginda(
-                                    belge.get("belge_tarihi"),
-                                    bas_tarih, bit_tarih):
-                                continue
-                            durum_kisa = _turk_kucult(
-                                str(belge.get("onay_durumu") or ""))
-                            iptal_ibare = str(
-                                belge.get("iptal_itiraz") or
-                                belge.get("iptal_itiraz_durumu")
-                                or "").strip()
-                            if (iptal_ibare
-                                    or ("red" in durum_kisa)
-                                    or ("iptal" in durum_kisa)
-                                    or (durum_kisa
-                                        and "onay" not in durum_kisa)):
-                                continue
-                            belge_no = (belge.get("belge_numarasi")
-                                        or f"belge{sira}").strip()
-                            # Bu sayfadaki geçerli tekrarlar: ilk_gör =
-                            # global görülme sayısı (tumsayfadaki konum).
-                            g_say = gorulen_no.get(belge_no, 1)
-                            hedef = _hedef_zip(belge_no, g_say)
-                            # Aynı sayfada aynı belge_no ikinci kez varsa
-                            # dosya adı _2 ile devam eder.
-                            sayfa_hedef.append((sira, hedef, belge_no))
-                        # Sadece henüz inmemis olanları indir
-                        bekleyen = []
-                        for sira, hedef, bno in sayfa_hedef:
-                            if hedef not in indirilen_yollar \
-                                    and not _dosya_saglam(hedef):
-                                bekleyen.append((sira, hedef))
-                        if bekleyen:
-                            def _yol_fonk(oneri):
-                                return os.path.join(klasor,
-                                                    f"{on_ek}{oneri}")
-                            _zip_toplu_indir(cerceve, sayfa2,
-                                             [s for s, _ in bekleyen],
-                                             _yol_fonk, bildir)
-                            indirilen_yollar.update(h for _, h in bekleyen)
-                        if not _sonraki_sayfa_var_mi(cerceve):
-                            break
-                        if not _sonraki_sayfaya_git(cerceve):
-                            break
-
-                    # Kayıt oluştur: indirilen/hedef ZIP'lerden özet oku.
-                    for numara, (sira, belge, belge_no, gor_c) \
-                            in enumerate(tum_secili, 1):
-                        zip_yol = _hedef_zip(belge_no, gor_c)
-                        ozet = {}
-                        if not _dosya_saglam(zip_yol):
-                            try:
-                                _zip_tikla_indir(cerceve, sayfa2, sira,
-                                                 zip_yol)
-                            except Exception as hata:
-                                bildir(f"{kategori}: {belge_no} inmedi "
-                                       f"({str(hata)[:50]}), atlanıyor.")
-                                continue
-                        ozet = _zipten_ozet(zip_yol)
-                        kayitlar.append({
-                            "belge_numarasi": belge_no,
-                            "belge_tarihi": belge.get("belge_tarihi", ""),
-                            "belge_turu": belge.get("belge_turu", ""),
-                            "karsi_vkn": str(belge.get("alici_vkn_tckn",
-                                                       "")),
-                            "unvan": belge.get("alici_unvan_ad_soyad", ""),
-                            "onay_durumu": belge.get("onay_durumu", ""),
-                            "ettn": belge.get("ettn", ""),
-                            "dosya": os.path.basename(zip_yol),
-                            **ozet})
-                        kayit = kayitlar[-1]
-                        if ozet.get("oran_kalemleri"):
-                            kayit["oranlar_metni"] = "; ".join(
-                                f"{a['oran']:g}%:"
-                                f"{(a.get('matrah') or 0):.2f}/"
-                                f"{a['kdv']:.2f}"
-                                for a in ozet["oran_kalemleri"])
-                        zip_yollari.append(zip_yol)
+                    # TOPLU İNDİRME: Tümünü seç + Seçilenleri İndir
+                    toplu_zip = _tumu_sec_ve_indir(cerceve, bildir)
+                    if toplu_zip and _dosya_saglam(toplu_zip):
+                        bildir(f"{kategori}: ZIP indirildi, açılıyor...")
+                        try:
+                            with zipfile.ZipFile(toplu_zip) as zipp:
+                                # ZIP içindeki her dosyayı klasöre çıkar
+                                for ic_ad in zipp.namelist():
+                                    if ic_ad.endswith("/"):
+                                        continue
+                                    icerik = zipp.read(ic_ad)
+                                    # XML ise özet çıkar
+                                    if ic_ad.lower().endswith(".xml"):
+                                        ozet = _ubl_ozet(icerik)
+                                        # Belge numarasını dosya adından çıkar
+                                        dosya_adi = os.path.basename(ic_ad)
+                                        belge_no = os.path.splitext(
+                                            dosya_adi)[0]
+                                        # Tarih bilgisini XML'den al
+                                        tarih = ""
+                                        unvan = ""
+                                        vkn = ""
+                                        try:
+                                            import xml.etree.ElementTree as ET
+                                            kok = ET.fromstring(icerik)
+                                            for el in kok.iter():
+                                                tag = el.tag.split("}")[-1]
+                                                if tag == "IssueDate":
+                                                    tarih = el.text or ""
+                                                elif tag == "AccountingSupplierParty":
+                                                    for alt in el.iter():
+                                                        atag = alt.tag.split(
+                                                            "}")[-1]
+                                                        if atag == "Name":
+                                                            unvan = alt.text or ""
+                                                        elif atag == "ID":
+                                                            vkn = alt.text or ""
+                                        except Exception:
+                                            pass
+                                        kayitlar.append({
+                                            "belge_numarasi": belge_no,
+                                            "belge_tarihi": tarih,
+                                            "belge_turu": kategori,
+                                            "karsi_vkn": vkn,
+                                            "unvan": unvan,
+                                            "onay_durumu": "Onaylandı",
+                                            "ettn": "",
+                                            "dosya": dosya_adi,
+                                            **ozet})
+                                    # ZIP'i klasöre de çıkar
+                                    hedef_dosya = os.path.join(
+                                        klasor, os.path.basename(ic_ad))
+                                    with open(hedef_dosya, "wb") as f:
+                                        f.write(icerik)
+                                    zip_yollari.append(hedef_dosya)
+                        except Exception as hata:
+                            bildir(f"{kategori}: ZIP açma hatası: "
+                                   f"{str(hata)[:60]}")
+                        bildir(f"{kategori}: {len(kayitlar)} belge işlendi.")
+                    else:
+                        # Toplu indirme başarısızsa, tek tek ZIP dene
+                        bildir(f"{kategori}: Toplu indirme başarısız, "
+                               "tek tek deneniyor...")
+                        indirilen_yollar = set()
+                        for _sayfa in range(1, 60):
+                            sayfa_satirlari = _satirlari_ayikla(
+                                cerceve.content())
+                            sayfa_hedef = []
+                            for sira, belge in sayfa_satirlari:
+                                if not _tarih_araliginda(
+                                        belge.get("belge_tarihi"),
+                                        bas_tarih, bit_tarih):
+                                    continue
+                                durum_kisa = _turk_kucult(
+                                    str(belge.get("onay_durumu") or ""))
+                                iptal_ibare = str(
+                                    belge.get("iptal_itiraz") or
+                                    belge.get("iptal_itiraz_durumu")
+                                    or "").strip()
+                                if (iptal_ibare
+                                        or ("red" in durum_kisa)
+                                        or ("iptal" in durum_kisa)
+                                        or (durum_kisa
+                                            and "onay" not in durum_kisa)):
+                                    continue
+                                belge_no = (belge.get("belge_numarasi")
+                                            or f"belge{sira}").strip()
+                                g_say = gorulen_no.get(belge_no, 1)
+                                hedef = _hedef_zip(belge_no, g_say)
+                                sayfa_hedef.append((sira, hedef, belge_no))
+                            bekleyen = []
+                            for sira, hedef, bno in sayfa_hedef:
+                                if hedef not in indirilen_yollar \
+                                        and not _dosya_saglam(hedef):
+                                    bekleyen.append((sira, hedef))
+                            if bekleyen:
+                                _zip_toplu_indir(cerceve, sayfa2,
+                                                 list(bekleyen), bildir)
+                                indirilen_yollar.update(h for _, h in bekleyen)
+                            tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
+                            sonraki_var = _sonraki_sayfa_var_mi(cerceve)
+                            if not sonraki_var and not tam_sayfa:
+                                break
+                            if not _sonraki_sayfaya_git(cerceve):
+                                if tam_sayfa:
+                                    try:
+                                        cerceve.page.wait_for_timeout(1300)
+                                        continue
+                                    except Exception:
+                                        pass
+                                break
+                        # Tek tek indirilen ZIP'lerden kayıt oluştur
+                        for numara, (sira, belge, belge_no, gor_c) \
+                                in enumerate(tum_secili, 1):
+                            zip_yol = _hedef_zip(belge_no, gor_c)
+                            ozet = {}
+                            if not _dosya_saglam(zip_yol):
+                                try:
+                                    _zip_tikla_indir(cerceve, sayfa2, sira,
+                                                     zip_yol)
+                                except Exception as hata:
+                                    bildir(f"{kategori}: {belge_no} inmedi "
+                                           f"({str(hata)[:50]}), atlanıyor.")
+                                    continue
+                            ozet = _zipten_ozet(zip_yol)
+                            kayitlar.append({
+                                "belge_numarasi": belge_no,
+                                "belge_tarihi": belge.get("belge_tarihi", ""),
+                                "belge_turu": belge.get("belge_turu", ""),
+                                "karsi_vkn": str(
+                                    belge.get("alici_vkn_tckn", "")),
+                                "unvan": belge.get(
+                                    "alici_unvan_ad_soyad", ""),
+                                "onay_durumu": belge.get("onay_durumu", ""),
+                                "ettn": belge.get("ettn", ""),
+                                "dosya": os.path.basename(zip_yol),
+                                **ozet})
+                            olay({"kategori": kategori, "adim": "indirildi",
+                                  "durum": "calisiyor",
+                                  "sayi": len(kayitlar),
+                                  "toplam": len(secili),
+                                  "mesaj": f"{birim}: {len(kayitlar)}/"
+                                           f"{len(secili)} indirildi"})
+                            zip_yollari.append(zip_yol)
                         bildir(f"{kategori}: {numara}/{len(secili)} "
                                f"belge ({belge_no}).")
                     if atlanan_belge:
@@ -1910,9 +2631,17 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         "zip": zip_yollari,
                         "ozet": ozet_yol,
                         "belge_sayisi": len(kayitlar)}
+                    bildir(f"{kategori}: TAMAMLANDI — {len(kayitlar)} belge.")
+                    olay({"kategori": kategori, "adim": "bitti",
+                          "durum": "tamam", "sayi": len(kayitlar),
+                          "toplam": len(secili),
+                          "mesaj": f"{birim}: {len(kayitlar)} belge tamam"})
                 except Exception as hata:
                     # Tek kategori inmedi: digerlerini engelleme.
-                    bildir(f"{kategori} çekilemedi: {str(hata)[:80]}")
+                    bildir(f"{kategori}: HATA — {str(hata)[:80]}")
+                    olay({"kategori": kategori, "adim": "hata",
+                          "durum": "hata", "sayi": 0, "toplam": 0,
+                          "mesaj": f"{birim}: {str(hata)[:80]}"})
                     _hata_ekrani_kaydet(sayfa, f"belge_{kategori}")
         finally:
             tarayici.close()
