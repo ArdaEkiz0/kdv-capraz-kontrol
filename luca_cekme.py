@@ -392,7 +392,7 @@ def _luca_metin_gir(oge, metin):
         pass
     try:
         oge.type(metin, delay=45)
-        oge.press("Enter")
+        oge.press("Tab")
     except Exception:
         try:
             oge.fill(metin, force=True)
@@ -1179,6 +1179,27 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
     return hedef["t"], donem["t"]
 
 
+def _gib530_frame_yenile(sayfa, bildir=None):
+    """Sayfadaki frame'ler arasından güncel gib530 frame'ini bulur.
+
+    Tarih doldurma sonrası sayfa yenilenebilir; eski frame referansı
+    stale olur. Bu fonksiyon güncel frame'i bulup döndürür.
+    """
+    if bildir is None:
+        bildir = lambda s: None
+    try:
+        for f in sayfa.frames:
+            try:
+                url = f.url or ""
+                if "gib530" in url and len(f.content() or "") > 5000:
+                    return f
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
 def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
     """Luca e-belge ekranında 'GİB'ten Getir' (İnternetten Getir) adımını çalıştırır.
 
@@ -1203,6 +1224,11 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
         except Exception as th:
             bildir(f"Tarih alanları doldurulamadı ({str(th)[:50]}); "
                    "varsayılan kullanılacak.")
+        # Enter tuşu Luca'da sayfa yenilemesi tetikleyebilir; frame
+        # stale olursa query_selector_all sonsuza kadar takılır.
+        # Bu yüzden kısa bekleme + frame tazeleme.
+        time.sleep(2.5)
+        cerceve = _gib530_frame_yenile(sayfa, bildir) or cerceve
         buton = None
 
         # Geniş aday toplama: yalnız görünür/input/button değil, herhangi
