@@ -355,8 +355,8 @@ class MukellefPaneli(tk.Toplevel):
         ozet = ", ".join(os.path.basename(y) for y in cetvel_dosyalari[:2])
         ekstra = f" ve {len(cetvel_dosyalari) - 2} dosya daha" \
             if len(cetvel_dosyalari) > 2 else ""
-        mesaj = (f"{degerler['ad']} ({bas.strftime('%m.%Y')}) için e-Arşiv "
-                 "alış faturaları GİB'den indirilecek.\n\n"
+        mesaj = (f"{degerler['ad']} ({bas.strftime('%m.%Y')}) için "
+                 "alış faturaları Luca'dan indirilecek.\n\n"
                  + ("Muavin Luca'dan otomatik çekilecek.\n" if luca_planli
                     else f"Kullanılacak cetveller: {ozet}{ekstra}\n")
                  + "\nÇapraz kontrol otomatik başlayacak. Devam edilsin mi?")
@@ -395,15 +395,35 @@ class MukellefPaneli(tk.Toplevel):
                             self.after(0, lambda h="Luca muavin çekimi "
                                        f"başarısız: {lhata}": self._cek_hata(h))
                             return
-                yollar = gib_cekme.cek_e_arsiv_alis(
-                    degerler["gib_tc"], degerler["gib_sifre"], bas, bit,
-                    hedef_klasor, ilerleme=self._logla,
-                    ivd_kod=degerler.get("ivd_kod"),
-                    ivd_sifre=degerler.get("ivd_sifre"),
-                    onay_callback=lambda: self._onay_sor(
-                        "e-Arşiv İndirme Onayı",
-                        "GİB'den e-Arşiv alış faturaları indirilecek.\n"
-                        "Devam edilsin mi?"))
+                yollar = []
+                if luca_planli:
+                    self._logla("Luca'dan e-Arşiv faturaları çekiliyor...")
+                    try:
+                        belge_sonuc = luca_cekme.cek_luca_belgeleri(
+                            degerler["luca_uye"], degerler["ent_kullanici"],
+                            degerler["ent_sifre"], bas, bit, hedef_klasor,
+                            kategoriler=("earsiv_alis",),
+                            ilerleme=self._logla, firma_adi=degerler.get("ad", ""),
+                            duz_yaz=True,
+                            onay_callback=lambda: self._onay_sor(
+                                "e-Arşiv İndirme Onayı",
+                                "Luca'dan e-Arşiv alış faturaları indirilecek.\n"
+                                "Devam edilsin mi?"))
+                        for v in (belge_sonuc or {}).values():
+                            yollar.extend(v.get("zip", []))
+                    except luca_cekme.LucaHata as lhata:
+                        self.after(0, lambda h=str(lhata): self._cek_hata(h))
+                        return
+                else:
+                    yollar = gib_cekme.cek_e_arsiv_alis(
+                        degerler["gib_tc"], degerler["gib_sifre"], bas, bit,
+                        hedef_klasor, ilerleme=self._logla,
+                        ivd_kod=degerler.get("ivd_kod"),
+                        ivd_sifre=degerler.get("ivd_sifre"),
+                        onay_callback=lambda: self._onay_sor(
+                            "e-Arşiv İndirme Onayı",
+                            "GİB'den e-Arşiv alış faturaları indirilecek.\n"
+                            "Devam edilsin mi?"))
             except gib_cekme.GibHata as hata:
                 self.after(0, lambda h=str(hata): self._cek_hata(h))
                 return
