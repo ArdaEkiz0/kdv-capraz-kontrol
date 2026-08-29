@@ -95,13 +95,15 @@ class MukellefPaneli(tk.Toplevel):
         alt.pack(fill="x", side="bottom")
         kart = tk.Frame(alt, bd=1, relief="solid", padx=10, pady=8)
         kart.pack(fill="x", padx=10)
-        tk.Label(kart, text="Otomatik Fatura Çekme (e-Arşiv alış)",
+        tk.Label(kart, text="Otomatik Fatura Çekme (Luca / GİB)",
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        tk.Label(kart, text=("GİB'ten yalnız e-Arşiv alış faturaları otomatik "
-                             "çekilir (e-Fatura için e-İmza/entegratör gerekir). "
-                             "Sorgu geriye en fazla 2 ay. Entegratör 'Luca / "
-                             "Türmob' seçiliyse 191/391 muavini Luca'dan "
-                             "çekilir."), wraplength=700,
+        tk.Label(kart, text=(
+                    "Entegratör 'Luca / Türmob' tanımlıysa faturalar ve muavin "
+                    "tamamen Luca'dan çekilir: e-Arşiv alış/satış, e-Fatura "
+                    "alış/satış + 191/391 muavin. Luca bilgisi yoksa GİB'ten "
+                    "yalnız e-Arşiv alış çekilir (e-Fatura için e-İmza/"
+                    "entegratör gerekir)."),
+                 wraplength=700,
                  justify="left", fg="#555555").pack(anchor="w")
         satir = tk.Frame(kart)
         satir.pack(fill="x", pady=(6, 0))
@@ -119,6 +121,15 @@ class MukellefPaneli(tk.Toplevel):
         ttk.Checkbutton(satir, text="Kayıtlı muavinleri otomatik kullan",
                         variable=self.kayitli_muavin).pack(side="left",
                                                            padx=(0, 10))
+        # Ne cekilecegini kullanici secer: ikisi de varsayilan acik.
+        self.muavin_cekilsin = tk.BooleanVar(value=True)
+        ttk.Checkbutton(satir, text="Muavin çek",
+                        variable=self.muavin_cekilsin).pack(side="left",
+                                                            padx=(0, 8))
+        self.fatura_cekilsin = tk.BooleanVar(value=True)
+        ttk.Checkbutton(satir, text="Faturaları çek (Luca)",
+                        variable=self.fatura_cekilsin).pack(side="left",
+                                                            padx=(0, 8))
         self.durum = tk.Label(satir, text="", fg="#2563eb", wraplength=300,
                               justify="left")
         self.durum.pack(side="left", fill="x", expand=True)
@@ -276,9 +287,15 @@ class MukellefPaneli(tk.Toplevel):
                                    "lütfen bekleyin.", parent=self)
             return
         degerler = self._form_degerleri()
-        if not degerler["gib_tc"] or not degerler["gib_sifre"]:
+        luca_planli_on = (degerler.get("ent_kurum") == "Luca / Türmob"
+                          and degerler.get("luca_uye")
+                          and degerler.get("ent_kullanici")
+                          and degerler.get("ent_sifre"))
+        if (not degerler["gib_tc"] or not degerler["gib_sifre"]) \
+                and not luca_planli_on:
             messagebox.showwarning(
-                "Uyarı", "GİB (DVD) kullanıcı ve şifre alanlarını doldurun.",
+                "Uyarı", "GİB (DVD) kullanıcı ve şifre alanlarını doldurun "
+                "(veya Luca bilgilerini eksiksiz girin).",
                 parent=self)
             return
         try:
@@ -322,7 +339,8 @@ class MukellefPaneli(tk.Toplevel):
                 "Numarası / Kullanıcı / Şifre eksik.\nMuavin dosyalarını elle "
                 "seçerek devam edebilirsiniz.", parent=self)
 
-        muavin_klasoru = os.path.join(hedef_klasor, "muavin")
+        muavin_klasoru = hedef_klasor if luca_planli else \
+            os.path.join(hedef_klasor, "muavin")
         cetvel_dosyalari = []
         if not luca_planli:
             if self.kayitli_muavin.get():
@@ -341,13 +359,27 @@ class MukellefPaneli(tk.Toplevel):
         ozet = ", ".join(os.path.basename(y) for y in cetvel_dosyalari[:2])
         ekstra = f" ve {len(cetvel_dosyalari) - 2} dosya daha" \
             if len(cetvel_dosyalari) > 2 else ""
-        mesaj = (f"{degerler['ad']} ({bas.strftime('%m.%Y')}) için e-Arşiv "
-                 "alış faturaları GİB'den indirilecek.\n\n"
-                 + ("Muavin Luca'dan otomatik çekilecek.\n" if luca_planli
-                    else f"Kullanılacak cetveller: {ozet}{ekstra}\n")
-                 + "\nÇapraz kontrol otomatik başlayacak. Devam edilsin mi?")
+        istekler = []
+        if luca_planli and self.muavin_cekilsin.get():
+            istekler.append("Muavin Luca'dan çekilecek")
+        elif not luca_planli and cetvel_dosyalari:
+            istekler.append(f"Kullanılacak cetveller: {ozet}{ekstra}")
+        if degerler.get("ent_kurum") == "Luca / Türmob" \
+                and self.fatura_cekilsin.get() and luca_planli:
+            istekler.append("Faturalar Luca'dan çekilecek "
+                            "(e-Arşiv/e-Fatura, alış/satış)")
+        else:
+            istekler.append("e-Arşiv alış GİB'den indirilecek")
+        mesaj = (f"{degerler['ad']} ({bas.strftime('%m.%Y')}) için:\n\n"
+                 + "\n".join(f"• {i}" for i in istekler)
+                 + "\n\nÇapraz kontrol sonrasında otomatik başlayacak. "
+                   "Devam edilsin mi?")
         if not messagebox.askyesno("Onay", mesaj, parent=self):
             return
+        muavin_istendi = (luca_planli and self.muavin_cekilsin.get()) \
+            or not luca_planli
+        fatura_luca_istendi = (luca_planli
+                               and self.fatura_cekilsin.get())
 
         self.cek_butonu.configure(state="disabled", bg="#64748b")
         self._durum_yaz("GİB'e bağlanılıyor...")
@@ -355,7 +387,8 @@ class MukellefPaneli(tk.Toplevel):
         def is_parcasi():
             try:
                 kullanilacak = list(cetvel_dosyalari)
-                if luca_planli:
+                luca_yedek = []
+                if luca_planli and muavin_istendi:
                     self._logla(f"Luca'ya giriş yapılıyor "
                                 f"(üye {degerler.get('luca_uye')})...")
                     try:
@@ -377,11 +410,57 @@ class MukellefPaneli(tk.Toplevel):
                             self.after(0, lambda h="Luca muavin çekimi "
                                        f"başarısız: {lhata}": self._cek_hata(h))
                             return
-                yollar = gib_cekme.cek_e_arsiv_alis(
-                    degerler["gib_tc"], degerler["gib_sifre"], bas, bit,
-                    hedef_klasor, ilerleme=self._logla,
-                    ivd_kod=degerler.get("ivd_kod"),
-                    ivd_sifre=degerler.get("ivd_sifre"))
+                # Luca'dan TUM e-Belgeler: bagimsiz olarak fatura kutusuna
+                # bagli (muavin secilmese de calisir).
+                if luca_planli and fatura_luca_istendi:
+                    try:
+                        belge_sonuc = luca_cekme.cek_luca_belgeleri(
+                            degerler["luca_uye"],
+                            degerler["ent_kullanici"],
+                            degerler["ent_sifre"], bas, bit,
+                            hedef_klasor,
+                            kategoriler=("earsiv_alis", "earsiv_satis",
+                                         "efatura_alis", "efatura_satis"),
+                            ilerleme=self._logla,
+                            firma_adi=degerler.get("ad", ""),
+                            duz_yaz=True)
+                        luca_ozetler = [v.get("ozet") for v in
+                                        (belge_sonuc or {}).values()
+                                        if v.get("ozet")]
+                        if luca_ozetler:
+                            self._logla(f"Luca'dan {len(luca_ozetler)} "
+                                        "belge kümesi indirildi "
+                                        "(e-Arşiv/e-Fatura, alış/satış).")
+                            luca_yedek.extend(luca_ozetler)
+                    except luca_cekme.LucaHata as bhata:
+                        self._logla(f"Luca belge çekimi atlandı: "
+                                    f"{str(bhata)[:80]}")
+
+                # Luca planliysa GİB HİÇ kullanilmaz; her sey Luca'dan.
+                if luca_planli:
+                    yollar = list(luca_yedek)
+                    if not fatura_luca_istendi:
+                        self._logla("Fatura çekimi istenmedi — muavin "
+                                    "çekimi tamamlandı.")
+                    elif yollar:
+                        self._logla(f"Faturalar Luca'dan {len(yollar)} "
+                                    "belge kümesi olarak indirildi.")
+                    else:
+                        self._logla("UYARI: Faturalar Luca'dan inmedi. "
+                                    "GİB'e bu mükellef için hiç "
+                                    "gidilmez (Lucadan çekim modu); "
+                                    "Luca bağlantısını kontrol edip "
+                                    "tekrar deneyin.")
+                else:
+                    # Luca hesabi yok: klasik GİB yolu.
+                    try:
+                        yollar = gib_cekme.cek_e_arsiv_alis(
+                            degerler["gib_tc"], degerler["gib_sifre"], bas,
+                            bit, hedef_klasor, ilerleme=self._logla,
+                            ivd_kod=degerler.get("ivd_kod"),
+                            ivd_sifre=degerler.get("ivd_sifre"))
+                    except gib_cekme.GibHata as ghata:
+                        raise
             except gib_cekme.GibHata as hata:
                 self.after(0, lambda h=str(hata): self._cek_hata(h))
                 return
@@ -391,6 +470,11 @@ class MukellefPaneli(tk.Toplevel):
                 return
             self.after(0, lambda y=yollar, c=kullanilacak:
                        self._cek_bitti(y, c))
+            # Uçtan uca akış: çapraz kontrol bitince eksik belge
+            # bulucu otomatik koşar.
+            self.after(0, lambda: getattr(self.uygulama,
+                        "kontrol_sonu_gorevleri", []).append(
+                        self._eksik_belge_otomatik))
 
         threading.Thread(target=is_parcasi, daemon=True).start()
 
@@ -474,6 +558,75 @@ class MukellefPaneli(tk.Toplevel):
         sonuc = eksik_belge.eslestir(cetvel_kayitlari, fatura_kayitlari)
         eksik_belge_pencere.ac(self, sonuc, cetvel_kayitlari,
                                fatura_kayitlari)
+
+    def _eksik_belge_otomatik(self):
+        """Çekim + çapraz kontrol sonrası sessizce çalışır: indirilen
+        e-Arşiv dosyalarıyla kayıtlı muavin cetvellerini eşleştirip
+        sonuç penceresini açar. Hata olursa sadece loglar."""
+        try:
+            degerler = self._form_degerleri()
+            ay = int(self.ay.get())
+            yil = int(self.yil.get())
+        except Exception:
+            return
+        kimlik = degerler.get("vkn") or degerler.get("gib_tc")
+        if not kimlik:
+            return
+        klasor = mukellefler.coz_klasor(kimlik, yil, ay)
+        fatura_onekleri = ("earsiv_alis", "luca_efatura_alis",
+                           "luca_earsiv_alis")
+        fatura_dosyalari = sorted(
+            os.path.join(klasor, ad) for ad in os.listdir(klasor)
+            if ad.lower().startswith(fatura_onekleri)
+            and ad.lower().endswith(".xlsx")) \
+            if os.path.isdir(klasor) else []
+        kayit = self._secili_kayit(degerler)
+        donem = f"{yil}-{ay:02d}"
+        cetvel_dosyalari = self._kayitli_cetveller(kayit, donem)
+        if not fatura_dosyalari or not cetvel_dosyalari:
+            return
+        try:
+            import excel_oku
+            import eksik_belge
+            fatura_kayitlari = []
+            for d in fatura_dosyalari:
+                kayitlar = []
+                for okuyucu in (excel_oku.fatura_luca_ozet_parse,
+                                excel_oku.fatura_gib_arsiv_liste_parse):
+                    try:
+                        kayitlar = okuyucu(d) or []
+                    except Exception:
+                        kayitlar = []
+                    if kayitlar:
+                        break
+                if not kayitlar:
+                    try:
+                        genel = excel_oku.muavin_genel_parse(d)
+                        kayitlar = [k for k in
+                                    (genel.get("kayitlar") or [])
+                                    if k.get("kdv") is not None]
+                        for k in kayitlar:
+                            k.setdefault("satici_vkn", k.get("vkn") or "")
+                    except Exception:
+                        kayitlar = []
+                fatura_kayitlari.extend(kayitlar)
+            cetvel_kayitlari = []
+            for d in cetvel_dosyalari:
+                sonuc_d = excel_oku.muavin_genel_parse(d)
+                cetvel_kayitlari.extend(sonuc_d.get("kayitlar") or [])
+            if not cetvel_kayitlari or not fatura_kayitlari:
+                return
+            sonuc = eksik_belge.eslestir(cetvel_kayitlari,
+                                         fatura_kayitlari)
+            kritik = len(sonuc.get("cetvelde_var_faturasi_yok") or [])
+            self._logla(f"Eksik belge taraması: {kritik} kayıt için "
+                        "fatura bulunamadı." if kritik else
+                        "Eksik belge taraması tamamlandı.")
+            import eksik_belge_pencere
+            eksik_belge_pencere.ac(self, sonuc, cetvel_kayitlari,
+                                   fatura_kayitlari)
+        except Exception as hata:
+            self._logla(f"Eksik belge taraması atlandı: {str(hata)[:100]}")
 
     def _cek_hata(self, mesaj):
         self.cek_butonu.configure(state="normal", bg="#2563eb")

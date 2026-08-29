@@ -6,6 +6,7 @@ import ssl
 import sys
 import tempfile
 import urllib.request
+import urllib.parse
 import zipfile
 
 from surum import REPO, SURUM
@@ -91,14 +92,15 @@ def guncelleme_kontrol(mevcut_surum=SURUM):
 
 
 def _indir(url, hedef):
-    """URL'den dosya indirir (https, API asset veya yerel dosya yolu desteklenir)."""
+    """URL'den dosya indirir (yalniz https, GitHub alan adi sinirli)."""
     context = ssl.create_default_context()
-    if url.lower().startswith("file:"):
-        yerel_yol = url.replace("file://", "").replace("file:", "")
-        if not os.path.isabs(yerel_yol):
-            yerel_yol = os.path.abspath(yerel_yol)
-        shutil.copy2(yerel_yol, hedef)
-        return
+    alt = urllib.parse.urlparse(url)
+    if alt.scheme not in ("https",):
+        raise ValueError(f"Güvensiz indirme adresi reddedildi: {url}")
+    izinli = ("github.com", "api.github.com", "objects.githubusercontent.com",
+              "release-assets.githubusercontent.com", "codeload.github.com")
+    if alt.hostname not in izinli:
+        raise ValueError(f"İzin verilmeyen indirme alanı: {alt.hostname}")
     basliklar = _basliklar()
     if "api.github.com" in url and "/assets/" in url:
         # Release asset ikili içeriği
@@ -124,7 +126,16 @@ def guncellemeyi_kur(indirme_url, hedef_yol, ilerleme_callback=None):
 
     cikti = os.path.join(gecici, "icerik")
     os.makedirs(cikti, exist_ok=True)
+    kok_gercek = os.path.realpath(cikti)
     with zipfile.ZipFile(zip_yolu) as z:
+        for uye in z.namelist():
+            if uye.endswith("/"):
+                continue
+            hedef_uye = os.path.realpath(os.path.join(cikti, uye))
+            if not (hedef_uye == kok_gercek
+                    or hedef_uye.startswith(kok_gercek + os.sep)):
+                raise ValueError(
+                    f"Güncelleme zip'i güven dışı yol içeriyor: {uye}")
         z.extractall(cikti)
 
     # GitHub archive zip'i tek bir kök klasör içerir; onu bul
@@ -134,13 +145,17 @@ def guncellemeyi_kur(indirme_url, hedef_yol, ilerleme_callback=None):
         kok = os.path.join(cikti, icerik[0])
 
     kopyalanan = 0
+    hedef_gercek = os.path.realpath(hedef_yol)
     os.makedirs(hedef_yol, exist_ok=True)
     for kok_ad, _, dosyalar in os.walk(kok):
         for dosya in dosyalar:
             if not dosya.lower().endswith((".py", ".bat", ".ico", ".png")):
                 continue
             kaynak = os.path.join(kok_ad, dosya)
-            hedef = os.path.join(hedef_yol, dosya)
+            hedef = os.path.realpath(os.path.join(hedef_yol, dosya))
+            if not (hedef == hedef_gercek
+                    or hedef.startswith(hedef_gercek + os.sep)):
+                continue  # hedef klasor disina yazma
             try:
                 shutil.copy2(kaynak, hedef)
                 kopyalanan += 1

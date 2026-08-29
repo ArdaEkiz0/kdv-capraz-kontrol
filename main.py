@@ -135,7 +135,7 @@ class KdvKontrolApp:
         self.gecmis_bilgi = None
         self._iptal = threading.Event()
         self._islem_devam = False
-
+        self.kontrol_sonu_gorevleri = []
         try:
             self.db = db_al()
         except Exception:
@@ -462,6 +462,10 @@ class KdvKontrolApp:
             return
         self.otomatik_guncelleme_kuruyor = True
         self.guncelleme_butonu.configure(text=f"⏳ v{bilgi['surum']} indiriliyor...", state="disabled")
+        # İndirme başlarken tam ekran bekleme katmanı.
+        self._guncelleme_bekleme_ekrani(
+            f"Yeni sürüm (v{bilgi['surum']}) indirilip kuruluyor...\n"
+            "Lütfen bekleyin, bu işlem birkaç dakika sürebilir.")
         proje_yolu = os.path.dirname(os.path.abspath(__file__))
         kutu = {}
 
@@ -493,17 +497,82 @@ class KdvKontrolApp:
         self._log_yaz(f"v{bilgi['surum']} kuruldu ({sonuc['kopyalanan']} dosya). "
                       "Uygulama 3 saniye içinde yeni sürümle yeniden açılacak...")
         self.guncelleme_butonu.configure(text=f"✓ v{bilgi['surum']} kuruldu")
+        # Tam ekran "Güncelleniyor, lütfen bekleyin" katmanı.
+        self._guncelleme_bekleme_ekrani(f"Güncelleme tamamlandı\nUygulama "
+                                        f"yeni sürümle (v{bilgi['surum']}) "
+                                        "yeniden açılıyor...")
         self.kok.update_idletasks()
         self.otomatik_guncelleme_kuruyor = False
         self.kok.after(3000, uygulamayi_yeniden_baslat)
 
     def _otomatik_kur_hata(self, bilgi, hata):
         self.otomatik_guncelleme_kuruyor = False
+        self._guncelleme_kaplamasi_destroy()
         self.guncelleme_butonu.configure(
             text=f"🔄 Güncelleme (v{bilgi['surum']}) — tekrar dene", state="normal")
         self.guncelleme_butonu.configure(command=lambda: self._guncelleme_otomatik_kur(bilgi))
         self._log_yaz(f"Otomatik güncelleme başarısız: {hata} — "
                       "Güncelleme butonundan tekrar deneyebilirsiniz.")
+
+    def _guncelleme_bekleme_ekrani(self, metin="Güncelleniyor, lütfen bekleyin..."):
+        """Kurulum sırasında tüm pencereyi kaplayan bekleme katmanı açar."""
+        try:
+            self._guncelleme_kaplamasi_destroy()
+        except Exception:
+            pass
+        PENCERE = tk.Toplevel(self.kok)
+        PENCERE.title("Güncelleme")
+        # Tam ekran, kapatılamaz, üstte
+        try:
+            PENCERE.attributes("-fullscreen", True)
+            PENCERE.attributes("-topmost", True)
+        except Exception:
+            PENCERE.geometry("1200x800")
+        PENCERE.overrideredirect(True)
+        PENCERE.configure(bg="#1e3a8a")
+        PENCERE.transient(self.kok)
+
+        cerceve = tk.Frame(PENCERE, bg="#1e3a8a")
+        cerceve.place(relx=0.5, rely=0.5, anchor="center")
+
+        tk.Label(cerceve, text="🔄", font=("Segoe UI", 64),
+                 bg="#1e3a8a", fg="#ffffff").pack(pady=(0, 16))
+        tk.Label(cerceve, text="KDV Çapraz Kontrol",
+                 font=("Segoe UI", 24, "bold"),
+                 bg="#1e3a8a", fg="#ffffff").pack(pady=(0, 8))
+        tk.Label(cerceve, text=metin, font=("Segoe UI", 14),
+                 bg="#1e3a8a", fg="#dbeafe",
+                 justify="center", wraplength=800).pack(pady=(0, 24))
+
+        # Dönen ilerleme animasyonu
+        self._guncelleme_adim = tk.Label(cerceve, text="",
+                                         font=("Segoe UI", 10),
+                                         bg="#1e3a8a", fg="#93c5fd")
+        self._guncelleme_adim.pack()
+        self.guncelleme_kaplama = PENCERE
+        PENCERE.update()
+
+        def animasyon_dongu(adim=0):
+            if not getattr(self, "guncelleme_kaplama", None):
+                return
+            noktalar = ["", ".", "..", "..."]
+            try:
+                self._guncelleme_adim.configure(
+                    text="Lütfen bekleyin" + noktalar[adim % 4])
+            except Exception:
+                return
+            self.kok.after(400, animasyon_dongu, adim + 1)
+
+        animasyon_dongu()
+        return PENCERE
+
+    def _guncelleme_kaplamasi_destroy(self):
+        try:
+            if getattr(self, "guncelleme_kaplama", None) is not None:
+                self.guncelleme_kaplama.destroy()
+                self.guncelleme_kaplama = None
+        except Exception:
+            self.guncelleme_kaplama = None
 
     def guncelleme_penceresi_ac(self, bilgi):
         pencere = tk.Toplevel(self.kok)
@@ -548,6 +617,10 @@ class KdvKontrolApp:
     def _guncelleme_kur(self, bilgi):
         import threading
         self.guncelleme_durum.configure(text="Güncelleme indiriliyor...")
+        # Tam ekran bekleme katmanı.
+        self._guncelleme_bekleme_ekrani(
+            f"Yeni sürüm (v{bilgi['surum']}) indirilip kuruluyor...\n"
+            "Lütfen bekleyin, bu işlem birkaç dakika sürebilir.")
         proje_yolu = os.path.dirname(os.path.abspath(__file__))
         kutu = {}
 
@@ -583,11 +656,22 @@ class KdvKontrolApp:
     def _guncelleme_kur_bitti(self, sonuc):
         if not sonuc or not sonuc.get("kopyalanan"):
             self.guncelleme_durum.configure(text="Kurulacak dosya bulunamadı.", foreground="#B00000")
+            self._guncelleme_kaplamasi_destroy()
             return
         self.guncelleme_durum.configure(
             text=f"Kurulum tamamlandı ({sonuc['kopyalanan']} dosya). Uygulama yeniden başlatılıyor...",
             foreground="#006100")
         self._log_yaz(f"Güncelleme kuruldu: {sonuc['kopyalanan']} dosya kopyalandı.")
+        # Yeniden başlatma öncesi bekleme ekranının metnini güncelle.
+        try:
+            if getattr(self, "guncelleme_kaplama", None) is not None:
+                for cocuk in self.guncelleme_kaplama.winfo_children():
+                    for alt in cocuk.winfo_children():
+                        if isinstance(alt, tk.Label) and "yeniden" in str(alt.cget("text")):
+                            alt.configure(text="Güncelleme tamamlandı\nUygulama "
+                                               "yeniden açılıyor...")
+        except Exception:
+            pass
         self.kok.update_idletasks()
         self.kok.after(1200, uygulamayi_yeniden_baslat)
 
@@ -805,6 +889,18 @@ class KdvKontrolApp:
                 self.kok.after(0, lambda a=ad, ss=s, t=toplam: self._log_yaz(f"[{ss}/{t}] Cetvel okunuyor: {a}"))
                 try:
                     c = cetvel_dosya_parse(dosya)
+                    # Hesap etiketi: dosya adından 191/391 türet; çapraz
+                    # kontrolde alış faturalar 191'i, satış faturalar 391'i
+                    # arar (yanlış hesaba eşleşme olmasın).
+                    hesap = ""
+                    ad_kucuk = (ad or "").lower()
+                    if "muavin_191" in ad_kucuk or "_191" in ad_kucuk:
+                        hesap = "191"
+                    elif "muavin_391" in ad_kucuk or "_391" in ad_kucuk:
+                        hesap = "391"
+                    for k in (c["kayitlar"] or []):
+                        if hesap:
+                            k["hesap"] = hesap
                     cetvel_kayitlari.extend(c["kayitlar"])
                     if c["notlar"]:
                         self.kok.after(0, lambda a=ad, n=c["notlar"]: self._log_yaz(f"[Cetvel] {a}: {'; '.join(n)}"))
@@ -849,6 +945,13 @@ class KdvKontrolApp:
                        f"{len(self.sonuc_satirlari)} sonuç satırı.")
         if self.ozet and self.ozet.get("iade_adet", 0):
             self._log_yaz(f"İade faturası: {self.ozet['iade_adet']} adet, toplam KDV: {tl_format(self.ozet.get('iade_kdv_toplam'))} TL")
+        if getattr(self, "kontrol_sonu_gorevleri", None):
+            for gorev in list(self.kontrol_sonu_gorevleri):
+                try:
+                    gorev()
+                except Exception:
+                    pass
+            self.kontrol_sonu_gorevleri = []
         self._kontrol_bitiyoruz()
 
     def _kontrol_bitiyoruz(self):

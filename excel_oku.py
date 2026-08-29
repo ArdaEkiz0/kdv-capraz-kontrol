@@ -105,12 +105,34 @@ def _spreadsheetml_satirlar(dosya_yolu):
     return tumu
 
 
+def _csv_tsv_satirlar(dosya_yolu):
+    """CSV/TSV dosyasını satır listesine çevirir; ayıracı otomatik algılar."""
+    import csv as _csv
+    for kodlama in ("utf-8-sig", "cp1254", "latin-1"):
+        try:
+            with open(dosya_yolu, "r", encoding=kodlama, newline="") as fh:
+                ornek = fh.read(4096)
+                fh.seek(0)
+                noktali = ornek.count(";")
+                sekmeli = ornek.count("\t")
+                virgul = ornek.count(",")
+                ayirici = ";" if (noktali >= virgul and noktali > 0) else (
+                    "\t" if (sekmeli >= virgul and sekmeli > 0) else ",")
+                okuyucu = _csv.reader(fh, delimiter=ayirici)
+                return [list(satir) for satir in okuyucu]
+        except (UnicodeDecodeError, Exception):
+            continue
+    return []
+
+
 def excel_satirlar(dosya_yolu):
     try:
         with open(dosya_yolu, "rb") as fh:
             bas = fh.read(2048)
     except OSError:
         bas = b""
+    if dosya_yolu.lower().endswith((".csv", ".tsv")):
+        return _csv_tsv_satirlar(dosya_yolu)
     if bas.lstrip().startswith(b"<?xml") and (
             b"SpreadsheetML" in bas or b"office:spreadsheet" in bas):
         return _spreadsheetml_satirlar(dosya_yolu)
@@ -452,12 +474,29 @@ def fatura_luca_ozet_parse(dosya_yolu):
                 "red" in durum_kucuk or "iptal" in durum_kucuk:
             continue
 
+        # Yön bilgisi: 'Tür' kolonu (SATIS/ALIS/OZELMATRAH...) + dosya adı
+        # (luca_*_alis_/luca_*_satis_) birleştirilerek belirlenir. Çapraz
+        # kontrolde alış faturalar 191, satış faturalar 391 muaviniyle
+        # karşılaştırılır.
+        tur_metin = str(hucre("tur") or "").strip().upper()
+        dosya_adi = str(dosya_yolu or "").lower()
+        if "satis" in dosya_adi or "satış" in dosya_adi:
+            yon = "SATIS"
+        elif "alis" in dosya_adi or "alış" in dosya_adi:
+            yon = "ALIS"
+        elif tur_metin:
+            yon = "SATIS" if "SATIS" in tur_metin else \
+                ("ALIS" if "ALIS" in tur_metin else tur_metin)
+        else:
+            yon = ""
+
         tarih_deger = hucre("tarih")
         t = tarih_parse(str(tarih_deger).strip()) if tarih_deger else None
         kayit = {
             "dosya": dosya_yolu, "tip": "excel", "satir": i + 1,
             "belge_no": fatura_no_temizle(str(belge_ham)),
             "tarih": str(t) if t else None,
+            "fatura_tipi": yon or None,
             "satici_vkn": vkn_temizle(str(hucre("vkn") or "")),
             "alici_vkn": None,
             "matrah": tutar_parse(hucre("matrah")),
@@ -488,6 +527,9 @@ def fatura_luca_ozet_parse(dosya_yolu):
                 and abs(kayit["matrah"] + kayit["kdv"]
                         - kayit["toplam"]) > Decimal("0.02"):
             kayit["notlar"].append("Matrah+KDV ≠ Toplam")
+        # Luca özet tablosunda satıcı unvanı 'unvan' kolonunda gelir;
+        # matcher ve raporlar 'satici_unvan' beklediği için eşle.
+        kayit["satici_unvan"] = kayit.get("unvan")
         sonuc.append(kayit)
     if not sonuc:
         return None
@@ -1322,6 +1364,22 @@ def _genel_unvan_cikar(hucreler, belge, aciklama_metni=None):
     return en_uzun[:80]
 
 
+def _vkn_kontrol_hanesi(no):
+    """10 haneli VKN kontrol hanesini doğrular; 11 haneli TCKN'de ilk
+    hane sıfır olmamalı. Yanlış okumayı elemek için kullanılır."""
+    no = (no or "").strip()
+    if len(no) == 11:
+        return no.isdigit() and no[0] != "0"
+    if len(no) != 10 or not no.isdigit():
+        return False
+    d = [int(c) for c in no]
+    s = 0
+    for i in range(9):
+        t = (d[i] + 10 - (i + 1)) % 10
+        s = (s * ((t * 2) % 9 + 1)) % 10
+    return (10 - (s + d[9]) % 10) % 10 == d[9]
+
+
 def muavin_genel_parse(dosya_yolu):
     """Bilinmeyen Excel muavin/hesap defteri formatlarını otomatik tanıyıp okur.
 
@@ -1392,6 +1450,12 @@ def muavin_genel_parse(dosya_yolu):
                     break
 
         belge = _genel_belge_cikar(list(satir))
+        # CSV/TSV gibi başlıklı dışa aktarımlarda belge deseni yoksa
+        # 'Belge No/Fatura No/Invoice No' sütununu kullan (tarihli satır).
+        if belge is None and dosya_yolu.lower().endswith((".csv", ".tsv"))                 and baslik_i is not None                 and kolonlar.get("belge_no") is not None                 and kolonlar["belge_no"] < len(satir) and tarih:
+            aday = str(satir[kolonlar["belge_no"]] or "").strip()
+            if aday and aday != "-":
+                belge = aday
         if belge is None:
             continue
 
@@ -1437,8 +1501,22 @@ def muavin_genel_parse(dosya_yolu):
         notlar = []
         if aktif_hesap:
             notlar.append(f"Hesap: {aktif_hesap}")
+        # Açıklamadan VKN/TCKN çıkar ('VKN:1234567890' veya 10-11 haneli
+        # sayı). Böylece çapraz kontrolde VKN doğrulaması gerçek olur.
+        cikarilan_vkn = ""
+        m_vkn = re.search(r"VKN\s*[:=)]*\s*(\d{10,11})", unvan or "",
+                          re.IGNORECASE)
+        if m_vkn:
+            cikarilan_vkn = m_vkn.group(1)
+        else:
+            for m_rakam in re.finditer(r"(?<!\d)(\d{10,11})(?!\d)",
+                                       unvan or ""):
+                aday = m_rakam.group(1)
+                if _vkn_kontrol_hanesi(aday):
+                    cikarilan_vkn = aday
+                    break
         sonuc["kayitlar"].append({
-            "vkn": "", "belge_no": belge,
+            "vkn": cikarilan_vkn, "belge_no": belge,
             "tarih": tarih if tarih else None,
             "matrah": None, "kdv": kdv, "unvan": unvan,
             "notlar": notlar,

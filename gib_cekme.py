@@ -50,8 +50,23 @@ def _ocr_hazir():
                        "(C:\\Program Files\\Tesseract-OCR)")
     komut = shutil.which("tesseract")
     if not komut:
-        for aday in (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                     r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
+        adaylar = [r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                   r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"]
+        # Kayit defterinden kurulum yolu (UB-Mannheim kurucusu yazar):
+        try:
+            import winreg
+            for kok_anahtar in (winreg.HKEY_LOCAL_MACHINE,
+                                winreg.HKEY_CURRENT_USER):
+                try:
+                    ana = winreg.OpenKey(kok_anahtar,
+                                         r"SOFTWARE\Tesseract-OCR")
+                    yol, _ = winreg.QueryValueEx(ana, "InstallPath")
+                    adaylar.append(os.path.join(yol, "tesseract.exe"))
+                except OSError:
+                    continue
+        except Exception:
+            pass
+        for aday in adaylar:
             if os.path.exists(aday):
                 komut = aday
                 break
@@ -59,7 +74,12 @@ def _ocr_hazir():
         import pytesseract
         pytesseract.pytesseract.tesseract_cmd = komut
         return True, ""
-    return False, "Tesseract OCR bulunamadı. https://github.com/UB-Mannheim/tesseract/wiki"
+    # Tesseract kurulu ama PATH'te degil olabilir; yaygin kurulum yolu
+    # zaten yukarida denendi. Buraya gelindiyse gercekten yok:
+    return False, ("Tesseract OCR programı bulunamadı.\n"
+                   "Kurulum: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                   "(Kurulumda 'Add to PATH' kutusunu işaretleyin;\n"
+                   "kurduktan sonra uygulamayı kapat-aç yapın.)")
 
 
 def _tarih_araligini_bol(bas, bit, parca_gun=7):
