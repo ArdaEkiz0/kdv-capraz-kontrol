@@ -431,18 +431,8 @@ class KdvKontrolApp:
                         self._log_yaz(f"Yeni sürüm mevcut: v{bilgi['surum']} — "
                                       "kontrol sürerken otomatik kurulmaz, Güncelleme butonundan kurun.")
                     else:
-                        cevap = messagebox.askyesno(
-                            "Güncelleme",
-                            f"Yeni sürüm bulundu: v{bilgi['surum']}\n"
-                            f"İndirilip kurulsun mu?\n\n"
-                            f"Mevcut sürüm: v{SURUM}",
-                            parent=self.kok)
-                        if cevap:
-                            self._log_yaz(f"Yeni sürüm bulundu: v{bilgi['surum']} — indirilip kuruluyor...")
-                            self._guncelleme_otomatik_kur(bilgi)
-                        else:
-                            self._log_yaz(f"Yeni sürüm mevcut: v{bilgi['surum']} — "
-                                          "kullanıcı tarafından atlandı.")
+                        self._log_yaz(f"Yeni sürüm mevcut: v{bilgi['surum']} — "
+                                      "Güncelleme butonundan kurun.")
                 else:
                     self._log_yaz(f"Yeni sürüm mevcut: v{bilgi['surum']} — Güncelleme butonuna basın.")
                     self.guncelleme_penceresi_ac(bilgi)
