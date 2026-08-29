@@ -14,6 +14,7 @@ import html as html_cevir
 import io
 import json
 import os
+import queue
 import re
 import time
 import zipfile
@@ -1575,16 +1576,69 @@ def _tarih_araliginda(metin, bas_tarih, bit_tarih):
 
 
 def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
-    """Satirdaki ZIP ikonuna tiklar; indigi dosyayi kaydeder."""
-    with sayfa.expect_download(timeout=30000) as bekle:
+    """Satirdaki ZIP ikonuna tiklar; indigi dosyayi kaydeder.
+
+    zip_indir(this) seklinde cagrilan JS'te 'this' dogru eleman olmalidir;
+    bunun icin dogrudan zip_indir(e) seklinde cagiri yapilir. Ayrica
+    download olayi hem ana sayfada hem frame'de, ayrica yeni sekmede de
+    dinlenir (zip_indir bazen yeni sekme acar).
+    """
+    kuyruk = queue.Queue()
+    yeni_sekmeler = []
+    dinleyici = lambda d: kuyruk.put(d)
+    sayfa.on("download", dinleyici)
+    # Yeni sekme/tan popup da dinlenir
+    oturum = sayfa.context
+    oturum.on("page", lambda p: yeni_sekmeler.append(p))
+    try:
         frame.evaluate(
             "n => { const e = [...document.querySelectorAll('[onclick]')]"
             ".filter(x => x.getAttribute('onclick').includes('zip_indir'))"
-            "[n]; if (!e) throw new Error('ZIP düğmesi yok'); e.click(); }",
+            "[n]; if (!e) throw new Error('ZIP düğmesi yok');"
+            " zip_indir(e); }",
             satir_sirasi)
-    indirme = bekle.value
-    indirme.save_as(hedef_yol)
-    return indirme.suggested_filename
+        # Download 25sn icinde gelmeli
+        try:
+            indirme = kuyruk.get(timeout=25)
+            indirme.save_as(hedef_yol)
+            return indirme.suggested_filename
+        except queue.Empty:
+            pass
+        # Yeni sekmede download baslamis olabilir
+        for sy in yeni_sekmeler:
+            try:
+                sy.wait_for_timeout(3000)
+                # Sekmede download var mi?
+                if not sy.is_closed():
+                    # Sayfada download linki var mi?
+                    sy.on("download", dinleyici)
+                    try:
+                        indirme = kuyruk.get(timeout=8)
+                        indirme.save_as(hedef_yol)
+                        return indirme.suggested_filename
+                    except queue.Empty:
+                        pass
+            except Exception:
+                continue
+        # Hala yoksa fallback: click event dispatch et
+        sayfa2 = frame.page
+        with sayfa2.expect_download(timeout=20000) as bekle:
+            frame.evaluate(
+                "n => { const e = [...document.querySelectorAll('[onclick]')]"
+                ".filter(x => x.getAttribute('onclick')"
+                ".includes('zip_indir'))[n];"
+                " if (!e) throw new Error('ZIP düğmesi yok');"
+                " const evt = new MouseEvent('click', {bubbles:true});"
+                " e.dispatchEvent(evt); }",
+                satir_sirasi)
+        indirme = bekle.value
+        indirme.save_as(hedef_yol)
+        return indirme.suggested_filename
+    finally:
+        try:
+            sayfa.remove_listener("download", dinleyici)
+        except Exception:
+            pass
 
 
 
@@ -1598,8 +1652,10 @@ def _zip_toplu_indir(frame, sayfa, indirme_planlari, bildir=None,
     dosya yolu ÖNCEDEN belli olduğundan, indirilen şey yanlış dosyaya
     yazılmaz (suggested_filename güvenilmez). Başarısız olan satırları
     döndürür (kalıp güvenilirliği için).
+
+    zip_indir(this) cagrisinda 'this' dogru eleman olmalidir; dogrudan
+    zip_indir(e) seklinde cagiri yapilir.
     """
-    import queue
     hedef_map = {sira: yol for sira, yol in indirme_planlari}
     kuyruk = queue.Queue()
     dinleyici = lambda d: kuyruk.put(d)
@@ -1607,11 +1663,7 @@ def _zip_toplu_indir(frame, sayfa, indirme_planlari, bildir=None,
     basarisiz = []
     try:
         bekleyen = [sira for sira, _ in indirme_planlari]
-        # Aktif click sayısını değil, inen dosya sayısını izle; kuyruk
-        # uzun süre sessiz kalırsa (bazı click'ler indirme başlatmıyorsa)
-        # o siparişleri kalanlara geri koy / başarısız işaretle.
         while bekleyen:
-            # Yeni clicking: pencere kadar aktif download bekleyebiliriz.
             while bekleyen:
                 sira = bekleyen.pop(0)
                 hedef = hedef_map[sira]
@@ -1621,27 +1673,25 @@ def _zip_toplu_indir(frame, sayfa, indirme_planlari, bildir=None,
                         "'[onclick]')]"
                         ".filter(x => x.getAttribute('onclick')"
                         ".includes('zip_indir'))"
-                        "[n]; if (!e) throw new Error('yok'); e.click(); }",
+                        "[n]; if (!e) throw new Error('yok');"
+                        " zip_indir(e); }",
                         sira)
                 except Exception:
                     basarisiz.append(sira)
                     continue
-                # Belirli kısa süre içinde en az pencere kadar download
-                # gelmeye devam etmeli; aksi halde tıklama bir işe
-                # yaramadı, bir sonraki adıma geç.
                 try:
-                    d = kuyruk.get(timeout=12)
+                    d = kuyruk.get(timeout=15)
                 except Exception:
-                    # İndirme başlatılamadı — tekrar dene (bir kez).
                     try:
                         frame.evaluate(
                             "n => { const e = [...document.querySelectorAll("
                             "'[onclick]')]"
                             ".filter(x => x.getAttribute('onclick')"
                             ".includes('zip_indir'))"
-                            "[n]; if (!e) throw new Error('yok'); e.click(); }",
+                            "[n]; if (!e) throw new Error('yok');"
+                            " zip_indir(e); }",
                             sira)
-                        d = kuyruk.get(timeout=15)
+                        d = kuyruk.get(timeout=18)
                     except Exception:
                         basarisiz.append(sira)
                         continue
@@ -1650,13 +1700,11 @@ def _zip_toplu_indir(frame, sayfa, indirme_planlari, bildir=None,
                 except Exception:
                     basarisiz.append(sira)
                 time.sleep(0.05)
-        # Kalan kuyruktaki olası download'ları da kaydet.
         while True:
             try:
                 d = kuyruk.get_nowait()
             except Exception:
                 break
-            # En iyi tahmini hedef: hedef_map'te kalanlardan birine eşle.
             for sira, yol in hedef_map.items():
                 if not os.path.exists(yol):
                     try:
