@@ -1966,10 +1966,15 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
     """Luca belge listesindeki 'Tümünü Seç + Seçilenleri İndir' akışını
     çalıştırır.
 
+    Luca'nın gib530 ekranında popup dialog kullanılır; bu dialog
+    Playwright erişilebilirliğinde görünmez. Bunun yerine doğrudan
+    JavaScript fonksiyonları çağrılır:
+      - hepsini_sec('all') → tüm faturaları seçer
+      - gonder('zip') → seçilen faturaları ZIP olarak indirir
+
     Akış:
-    1. Sayfadaki checkbox başlığına tıklayarak tümünü seç
-       (veya 'Belge Seç' butonu / 'tümünü seç' linki)
-    2. 'Seçilenleri İndir' butonuna tıkla
+    1. hepsini_sec('all') ile tümünü seç
+    2. gonder('zip') ile indirmeyi tetikle
     3. ZIP indirmesini bekle ve kaydet
 
     Dönüş: indirilen ZIP dosya yolu veya None.
@@ -1978,126 +1983,74 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         bildir = lambda s: None
     sayfa = cerceve.page
 
-    # ADIM 1: Tümünü seç — checkbox başlığı, 'Belge Seç' butonu,
-    # veya 'tümünü seç' linki
-    bildir("Tüm belgeler seçiliyor...")
-    secildi = False
-
-    # Yöntem 1: Tablodaki checkbox başlığına tıkla (th > input[type=checkbox])
+    # ADIM 1: Tümünü seç — doğrudan JavaScript ile
+    bildir("Tüm belgeler seçiliyor (hepsini_sec)...")
     try:
-        baslik_cb = cerceve.query_selector(
-            "th input[type='checkbox'], thead input[type='checkbox']")
-        if baslik_cb and baslik_cb.is_visible():
-            baslik_cb.click()
-            secildi = True
-            cerceve.page.wait_for_timeout(800)
-    except Exception:
-        pass
-
-    # Yöntem 2: 'Belge Seç' butonu (alt çubukta)
-    if not secildi:
+        cerceve.evaluate("hepsini_sec('all')")
+        cerceve.page.wait_for_timeout(1200)
+        bildir("Tüm faturalar seçildi.")
+    except Exception as hata:
+        bildir(f"hepsini_sec hatası: {str(hata)[:60]}; "
+               "fallback deneniyor...")
+        # Fallback: checkbox başlığı veya tek tek işaretle
+        secildi = False
         try:
-            for secici in ("text=Belge Seç", "text=Belge Sec",
-                           "input[value*='Belge Seç']",
-                           "button:has-text('Belge Seç')"):
-                oge = cerceve.query_selector(secici)
-                if oge and oge.is_visible():
-                    oge.click()
-                    secildi = True
-                    cerceve.page.wait_for_timeout(800)
-                    break
+            baslik_cb = cerceve.query_selector(
+                "th input[type='checkbox'], thead input[type='checkbox']")
+            if baslik_cb and baslik_cb.is_visible():
+                baslik_cb.click()
+                secildi = True
+                cerceve.page.wait_for_timeout(800)
         except Exception:
             pass
-
-    # Yöntem 3: 'Tümünü Seç' / 'Hepsini Seç' linki
-    if not secildi:
-        try:
-            for desen in (r"t[üu]m[üu]n[üu]\s*se[çc]",
-                          r"hepsini\s*se[çc]",
-                          r"tüm\s*fatura"):
-                for oge in cerceve.query_selector_all(
-                        "a, span, div, label, button, input"):
+        if not secildi:
+            try:
+                tum_cb = cerceve.query_selector_all(
+                    "td input[type='checkbox'], "
+                    "tbody input[type='checkbox']")
+                for cb in tum_cb:
                     try:
-                        metin = (oge.inner_text() or "").lower()
-                        if re.search(desen, metin) and oge.is_visible():
-                            oge.click()
-                            secildi = True
-                            cerceve.page.wait_for_timeout(800)
-                            break
+                        if cb.is_visible() and not cb.is_checked():
+                            cb.click()
                     except Exception:
                         continue
-                if secildi:
-                    break
-        except Exception:
-            pass
+                if tum_cb:
+                    secildi = True
+                    cerceve.page.wait_for_timeout(500)
+            except Exception:
+                pass
+        if not secildi:
+            bildir("UYARI: Tümünü seç başarısız.")
+            return None
 
-    # Yöntem 4: Tablodaki tüm checkbox'ları tek tek işaretle
-    if not secildi:
-        try:
-            tum_cb = cerceve.query_selector_all(
-                "td input[type='checkbox'], tbody input[type='checkbox']")
-            for cb in tum_cb:
-                try:
-                    if cb.is_visible() and not cb.is_checked():
-                        cb.click()
-                except Exception:
-                    continue
-            if tum_cb:
-                secildi = True
-                cerceve.page.wait_for_timeout(500)
-        except Exception:
-            pass
-
-    if not secildi:
-        bildir("UYARI: Tümünü seç butonu/checkbox'u bulunamadı.")
-
-    # ADIM 2: 'Seçilenleri İndir' butonuna tıkla
-    bildir("Seçilenleri indiriliyor...")
-    indirildi = False
-    hedef_yol = None
+    # ADIM 2: İndirmeyi tetikle — doğrudan gonder('zip') ile
+    bildir("Seçilenleri indiriliyor (gonder('zip'))...")
     kuyruk = queue.Queue()
     dinleyici = lambda d: kuyruk.put(d)
     sayfa.on("download", dinleyici)
     try:
-        for secici in ("text=Seçilenleri İndir", "text=Secilenleri Indir",
-                       "input[value*='Seçilenleri İndir']",
-                       "input[value*='Secilenleri Indir']",
-                       "button:has-text('Seçilenleri İndir')"):
+        try:
+            cerceve.evaluate("gonder('zip')")
+        except Exception:
+            # gonder('zip') comic popup açabilir; Onay/Tamam varsa kapat
+            cerceve.page.wait_for_timeout(1500)
             try:
-                oge = cerceve.query_selector(secici)
-                if oge and oge.is_visible():
-                    oge.click()
-                    indirildi = True
-                    break
+                onay = cerceve.query_selector(
+                    "button:has-text('Tamam'), button:has-text('Evet'), "
+                    ".swal2-confirm")
+                if onay and onay.is_visible():
+                    onay.click()
             except Exception:
-                continue
-
-        if not indirildi:
-            # Geniş tarama
+                pass
+            # Tekrar dene
             try:
-                for oge in cerceve.query_selector_all(
-                        "input[type='button'], input[type='submit'], button, a"):
-                    try:
-                        metin = ((oge.get_attribute("value") or "")
-                                 + " " + (oge.inner_text() or "")).lower()
-                        if "indir" in metin and "secilen" in metin \
-                                and oge.is_visible():
-                            oge.click()
-                            indirildi = True
-                            break
-                    except Exception:
-                        continue
+                cerceve.evaluate("gonder('zip')")
             except Exception:
                 pass
 
-        if not indirildi:
-            bildir("UYARI: 'Seçilenleri İndir' butonu bulunamadı.")
-            return None
-
         # ADIM 3: İndirmeyi bekle
         try:
-            indirme = kuyruk.get(timeout=45)
-            # ZIP'i kaydet
+            indirme = kuyruk.get(timeout=60)
             import tempfile
             hedef_yol = os.path.join(tempfile.gettempdir(),
                                      f"luca_toplu_{id(cerceve)}.zip")
@@ -2105,7 +2058,7 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
             bildir(f"Toplu indirme tamamlandı: {os.path.basename(hedef_yol)}")
             return hedef_yol
         except queue.Empty:
-            bildir("UYARI: İndirme başlatılamadı (45sn timeout).")
+            bildir("UYARI: İndirme başlatılamadı (60sn timeout).")
             return None
     finally:
         try:
