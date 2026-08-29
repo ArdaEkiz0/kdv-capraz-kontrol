@@ -1184,182 +1184,45 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
     return hedef["t"], donem["t"]
 
 
-def _gib530_frame_yenile(sayfa, bildir=None):
-    """Sayfadaki frame'ler arasından güncel gib530 frame'ini bulur.
-
-    Tarih doldurma sonrası sayfa yenilenebilir; eski frame referansı
-    stale olur. Bu fonksiyon güncel frame'i bulup döndürür.
-    """
-    if bildir is None:
-        bildir = lambda s: None
-    try:
-        for f in sayfa.frames:
-            try:
-                url = f.url or ""
-                if "gib530" in url and len(f.content() or "") > 5000:
-                    return f
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return None
-
-
-def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
+def _gibten_getir(cerceve, bildir=None):
     """Luca e-belge ekranında 'GİB'ten Getir' (İnternetten Getir) adımını çalıştırır.
 
-    Luca'nın gib530 ekranı iki adımlıdır: belgeler önce GİB'den bu butonla
-    çekilir (listeye yüklenir), ardından indirilir.
-
-    Buton bulma ÇOK GENİŞ yapılır: input/button/a + span/div/img + onclick/
-    title/alt + 'getir', 'indir', 'internetten', 'gib' gibi anahtar
-    kelimeler taranır. is_visible() güvenilir olmadığı için DOM'da olan
-    öğelerden tıklanabilir ilk aday seçilir; bulunamazsa en kötü ihtimalle
-    'gib530' ekranında ilk butona tıklanmaz, sessizce dönülür.
+    Luca'nın gib530 ekranı iki adımdır: belgeler önce GİB'den bu butonla
+    çekilir (listeye yüklenir), ardından indirilir. Buton bulunamazsa sessizce
+    döner (bazı ekranlarda otomatik listelenir).
     """
     if bildir is None:
         bildir = lambda s: None
     try:
         sayfa = cerceve.page
-        # ADIM: hangi tarihse onu yaz. Belge ekranındaki tarih aralığı
-        # alanlarına istenen dönem girilir (aynı muavin çekimindeki gibi).
-        try:
-            doldurulan = _tarih_alanlarini_doldur(cerceve, bas_tarih, bit_tarih, bildir)
-            bildir(f"[debug] tarih_dolduruldu: {doldurulan}/2")
-        except Exception as th:
-            bildir(f"Tarih alanları doldurulamadı ({str(th)[:50]}); "
-                   "varsayılan kullanılacak.")
-        # Enter tuşu Luca'da sayfa yenilemesi tetikleyebilir; frame
-        # stale olursa query_selector_all sonsuza kadar takılır.
-        # Bu yüzden kısa bekleme + frame tazeleme.
-        time.sleep(2.5)
-        cerceve = _gib530_frame_yenile(sayfa, bildir) or cerceve
-        buton = None
-
-        # Geniş aday toplama: yalnız görünür/input/button değil, herhangi
-        # metin ya da onclick taşıyan öğe.
-        adaylar = []
-        for secici in ("button", "input", "a", "span", "div", "img",
-                       "li", "td", "b", "i"):
-            try:
-                ogeler = cerceve.query_selector_all(secici)
-            except Exception:
-                continue
-            for oge in ogeler:
+        buton = cerceve.query_selector(
+            "input[type=button][value*='Getir' i], "
+            "input[type=submit][value*='Getir' i], "
+            "button:has-text('Getir'), a:has-text('Getir')")
+        if buton is None or not buton.is_visible():
+            for d in (r"[Gİ]B.*[Gg]etir", r"[Gg]etir.*[Gİ]B",
+                      r"[İi]nternetten [Gg]etir"):
                 try:
-                    metin = ((oge.get_attribute("value") or "")
-                             + " " + (oge.inner_text() or "")
-                             + " " + (oge.get_attribute("onclick") or "")
-                             + " " + (oge.get_attribute("title") or "")
-                             + " " + (oge.get_attribute("alt") or "")
-                             + " " + (oge.get_attribute("src") or ""))
-                    k = (metin or "").lower()
-                    # Anahtar kelimeler: getir / internete / gib'ten çek
-                    if ("getir" in k or "internette" in k
-                            or ("gib" in k and ("indir" in k or "cek" in k))
-                            or "taşı" in k or "tası" in k
-                            or ("gib" in k and "yükle" in k)):
-                        # Açık engellileri atla
-                        if "onceki" not in k and "geri" not in k:
-                            adaylar.append(oge)
+                    buton = cerceve.query_selector(
+                        f"input[type=button][value*='{d[:1]}'], "
+                        f"button:has-text('{d}')")
+                    if buton is not None and buton.is_visible():
+                        break
                 except Exception:
                     continue
-
-        # Öncelik: onclick'li / title'ı net olan buton/input.
-        bildir(f"[debug] {len(adaylar)} aday bulundu")
-        for oge in adaylar:
-            tag = ""
-            try:
-                tag = (oge.evaluate("el => el.tagName") or "").lower()
-            except Exception:
-                pass
-            m = ""
-            try:
-                m = ((oge.get_attribute("value") or "")
-                     + " " + (oge.inner_text() or "")
-                     + " " + (oge.get_attribute("title") or "")
-                     + " " + (oge.get_attribute("onclick") or "")).lower()
-            except Exception:
-                pass
-            if tag in ("button", "input") or "getir" in m \
-                    or "internette" in m:
-                buton = oge
-                break
-        if buton is None and adaylar:
-            buton = adaylar[0]
-        if buton is not None and buton != "js_called":
-            bildir(f"[debug] buton bulundu: {getattr(buton, 'inner_text', lambda: 'N/A')()}")
-        elif buton is None:
-            bildir("[debug] buton bulunamadı")
-
-        if buton is None:
-            # JS ile gonder('indir-window') çağrısını dene (popup'a ihtiyaç
-            # duymadan Luca'nın kendi akışını başlatır).
-            bildir("GİB'ten getir butonu DOM'da bulunamadı; "
-                   "JS ile deneniyor...")
-            try:
-                cerceve.evaluate("gonder('indir-window')")
-                buton = "js_called"
-            except Exception:
-                pass
-        if buton is None:
-            bildir("GİB'ten getir butonu hiç bulunamadı; listeyi "
-                   "sorguyla yenilemeyi deniyorum.")
-            try:
-                _sorgula_listele_butonu(cerceve, bildir)
-            except Exception:
-                pass
+        if buton is None or not buton.is_visible():
+            bildir("GİB'ten getir butonu görünmüyor; mevcut liste kullanılır.")
             return
         bildir("GİB'ten getir tıklanıyor (belgeler çekiliyor)...")
-        if buton != "js_called":
-            try:
-                buton.scroll_into_view_if_needed()
-            except Exception:
-                pass
-            try:
-                buton.click()
-            except Exception:
-                # onclick ile tıkla
-                try:
-                    buton.evaluate("e => e.click()")
-                except Exception:
-                    pass
-        # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
+        buton.scroll_into_view_if_needed()
+        buton.click()
         time.sleep(1.5)
-        # Onay penceresi varsa 'Evet'/'Tamam'a bas.
+        time.sleep(6)
         try:
-            onay = cerceve.query_selector(
-                "button:has-text('Evet'), button:has-text('Tamam'), "
-                "input[value*='Evet'], input[value*='Tamam']")
-            if onay is not None:
-                try:
-                    onay.click()
-                    time.sleep(1)
-                except Exception:
-                    pass
+            sayfa.wait_for_timeout(2000)
         except Exception:
             pass
-        # Belgeler listeye gelene kadar kısa aralıklarla bekle (akıllı).
-        # Sabit 6-8 sn beklemek yerine, liste dolmaya başlayınca çık.
-        try:
-            import luca_cekme as _l
-            for _i in range(10):
-                deneme_html = cerceve.content()
-                belge_sayisi = len(_l._satirlari_ayikla(deneme_html))
-                if belge_sayisi > 0:
-                    break
-                time.sleep(1)
-        except Exception:
-            time.sleep(2)
         bildir("GİB'ten getir tamamlandı; liste güncellendi.")
-
-        # Güvence: getir sonrası 'Sorgula'/'Listele' butonuna basarak
-        # listenin tazelenmesini zorla. Luca bazı ekranlarda getir ile
-        # listeyi yenilemez; sorgu butonu gerekir.
-        try:
-            _sorgula_listele_butonu(cerceve, bildir)
-        except Exception:
-            pass
     except Exception as hata:
         bildir(f"GİB'ten getir başarısız: {str(hata)[:50]}")
 
@@ -2352,7 +2215,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # Getir butonu), sonra listelenip indirilir. Bu adım
                     # atlanırsa yeni mükelleflerde belge listesi boş kalır.
                     try:
-                        _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir)
+                        _gibten_getir(cerceve, bildir)
                     except Exception as g_hata:
                         bildir(f"{kategori}: GİB'ten getir adımı "
                                f"atlandı ({str(g_hata)[:60]})")
