@@ -409,23 +409,43 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
 
     Muavin ekranındaki bilinen kimlikler (#tarih_ilk/#tarih_son) önce
     denenir; değer özellikten geri okunarak doğrulanır, tutmazsa genel
-    seçicilerle tarama yapılır.
+    seçicilerle tarama yapılır. Luca'nın takvim aracı dd/MM/yyyy
+    formatını bekler; ayraç-bağımsız karşılaştırma yapılır.
     """
-    bas_metin = bas_tarih.strftime("%d.%m.%Y")
-    bit_metin = bit_tarih.strftime("%d.%m.%Y")
+    bas_metin = bas_tarih.strftime("%d/%m/%Y")
+    bit_metin = bit_tarih.strftime("%d/%m/%Y")
+    bas_noktali = bas_tarih.strftime("%d.%m.%Y")
+    bit_noktali = bit_tarih.strftime("%d.%m.%Y")
     doldurulan = 0
-    for secici, metin in (("#tarih_ilk", bas_metin),
-                          ("#tarih_son", bit_metin)):
+
+    # Debug: frame'de tarih alanları var mı?
+    try:
+        tarih_var = sayfa.evaluate(
+            "() => !!document.getElementById('tarih_ilk')")
+        bildir(f"[debug] tarih_ilk var mı: {tarih_var}")
+    except Exception as ex:
+        bildir(f"[debug] tarih_ilk kontrolü hatası: {str(ex)[:60]}")
+
+    # 1) Playwright selector ile dene (en güvenilir yol).
+    for secici, metin, metin_n in (("#tarih_ilk", bas_metin, bas_noktali),
+                                   ("#tarih_son", bit_metin, bit_noktali)):
         try:
             oge = sayfa.query_selector(secici)
             if oge is None or not oge.is_visible():
                 continue
-            if _luca_metin_gir(oge, metin) == metin:
+            sonuc = _luca_metin_gir(oge, metin)
+            if sonuc and (sonuc.replace("/", ".") == metin_n
+                          or sonuc == metin):
                 doldurulan += 1
         except Exception:
             continue
+
+    # 2) Luca frame'leri input_id bazlı dene (tarih_ilk/tarih_son + belge tarihi).
     if doldurulan < 2:
-        for secici in ("input[name*='Tarih' i]", "input[id*='Tarih' i]",
+        for secici in ("#tarih_ilk", "#tarih_son",
+                       "#ilk_belge_tarihi", "#son_belge_tarihi",
+                       "#ilk_evrak_tarihi", "#son_evrak_tarihi",
+                       "input[name*='Tarih' i]", "input[id*='Tarih' i]",
                        "input[name*='tarih']", "input[id*='tarih']"):
             try:
                 ogeler = sayfa.query_selector_all(secici)
@@ -436,10 +456,15 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
                     if not oge.is_visible():
                         continue
                     deger = (oge.input_value() or "").strip()
-                    if deger and re.match(r"^\d{2}\.\d{2}\.\d{4}$", deger):
+                    # Zaten dolu ve tarih formatındaysa atla
+                    if deger and re.match(r"^\d{2}[./]\d{2}[./]\d{4}$",
+                                          deger):
                         continue
                     hedef = bas_metin if doldurulan == 0 else bit_metin
-                    if _luca_metin_gir(oge, hedef) == hedef:
+                    hedef_n = bas_noktali if doldurulan == 0 else bit_noktali
+                    sonuc = _luca_metin_gir(oge, hedef)
+                    if sonuc and (sonuc.replace("/", ".") == hedef_n
+                                  or sonuc == hedef):
                         doldurulan += 1
                     if doldurulan >= 2:
                         break
@@ -447,6 +472,28 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
                     continue
             if doldurulan >= 2:
                 break
+
+    # 3) JavaScript ile doğrudan değer ata (DOM erişilemezse en son çare).
+    if doldurulan < 2:
+        for alan_id, metin, metin_n in (("tarih_ilk", bas_metin, bas_noktali),
+                                        ("tarih_son", bit_metin, bit_noktali)):
+            try:
+                sonuc = sayfa.evaluate(
+                    """(args) => {
+                        const [id, val] = args;
+                        const el = document.getElementById(id);
+                        if (!el) return false;
+                        el.value = val;
+                        el.dispatchEvent(new Event('change', {bubbles:true}));
+                        el.dispatchEvent(new Event('input', {bubbles:true}));
+                        return el.value === val;
+                    }""",
+                    [alan_id, metin])
+                if sonuc:
+                    doldurulan += 1
+            except Exception:
+                pass
+
     if doldurulan < 2:
         bildir("UYARI: Tarih alanları otomatik doldurulamadı; sayfanın kendi "
                "varsayılan dönemi kullanılacak.")
@@ -1151,7 +1198,8 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
         # ADIM: hangi tarihse onu yaz. Belge ekranındaki tarih aralığı
         # alanlarına istenen dönem girilir (aynı muavin çekimindeki gibi).
         try:
-            _tarih_alanlarini_doldur(cerceve, bas_tarih, bit_tarih, bildir)
+            doldurulan = _tarih_alanlarini_doldur(cerceve, bas_tarih, bit_tarih, bildir)
+            bildir(f"[debug] tarih_dolduruldu: {doldurulan}/2")
         except Exception as th:
             bildir(f"Tarih alanları doldurulamadı ({str(th)[:50]}); "
                    "varsayılan kullanılacak.")
@@ -1187,6 +1235,7 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                     continue
 
         # Öncelik: onclick'li / title'ı net olan buton/input.
+        bildir(f"[debug] {len(adaylar)} aday bulundu")
         for oge in adaylar:
             tag = ""
             try:
@@ -1207,7 +1256,21 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 break
         if buton is None and adaylar:
             buton = adaylar[0]
+        if buton is not None and buton != "js_called":
+            bildir(f"[debug] buton bulundu: {getattr(buton, 'inner_text', lambda: 'N/A')()}")
+        elif buton is None:
+            bildir("[debug] buton bulunamadı")
 
+        if buton is None:
+            # JS ile gonder('indir-window') çağrısını dene (popup'a ihtiyaç
+            # duymadan Luca'nın kendi akışını başlatır).
+            bildir("GİB'ten getir butonu DOM'da bulunamadı; "
+                   "JS ile deneniyor...")
+            try:
+                cerceve.evaluate("gonder('indir-window')")
+                buton = "js_called"
+            except Exception:
+                pass
         if buton is None:
             bildir("GİB'ten getir butonu hiç bulunamadı; listeyi "
                    "sorguyla yenilemeyi deniyorum.")
@@ -1217,18 +1280,19 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 pass
             return
         bildir("GİB'ten getir tıklanıyor (belgeler çekiliyor)...")
-        try:
-            buton.scroll_into_view_if_needed()
-        except Exception:
-            pass
-        try:
-            buton.click()
-        except Exception:
-            # onclick ile tıkla
+        if buton != "js_called":
             try:
-                buton.evaluate("e => e.click()")
+                buton.scroll_into_view_if_needed()
             except Exception:
                 pass
+            try:
+                buton.click()
+            except Exception:
+                # onclick ile tıkla
+                try:
+                    buton.evaluate("e => e.click()")
+                except Exception:
+                    pass
         # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
         time.sleep(1.5)
         # Onay penceresi varsa 'Evet'/'Tamam'a bas.
@@ -2032,7 +2096,7 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         try:
             cerceve.evaluate("gonder('zip')")
         except Exception:
-            # gonder('zip') comic popup açabilir; Onay/Tamam varsa kapat
+            # gonder('zip') popup açabilir; Onay/Tamam varsa kapat
             cerceve.page.wait_for_timeout(1500)
             try:
                 onay = cerceve.query_selector(
@@ -2045,6 +2109,24 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
             # Tekrar dene
             try:
                 cerceve.evaluate("gonder('zip')")
+            except Exception:
+                pass
+
+        # Popup'taki indirme onayını veyaTamam'ı otomatik tıkla
+        cerceve.page.wait_for_timeout(2000)
+        for _ in range(3):
+            try:
+                for pat in ("button:has-text('Tamam')",
+                            "button:has-text('İndir')",
+                            "button:has-text('Evet')",
+                            ".swal2-confirm",
+                            "input[value*='Tamam']",
+                            "input[value*='İndir']"):
+                    dugme = cerceve.query_selector(pat)
+                    if dugme and dugme.is_visible():
+                        dugme.click()
+                        cerceve.page.wait_for_timeout(1000)
+                        break
             except Exception:
                 pass
 
