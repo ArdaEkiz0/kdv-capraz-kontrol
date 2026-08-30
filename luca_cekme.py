@@ -2037,44 +2037,33 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         with sayfa.expect_download(timeout=120000) as indirme_bekle:
             # Butonu多种yoluyla bul
             indir_buton = None
-            for secici in (
-                "input[value*='İndir']",
-                "input[value*='indir']",
-                "button:has-text('İndir')",
-                "input[type='button'][value*='İndir']",
-                "a:has-text('Seçilenleri İndir')",
-                "input[value*='Seçilenleri']",
-                "button:has-text('Seçilenleri')",
-            ):
-                try:
-                    indir_buton = cerceve.query_selector(secici)
-                    if indir_buton and indir_buton.is_visible():
-                        break
-                    indir_buton = None
-                except Exception:
-                    continue
+            # Tum olasi butonlari topla
+            butonlar = cerceve.query_selector_all(
+                "input[type='button'][value*='Seçilenleri' i], "
+                "input[type='submit'][value*='Seçilenleri' i], "
+                "button:has-text('Seçilenleri'), "
+                "a:has-text('Seçilenleri İndir'), "
+                "a:has-text('Seçilenleri'), "
+                "input[value*='Seçilenleri'], "
+                ".button:has-text('Seçilenleri')"
+            )
+
+            indir_buton = None
+            # Gorunur olan ilk butonu sec
+            for b in butonlar:
+                if b.is_visible():
+                    indir_buton = b
+                    break
+
+            # Eger gorunur yoksa sonuncuyu al (bazen luca display:none icinde tutar)
+            if not indir_buton and len(butonlar) > 0:
+                indir_buton = butonlar[-1]
+
             if indir_buton is None:
-                # Fallback: tüm input/button'larda "İndir" ara
-                for etiket in ("input", "button", "a"):
-                    try:
-                        elemanlar = cerceve.query_selector_all(etiket)
-                        for el in elemanlar:
-                            try:
-                                metin = ((el.get_attribute("value") or "")
-                                         + " " + (el.inner_text() or ""))
-                                if "İndir" in metin or "indir" in metin:
-                                    indir_buton = el
-                                    break
-                            except Exception:
-                                continue
-                        if indir_buton:
-                            break
-                    except Exception:
-                        continue
-            if indir_buton is None:
-                bildir("UYARI: 'Seçilenleri İndir' butonu bulunamadı.")
+                bildir("UYARI: Secilenleri Indir butonu bulunamadi.")
                 return None
-            bildir("'Seçilenleri İndir' tıklanıyor...")
+
+            bildir(f"'Seçilenleri İndir' tıklanıyor... ({len(butonlar)} aday bulundu)")
             indir_buton.scroll_into_view_if_needed()
             cerceve.page.wait_for_timeout(500)
             try:
