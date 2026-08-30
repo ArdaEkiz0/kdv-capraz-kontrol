@@ -112,14 +112,6 @@ def kaydet(mukellefler):
             ctypes.windll.kernel32.SetFileAttributesW(gecici, 0x80)
     except Exception:
         pass
-    # Gecici dosyayi yalnizca su anki kullanici okuyabilir yap (ACL);
-    # boylece diger yerel hesaplar sifreli blob'lari okuyamaz.
-    try:
-        if os.name == "nt":
-            ctypes.windll.advapi32.SetNamedSecurityInfoW(
-                gecici, 1, 4, None, None, None, None)  # OWNER_RIGHTS
-    except Exception:
-        pass
     if os.path.exists(DOSYA):
         os.remove(DOSYA)
     os.replace(gecici, DOSYA)

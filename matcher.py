@@ -2,7 +2,6 @@ from decimal import Decimal
 from collections import defaultdict
 from datetime import datetime
 from difflib import SequenceMatcher
-import re
 
 from utils import tl_format, vkn_gecerli_mi
 from kurallar import beklenen_oran, kural_bul
@@ -26,30 +25,7 @@ DURUM_ONAYLI = "ONAYLI FARK"
 # Gerçek uygulamada gördüğün oranları: 0.70 (otömotiv/şarj/akaryakıt %30 tevk),
 # 0.95 (akaryakıt %5). Düşkün oranları (0.9/0.8/0.5 vb.) tutar farklıdan
 # ayırt etmek için katılmamıştır.
-# Muavin KDV'sinin fatura KDV'sine oranı (klasik yön: fatura tam KDV,
-# muavinde tevkifat sonrası kalan kısım kayıtlı).
-# %20 -> 0.80, %30 -> 0.70, %40 -> 0.60, %50 -> 0.50, %60 -> 0.40,
-# %70 -> 0.30, %80 -> 0.20, %90 -> 0.10, %10 -> 0.90, %5 -> 0.95
-# Klasik yön (fatura tam KDV, muavinde kalan). 0.80(%20) ve 0.90(%10)
-# kasıtlı dışarıda: bunlar KDV oran farkı senaryolarıyla karışabilir;
-# %20 tevkifat zaten TERS yönde (1.25 çarpanı) yakalanıyor.
-TEVKIFAT_ORANLARI = (Decimal("0.70"), Decimal("0.60"),
-                     Decimal("0.50"), Decimal("0.40"), Decimal("0.30"),
-                     Decimal("0.20"), Decimal("0.10"), Decimal("0.95"))
-
-# Ters yön: fatura özeti TEVKİFAT SONRASI KDV'yi gösterir (Luca/GİB özetinde
-# sık görülür), muavin fişinde ise KDV'nin TAMAMI yazılıdır. Bu durumda
-# muavin/fatura oranı = 1/(1-t) çıkar: %20 -> 1.25, %30 -> 1.4286,
-# %40 -> 1.6667, %50 -> 2.0, %60 -> 2.5, %70 -> 3.3333, %90 -> 10.0
-# Ters yön çarpanları: fatura özeti tevkifat SONRASI KDV gösterir, muavin
-# tam KDV içerir. Yaygın Türkiye KDV tevkifat oranlarından türetildi:
-#   %10 -> 1.1111, %20 -> 1.25, %30 -> 1.4286, %33(2/3) -> 1.5,
-#   %40 -> 1.6667, %50 -> 2.0, %60 -> 2.5, %70 -> 3.3333, %80 -> 5.0,
-#   %90 -> 10.0
-TEVKIFAT_CARPANLARI = (Decimal("1.25"), Decimal("1.4286"), Decimal("1.5"),
-                       Decimal("1.667"), Decimal("2.0"), Decimal("2.5"),
-                       Decimal("3.333"), Decimal("5.0"), Decimal("10.0"),
-                       Decimal("1.1111"), Decimal("1.0526"))
+TEVKIFAT_ORANLARI = (Decimal("0.70"), Decimal("0.95"))
 
 SORUNLU_DURUMLAR = (
     DURUM_TUTAR_FARKI, DURUM_VKN_FARKI, DURUM_KDV_SIFIR, DURUM_CETVELDE_YOK,
@@ -104,66 +80,22 @@ def _oran_yaklasik(f_deger, c_deger, hedef):
         return False
     if f_deger == 0:
         return False
-    oran = Decimal(str(c_deger)) / Decimal(str(f_deger))
-    hedef_d = Decimal(str(hedef))
-    return abs(oran - hedef_d) <= Decimal("0.02")
+    oran = c_deger / f_deger
+    return abs(oran - hedef) <= Decimal("0.02")
 
 
 def tevkifat_kes(f, c, ek_oran=None):
     """Fatura ile cetvel KDV/matrahı tevkifat oranıyla ilişkiliyse oranı döndürür, yoksa None.
 
-    İki yönlü denetim:
-    1) Klasik: fatura tam KDV taşır, muavinde tevkifat sonrası kalan
-       (# oranı TEVKIFAT_ORANLARI).
-    2) Ters: fatura özeti tevkifat SONRASI KDV gösterir (Luca/GİB özet
-       Excel'inde yaygın), muavinde KDV'nin TAMAMI kayıtlıdır
-       (çarpım oranı TEVKIFAT_CARPANLARI). Bu durumda pozitif oran
-       döner; tevkifat_orani = 1 - 1/carpan.
     ek_oran: firma kuralından gelen özel kabul oranı (varsayılanların yanında denenir).
-
-    YANLIŞ-POZİTİF KORUMASI:
-    Sadece KDV oranı değil, MATRAH oranı da tevkifatla tutarlı olmalı.
-    Eczane/ilaç faturalarında KDV 1.25 çarpanına yakın görünebilir ama
-    matrah oranı (1:1 ya da tamsayı) farklıdır -> tevkifat sayılmaz.
     """
     f_kdv = f.get("kdv")
     c_kdv = c.get("kdv")
-    f_matrah = f.get("matrah")
-    c_matrah = c.get("matrah")
-    if f_kdv is None or c_kdv is None or f_kdv == 0:
-        return None
-
-    oranlar = TEVKIFAT_ORANLARI + ((ek_oran,) if ek_oran is not None else ())
-    for oran in oranlar:
-        if _oran_yaklasik(f_kdv, c_kdv, oran):
-            # Klasik yön: fatura tam KDV; matrah da aynı oranda düşmüş olmalı
-            # (f_matrah / c_matrah ≈ oran). Matrah bilinmiyorsa kabul et.
-            if f_matrah is not None and c_matrah is not None and c_matrah != 0:
-                if abs(Decimal(str(f_matrah)) / Decimal(str(c_matrah))
-                       - Decimal(str(oran))) <= Decimal("0.03"):
-                    return oran
-            else:
+    if f_kdv is not None and c_kdv is not None and f_kdv != 0:
+        oranlar = TEVKIFAT_ORANLARI + ((ek_oran,) if ek_oran is not None else ())
+        for oran in oranlar:
+            if _oran_yaklasik(f_kdv, c_kdv, oran):
                 return oran
-        # Matrah oranı kontrolüyle yakalanan (matrah yoksa sadece kdv)
-        if f_matrah is not None and c_matrah is not None and c_matrah != 0:
-            if abs(Decimal(str(f_matrah)) / Decimal(str(c_matrah))
-                   - Decimal(str(oran))) <= Decimal("0.03") \
-                    and _oran_yaklasik(f_kdv, c_kdv, oran):
-                return oran
-
-    # Ters yön: muavin > fatura özeti KDV'si
-    carpanlar = TEVKIFAT_CARPANLARI + \
-        ((1 / (Decimal("1") - ek_oran),) if ek_oran is not None
-         and ek_oran != 1 else ())
-    for carpan in carpanlar:
-        if _oran_yaklasik(f_kdv, c_kdv, carpan):
-            # Ters yönde matrah: muavin matrahı / özet matrahı ≈ carpan
-            if f_matrah is not None and c_matrah is not None and f_matrah != 0:
-                if abs(Decimal(str(c_matrah)) / Decimal(str(f_matrah))
-                       - Decimal(str(carpan))) <= Decimal("0.03"):
-                    return float(carpan)
-            else:
-                return float(carpan)
     return None
 
 
@@ -176,24 +108,13 @@ def tevkifat_detay(f, c, oran):
             parcalar.append(alan.capitalize() + ": " + fark_metni(f_deger, c_deger))
     f_kdv = f.get("kdv")
     c_kdv = c.get("kdv")
-    ters = bool(oran and Decimal(str(oran)) > 1)
-    if ters:
-        # Ters yön: fatura özeti tevkifat sonrası gösterir, muavin tam KDV
-        tevkifat_oran = 1 - 1 / Decimal(str(oran))
-        t_yuzde = int(round(tevkifat_oran * 100))
-        temel = " | ".join(parcalar)
-        if f_kdv and c_kdv:
-            return (temel + f" | Fatura tevkifatlı (≈%{t_yuzde} tevkifat; "
-                    f"muavin tam KDV {float(c_kdv):,.2f} | özet {float(f_kdv):,.2f})")
-        return temel + f" | Tevkifatlı fatura (≈%{t_yuzde} tevkifat)"
     bant_yuzde = int(round((1 - oran) * 100))
     if f_kdv and c_kdv is not None:
         kayitli = float(c_kdv / f_kdv * 100)
         return (" | ".join(parcalar)
                 + f" | Muavin'de fatura KDV'sinin %{kayitli:.1f}'i kayıtlı"
                 + f" (tevkifat/kısmi kayıt bandı: %{bant_yuzde})")
-    return (" | ".join(parcalar) + f" | Muavin KDV tevkifatlı (≈%{bant_yuzde} düşülmüş)")
-
+    return " | ".join(parcalar) + f" | Muavin KDV tevkifatlı (≈%{bant_yuzde} düşülmüş)"
 
 
 def _tarih_gun_farki(a, b):
@@ -310,38 +231,6 @@ def olasilari_isaretle(sonuc_satirlari, faturalar, cetvel_kayitlari):
         r["detay"] = (r.get("detay") or "") + ek if r.get("detay") else metin
 
 
-def _harfler(metin):
-    """Karşılaştırma için yalnız harf/rakam içerik döndürür."""
-    import re as _re
-    return _re.sub(r"[^\w]", "", (metin or "").upper())
-
-
-def _satici_muavinde_var_mi(satici_metin, muavin_metinleri):
-    """Satıcı unvanının anlamlı kelime kökü, muavin açıklamalarının
-    herhangi birinde geçiyor mu? Hiç geçmiyorsa False -> fiş işlenmemiş."""
-    if not satici_metin or not muavin_metinleri:
-        return True  # bilinmiyor -> varsayımsal geçerli
-    k = re.sub(r"[^A-ZÇĞİÖŞÜ0-9]", " ", satici_metin.upper()).split()
-    # Jenerik/ortak kelimeler eşleşme sayılmaz (GIDA, SAN, TIC, LTD...)
-    # bunlar her satıcıda geçtiği için yanlış pozitif üretir.
-    GENEL = {"GIDA","SAN","TIC","LTD","STI","A","S","TURIZM","HIZMET",
-         "PAZARLAMA","SANAYI","TICARET","TUKETIM","MALLARI","VE","LIMITED",
-         "YURTICI","YURTDISI","TASIMACILIK","URUNLERI","GID","URN","TIC",
-         "INSAA","İNSAA","INSAAT","İNŞAAT","NAKLIYAT","DAGITIM",
-         "PAZ","TEM","KURUYEMIS","KURUMSAL","URUN","DONDU","TOPRAK",
-         "ŞİRKETİ","SIRKETI","SATIS","SATIŞ","ANONIM","ANONİM",
-         "MEŞRUBAT","MESRUBAT","GIDACILIK","ELEKTRONIK"}
-    kelimeler = [x for x in k
-                 if len(x) >= 4 and x not in GENEL and not x.isdigit()]
-    if not kelimeler:
-        return True  # ayırt edici kelime yok -> bilinemez, varsayımsal geçer
-    for km in kelimeler:
-        for m in muavin_metinleri:
-            if km in m:
-                return True
-    return False
-
-
 def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
     def anahtar_fatura(f):
         return (f["belge_no"] or "").upper()
@@ -391,15 +280,6 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
     kullanilan_c = set()
     kullanilan_f = set()
 
-    # Muavin kayıtlarının unvan/metin seti: bir faturanın satıcısı muavin
-    # boyunca hiç geçmiyorsa fişi işlenmemiş olabilir (net bilgi üretir).
-    muavin_metinleri = []
-    for c in cetvel_kayitlari:
-        parca = (str(c.get("unvan") or "") + " " +
-                 str(c.get("belge_no") or "")).strip()
-        if parca:
-            muavin_metinleri.append(parca.upper())
-
     def durum_ekle(durum, f, c, detay=""):
         f_belge = (f or {}).get("belge_no") if f else ((c or {}).get("belge_no") if c else "")
         f_vkn = (f or {}).get("satici_vkn") if f else ((c or {}).get("vkn") if c else "")
@@ -438,20 +318,6 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
 
     for anahtar, f_listesi in f_grup.items():
         c_listesi = c_grup.pop(anahtar, [])
-        if not c_listesi:
-            continue
-        # YÖN EŞLEŞMESİ: alış faturalar yalnız 191 hesabıyla, satış
-        # faturalar yalnız 391 hesabıyla karşılaştırılır. Cetvel hesabı
-        # bilinmeyen kayıtlar (eski veri) her iki yöne de açıktır.
-        ilk_f = f_listesi[0]
-        fatura_yon = (ilk_f.get("fatura_tipi") or
-                      ilk_f.get("tip") or "").upper()
-        if "SATIS" in fatura_yon or "GIDEN" in fatura_yon:
-            c_listesi = [c for c in c_listesi
-                         if not c.get("hesap") or c.get("hesap") != "191"]
-        elif "ALIS" in fatura_yon or "GELEN" in fatura_yon or "IADE" in fatura_yon:
-            c_listesi = [c for c in c_listesi
-                         if not c.get("hesap") or c.get("hesap") != "391"]
         if not c_listesi:
             continue
 
@@ -617,22 +483,7 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
             else:
                 durum = DURUM_OK
                 ozet["eslesen"] += 1
-                # Yanlış eşleşme koruması: satıcı unvanı ile muavin
-                # açıklaması hiç ortak harf dizisi içermiyorsa şüpheli
-                # olarak işaretle (belge no OCR yanılması olabilir).
                 detay = ""
-                try:
-                    _fu = _harfler(f.get("satici_unvan") or "")
-                    _cu = _harfler(c.get("unvan") or "")
-                    if _fu and _cu and not (_fu[:8] in _cu or _cu[:8] in _fu):
-                        ortak = max((len(_fu[i:i+5]) for i in range(0, len(_fu) - 4)
-                                     for j in range(len(_cu))
-                                     if _cu.startswith(_fu[i:i+5], j)), default=0)
-                        if ortak < 4:
-                            detay = "⚠ Şüpheli eşleşme: unvanlar farklı"
-                            ozet["supheli_eslesme"] =                                 ozet.get("supheli_eslesme", 0) + 1
-                except Exception:
-                    pass
                 if (f.get("indirim_toplam") or Decimal("0")) > Decimal("0"):
                     durum = DURUM_INDIRIMLI
                     detay = f"Fatura özel indirim içerir (≈{f['indirim_toplam']:,.2f})"
@@ -652,22 +503,11 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
                 ozet["mukerrer"] += 1
                 durum_ekle(DURUM_MUKERRER, f, None, "Aynı fatura birden fazla kayıt halinde")
             else:
-                            ozet["cetvelde_yok"] += 1
-                            detay = []
-                            if f["matrah"] is None or f["kdv"] is None:
-                                detay.append("Tutarlar okunamadı")
-                            # Net bilgi: satıcı muavin defterinde hiç geçmiyorsa fiş
-                            # işlenmemiş olabilir (Luca'da muhasebeleştirme bekleniyor).
-                            if not _satici_muavinde_var_mi(
-                                    (f.get("satici_unvan") or ""),
-                                    muavin_metinleri):
-                                detay.append("Muavinde satıcı hiç geçmiyor — fiş "
-                                             "işlenmemiş olabilir (Luca'da "
-                                             "muhasebeleştirme bekleniyor)")
-                            if not detay:
-                                detay.append("Cetvelde kaydı yok")
-                            durum_ekle(DURUM_CETVELDE_YOK, f, None,
-                                       " / ".join(detay))
+                ozet["cetvelde_yok"] += 1
+                detay = []
+                if f["matrah"] is None or f["kdv"] is None:
+                    detay.append("Tutarlar okunamadı")
+                durum_ekle(DURUM_CETVELDE_YOK, f, None, " / ".join(detay) if detay else "Cetvelde kaydı yok")
         # Artan cetvel satırları: defterde mükerrer kayıt.
         for j, c in enumerate(c_listesi):
             if j in c_kullanilan:
@@ -687,13 +527,7 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
         detay = []
         if f["matrah"] is None or f["kdv"] is None:
             detay.append("Tutarlar okunamadı")
-        if not _satici_muavinde_var_mi((f.get("satici_unvan") or ""),
-                                       muavin_metinleri):
-            detay.append("Muavinde satıcı hiç geçmiyor — fiş işlenmemiş "
-                         "olabilir (Luca'da muhasebeleştirme bekleniyor)")
-        if not detay:
-            detay.append("Cetvelde kaydı yok")
-        durum_ekle(DURUM_CETVELDE_YOK, f, None, " / ".join(detay))
+        durum_ekle(DURUM_CETVELDE_YOK, f, None, " / ".join(detay) if detay else "Cetvelde kaydı yok")
 
     for anahtar, c_listesi in list(c_grup.items()):
         for c in c_listesi:

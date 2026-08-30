@@ -28,28 +28,7 @@ def _yerel_ad(etiket):
 
 
 def _elemanlar(kok, yerel_ad):
-    """Yinelemeli olmayan (stack-yiginli) derin arama.
-
-    ElementTree.iter() C dilindeki recursion'ı kullanır ve derin XML'de
-    (çok katmanlı UBL faturalar, özel matrah/TaxTotal yığınları)
-    RecursionError üretebilir. Yığıt tabanlı gezinme bu sınırı aşar.
-    """
-    sonuc = []
-    yigit = [kok]
-    while yigit:
-        e = yigit.pop()
-        try:
-            if _yerel_ad(e.tag) == yerel_ad:
-                sonuc.append(e)
-        except Exception:
-            pass
-        try:
-            cocuklar = list(e)
-            for c in cocuklar:
-                yigit.append(c)
-        except Exception:
-            continue
-    return sonuc
+    return [e for e in kok.iter() if _yerel_ad(e.tag) == yerel_ad]
 
 
 def _metin(eleman):
@@ -59,23 +38,11 @@ def _metin(eleman):
 
 
 def _alt_eleman(kok, ust_ad, alt_ad):
-    """_ust altındaki _alt'ı yığıt tabanlı, recursion'suz arar."""
-    yigit = [kok]
-    ustler = []
-    while yigit:
-        e = yigit.pop()
-        try:
-            if _yerel_ad(e.tag) == ust_ad:
-                ustler.append(e)
-            if _yerel_ad(e.tag) == alt_ad and ustler:
-                return e
-        except Exception:
-            pass
-        try:
-            for c in list(e):
-                yigit.append(c)
-        except Exception:
-            continue
+    for e in kok.iter():
+        if _yerel_ad(e.tag) == ust_ad:
+            for a in e.iter():
+                if _yerel_ad(a.tag) == alt_ad:
+                    return a
     return None
 
 
@@ -146,53 +113,29 @@ def _icerikleri_oku(ham_veri):
             indirim_toplam += amt
     indirim_toplam = indirim_toplam.quantize(Decimal("0.01"))
 
-    vergi_totalleri = _elemanlar(kok, "TaxTotal")
-    belge_vergi = None
-    # ÖZEL MATRAH (OZELMATRAH) ve çok dilimli faturalarda birden fazla
-    # TaxTotal bloğu olabilir (her ürün/matrah dilimi için). Tek blok
-    # almak KDV'yi eksik okutur (ör. 1.951,67 yerine 3.903,34). Tüm
-    # TaxTotal'ların TaxSubtotal'ları tek seferde toplansın diye
-    # sanal bir tek blok gibi birleştirilir.
-    if len(vergi_totalleri) > 1:
-        class _Birlestir:
-            pass
-        birlesik = _Birlestir()
-        birlesik_kok = [tt for tt in vergi_totalleri]
-        belge_vergi = birlesik
-        belge_vergi.alt_bloklar = birlesik_kok
-    elif vergi_totalleri:
-        belge_vergi = vergi_totalleri[0]
+    vergi_totalleri = _dogrudan(kok, "TaxTotal")
+    belge_vergi = vergi_totalleri[0] if vergi_totalleri else None
+    belge_vergi = vergi_totalleri[0] if vergi_totalleri else None
 
     # Saf KDV (kod 0015) ve diğer vergileri (OİV/TRT vb.) ayrıştır.
     # Kontroli — KDV hesabı sadece 0015 üzerinden olmalı, OİV katılmameli.
     kdv = None
     diger_vergi_toplam = Decimal("0")
     kdv_ayrik = None
-    gorulen_dilimler = set()
     if belge_vergi is not None:
-        for e in _vergi_iter(belge_vergi):
+        for e in belge_vergi.iter():
             if _yerel_ad(e.tag) != "TaxSubtotal":
                 continue
             kod = ""
             amt = None
-            matrah = None
             for a in e.iter():
                 n = _yerel_ad(a.tag)
                 if n == "TaxTypeCode":
                     kod = (_metin(a) or "").strip()
                 elif n == "TaxAmount" and amt is None:
                     amt = _xml_tutar(_metin(a))
-                elif n == "TaxableAmount" and matrah is None:
-                    matrah = _xml_tutar(_metin(a))
             if amt is None:
                 continue
-            # ÖZEL MATRAH/çok satırlı faturalarda aynı dilim (matrah+KDV+oran)
-            # XML'de farklı TaxTotal bloklarında tekrar edebilir (üretici +
-            # bayi bilgisi). Aynı kombinasyonu bir kez say.
-            anahtar = (str(kod), str(matrah), str(amt))
-            if anahtar in gorulen_dilimler:
-                continue
-            gorulen_dilimler.add(anahtar)
             if kod == "0015" or (kod == "" and kdv is None):
                 if kdv_ayrik is None:
                     kdv_ayrik = Decimal("0")
@@ -219,7 +162,7 @@ def _icerikleri_oku(ham_veri):
     oranlar = []
     if belge_vergi is not None:
         # KDV kod (0015 veya kod boş) oranlarina ayır
-        for e in _vergi_iter(belge_vergi):
+        for e in belge_vergi.iter():
             if _yerel_ad(e.tag) != "TaxSubtotal":
                 continue
             kod = ""
@@ -251,7 +194,7 @@ def _icerikleri_oku(ham_veri):
 
     vergi_detay = []
     if belge_vergi is not None:
-        for e in _vergi_iter(belge_vergi):
+        for e in belge_vergi.iter():
             if _yerel_ad(e.tag) == "TaxSubtotal":
                 satir = {"oran": None, "matrah": None, "kdv": None, "muafiyet": None,
                          "ad": None, "kod": None}
@@ -346,19 +289,6 @@ def _icerikleri_oku(ham_veri):
         "oran_kontrol": oran_kontrol,
         "notlar": notlar,
     }
-
-
-def _vergi_iter(belge_vergi):
-    """belge_vergi birlesik ise tum TaxTotal bloklarinin TaxSubtotal'larini,
-    degilse kendi iter()'ini dondurur."""
-    alt = getattr(belge_vergi, "alt_bloklar", None)
-    if alt:
-        for blok in alt:
-            for e in blok.iter():
-                yield e
-    elif belge_vergi is not None:
-        for e in belge_vergi.iter():
-            yield e
 
 
 def fatura_xml_parse(dosya_yolu):
