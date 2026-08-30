@@ -2481,38 +2481,43 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         continue
                     toplu_zip = _tumu_sec_ve_indir(cerceve, bildir)
                     if toplu_zip and _dosya_saglam(toplu_zip):
-                        bildir(f"{kategori}: ZIP indirildi, açılıyor...")
+                        bildir(f"{kategori}: ZIP indirildi, aciliyor...")
                         try:
                             with zipfile.ZipFile(toplu_zip) as zipp:
-                                for ic_ad in zipp.namelist():
+                                icindekiler = zipp.namelist()
+                                bildir(f"ZIP Icindekiler ({len(icindekiler)} adet): {str(icindekiler[:5])}")
+                                for ic_ad in icindekiler:
                                     if ic_ad.endswith("/"):
                                         continue
                                     icerik = zipp.read(ic_ad)
-                                    if ic_ad.lower().endswith(".xml"):
-                                        ozet = _ubl_ozet(icerik)
-                                        dosya_adi = os.path.basename(ic_ad)
-                                        belge_no = os.path.splitext(
-                                            dosya_adi)[0]
+                                    # Sadece xml degil diger formatlari da kayitlara alalim (e-Arsiv icin genelde html/pdf duser)
+                                    if ic_ad.lower().endswith((".xml", ".html", ".htm", ".pdf", ".zip")):
+                                        ozet = {}
                                         tarih = ""
                                         unvan = ""
                                         vkn = ""
-                                        try:
-                                            import xml.etree.ElementTree as ET
-                                            kok = ET.fromstring(icerik)
-                                            for el in kok.iter():
-                                                tag = el.tag.split("}")[-1]
-                                                if tag == "IssueDate":
-                                                    tarih = el.text or ""
-                                                elif tag == "AccountingSupplierParty":
-                                                    for alt in el.iter():
-                                                        atag = alt.tag.split(
-                                                            "}")[-1]
-                                                        if atag == "Name":
-                                                            unvan = alt.text or ""
-                                                        elif atag == "ID":
-                                                            vkn = alt.text or ""
-                                        except Exception:
-                                            pass
+                                        dosya_adi = os.path.basename(ic_ad)
+                                        belge_no = os.path.splitext(dosya_adi)[0]
+                                        
+                                        if ic_ad.lower().endswith(".xml"):
+                                            ozet = _ubl_ozet(icerik)
+                                            try:
+                                                import xml.etree.ElementTree as ET
+                                                kok = ET.fromstring(icerik)
+                                                for el in kok.iter():
+                                                    tag = el.tag.split("}")[-1]
+                                                    if tag == "IssueDate":
+                                                        tarih = el.text or ""
+                                                    elif tag == "AccountingSupplierParty":
+                                                        for alt in el.iter():
+                                                            atag = alt.tag.split("}")[-1]
+                                                            if atag == "Name":
+                                                                unvan = alt.text or ""
+                                                            elif atag == "ID":
+                                                                vkn = alt.text or ""
+                                            except Exception:
+                                                pass
+                                                
                                         kayitlar.append({
                                             "belge_numarasi": belge_no,
                                             "belge_tarihi": tarih,
@@ -2556,7 +2561,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     if atlanan_belge:
                         bildir(f"{kategori}: {atlanan_belge} red/iptal "
                                "belge dışarıda bırakıldı.")
-                    if not kayitlar:
+                    if not kayitlar and not zip_yollari:
                         raise RuntimeError("tarih aralığında belge inmedi")
                     ozet_yol = _ozet_tablo_yaz(
                         os.path.join(
