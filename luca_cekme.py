@@ -2082,10 +2082,31 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         try:
             if indir_buton:
                 try:
-                    # Eger buton tiklaninca JS olayi calismiyorsa
-                    bildir(f'Buton bulundu: {str(indir_buton)[:70]}')
-                    indir_buton.evaluate('node => node.click()')
-                except:
+                    # Dogrudan butonun HTML'ini okuyalim (Teşhis için)
+                    try:
+                        b_html = indir_buton.evaluate("node => node.outerHTML")
+                        bildir(f"Buton Tam HTML: {b_html[:150]}")
+                    except:
+                        pass
+                        
+                    # Onclick degeri varsa, tiklamayla ugrasma, direkt JS olarak calistir!
+                    try:
+                        onclick_kodu = indir_buton.get_attribute("onclick")
+                        if not onclick_kodu and len(butonlar) > 1:
+                            # Belki diger butondadir
+                            onclick_kodu = butonlar[0].get_attribute("onclick")
+                            
+                        if onclick_kodu:
+                            bildir(f"Onclick dogrudan enjekte ediliyor: {onclick_kodu[:80]}...")
+                            cerceve.evaluate(onclick_kodu)
+                        else:
+                            bildir(f'Onclick bulunamadi, MouseEvent tetikleniyor.')
+                            indir_buton.evaluate("node => { node.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window})); }")
+                    except Exception as ev_err:
+                        bildir(f"JS Enjekte Hatasi: {ev_err}")
+                        indir_buton.click(force=True)
+                except Exception as b_err:
+                    bildir(f"Buton basma genel hata: {b_err}")
                     indir_buton.click(force=True)
             indirme = kuyruk.get(timeout=30)
         except Exception:
