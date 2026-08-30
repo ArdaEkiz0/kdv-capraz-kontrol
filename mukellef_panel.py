@@ -1,4 +1,4 @@
-"""Mükellefler paneli: profiller, yerel şifreli saklama ve otomatik GİB/Luca çekimi."""
+﻿"""Mükellefler paneli: profiller, yerel şifreli saklama ve otomatik GİB/Luca çekimi."""
 import calendar
 import os
 import threading
@@ -387,10 +387,10 @@ class MukellefPaneli(tk.Toplevel):
         def is_parcasi():
             try:
                 kullanilacak = list(cetvel_dosyalari)
-                luca_yedek = []
+                zip_yollari = []
                 if luca_planli and muavin_istendi:
-                    self._logla(f"Luca'ya giriş yapılıyor "
-                                f"(üye {degerler.get('luca_uye')})...")
+                    self._logla(
+                        f"Luca'ya giris yapiliyor (uye {degerler.get('luca_uye')})...")
                     try:
                         indirilen = luca_cekme.cek_muavin(
                             degerler["luca_uye"], degerler["ent_kullanici"],
@@ -399,16 +399,17 @@ class MukellefPaneli(tk.Toplevel):
                             ilerleme=self._logla)
                         kullanilacak = indirilen
                         self.after(0, lambda k=kayit, y=list(indirilen):
-                                   self._cetvel_hatirla(k, donem, y))
+                                       self._cetvel_hatirla(k, donem, y))
                     except luca_cekme.LucaHata as lhata:
                         yedek = self._kayitli_cetveller(kayit, donem)
                         if yedek:
                             kullanilacak = yedek
-                            self._logla(f"Luca hatası: {str(lhata)[:80]} — "
-                                        "kayıtlı muavinlerle devam ediliyor.")
+                            self._logla(
+                                f"Luca hatasi: {str(lhata)[:80]} -- "
+                                "kayitli muavinlerle devam ediliyor.")
                         else:
-                            self.after(0, lambda h="Luca muavin çekimi "
-                                       f"başarısız: {lhata}": self._cek_hata(h))
+                            self.after(0, lambda h=f"Luca muavin cekimi basarisiz: {lhata}":
+                                       self._cek_hata(h))
                             return
                 # Luca'dan TUM e-Belgeler: bagimsiz olarak fatura kutusuna
                 # bagli (muavin secilmese de calisir).
@@ -424,35 +425,42 @@ class MukellefPaneli(tk.Toplevel):
                             ilerleme=self._logla,
                             firma_adi=degerler.get("ad", ""),
                             duz_yaz=True)
-                        luca_ozetler = [v.get("ozet") for v in
-                                        (belge_sonuc or {}).values()
-                                        if v.get("ozet")]
-                        if luca_ozetler:
-                            self._logla(f"Luca'dan {len(luca_ozetler)} "
-                                        "belge kümesi indirildi "
-                                        "(e-Arşiv/e-Fatura, alış/satış).")
-                            luca_yedek.extend(luca_ozetler)
+                        toplam_belge = 0
+                        for kat, kat_sonuc in (belge_sonuc or {}).items():
+                            # ZIP fatura dosyalarini fatura listesine ekle
+                            kat_zipleri = kat_sonuc.get("zip") or []
+                            zip_yollari.extend(kat_zipleri)
+                            toplam_belge += kat_sonuc.get("belge_sayisi") or 0
+                        if toplam_belge > 0:
+                            self._logla(
+                                f"Luca'dan {toplam_belge} e-belge indirildi "
+                                "(e-Arsiv/e-Fatura, alis/satis).")
+                        else:
+                            self._logla("UYARI: Luca'dan hic e-belge indirilemedi.")
                     except luca_cekme.LucaHata as bhata:
-                        self._logla(f"Luca belge çekimi atlandı: "
-                                    f"{str(bhata)[:80]}")
+                        hata_mesaj = str(bhata)[:120]
+                        self._logla(f"Luca belge cekimi hatasi: {hata_mesaj}")
+                        # Muavin basariyla indirildiyse kontrol yine de baslasin;
+                        # sadece fatura bolumu bostsa kullaniciya uyar.
+                        if not zip_yollari:
+                            self.after(0, lambda h=hata_mesaj: self._cek_hata(
+                                "Luca fatura cekimi basarisiz: " + h))
+                            return
 
-                # Luca planliysa GİB HİÇ kullanilmaz; her sey Luca'dan.
+                # Luca planliysa GIB HIC kullanilmaz; her sey Luca'dan.
                 if luca_planli:
-                    yollar = list(luca_yedek)
+                    yollar = list(zip_yollari)
                     if not fatura_luca_istendi:
-                        self._logla("Fatura çekimi istenmedi — muavin "
-                                    "çekimi tamamlandı.")
+                        self._logla("Fatura cekimi istenmedi -- muavin cekimi tamamlandi.")
                     elif yollar:
-                        self._logla(f"Faturalar Luca'dan {len(yollar)} "
-                                    "belge kümesi olarak indirildi.")
+                        self._logla(
+                            f"Faturalar Luca'dan {len(yollar)} dosya olarak indirildi.")
                     else:
-                        self._logla("UYARI: Faturalar Luca'dan inmedi. "
-                                    "GİB'e bu mükellef için hiç "
-                                    "gidilmez (Lucadan çekim modu); "
-                                    "Luca bağlantısını kontrol edip "
-                                    "tekrar deneyin.")
+                        self._logla(
+                            "UYARI: Faturalar Luca'dan inmedi. "
+                            "GIB'e bu mukellef icin hic gidilmez (Lucadan cekim modu); "
+                            "Luca baglantisini kontrol edip tekrar deneyin.")
                 else:
-                    # Luca hesabi yok: klasik GİB yolu.
                     try:
                         yollar = gib_cekme.cek_e_arsiv_alis(
                             degerler["gib_tc"], degerler["gib_sifre"], bas,

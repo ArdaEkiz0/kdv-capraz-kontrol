@@ -1,4 +1,4 @@
-"""Luca (Türmob) web uygulamasından 191/391 muavin dökümü ve e-Belge
+﻿"""Luca (Türmob) web uygulamasından 191/391 muavin dökümü ve e-Belge
 (e-Fatura / e-Arşiv, alış + satış) dosyalarının çekimi.
 
 https://agiris.luca.com.tr/SSO/giris.erp ortak giriş sayfasına Üye Numarası +
@@ -1390,7 +1390,26 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
         if f:
             return f
 
-    bildir("gib530 frame yüklenemedi.")
+    bildir("gib530 frame yuklenemedi.")
+    if bildir is not None:
+        try:
+            nerede = erp.evaluate(
+                "top.frames['frm3'] "
+                "? top.frames['frm3'].location.href : 'frm3 yok'")
+            bildir(f"frm3 durumu: {str(nerede)[:100]}")
+        except Exception:
+            pass
+        try:
+            frame_urls = [f.url for f in erp.frames if f.url]
+            bildir(f"Mevcut frame'ler ({len(frame_urls)}): " + ", ".join(frame_urls[:5]))
+        except Exception:
+            pass
+        # Ek: tum frame URL'lerini logla
+        try:
+            frame_urls = [f.url for f in erp.frames if f.url]
+            bildir(f"Mevcut frame'ler ({len(frame_urls)}): " + ", ".join(frame_urls[:5]))
+        except Exception:
+            pass
     return None
 
 
@@ -1500,6 +1519,11 @@ def _muavin_frame(erp, uye_no, bildir=None):
                 "top.frames['frm3'] "
                 "? top.frames['frm3'].location.href : 'frm3 yok'")
             bildir(f"frm3 durumu: {str(nerede)[:100]}")
+        except Exception:
+            pass
+        try:
+            frame_urls = [f.url for f in erp.frames if f.url]
+            bildir(f"Mevcut frame'ler ({len(frame_urls)}): " + ", ".join(frame_urls[:5]))
         except Exception:
             pass
     return None
@@ -2062,14 +2086,60 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
 
 
 def _satir_sayisini_buyut(sayfa, bildir):
-    """Sayfalama satır seçicisinde yüksek değer/‘tümü’ seçer (best effort)."""
+    """Sayfalama satir secicisinde yuksek deger/'tumu' secer (best effort).
+
+    Once <select> dropdown'larini dener (Luca sayfalama icin yaygin),
+    ardindan buton/link yaklasimini dener.
+    """
+    _BUYUK_DESEN = re.compile(
+    r"(?i)^\s*(t.{0,2}m.{0,2}|hepsi|all|500|1000|2000)\s*$")
+    # ADIM 1: select dropdown'dan buyuk deger sec
+    try:
+        for sel in sayfa.query_selector_all("select"):
+            try:
+                if not sel.is_visible():
+                    continue
+                en_buyuk = None
+                en_buyuk_sayi = 0
+                for opt in sel.query_selector_all("option"):
+                    try:
+                        deger = (opt.get_attribute("value") or "").strip()
+                        metin = (opt.inner_text() or "").strip()
+                        if _BUYUK_DESEN.match(metin) or _BUYUK_DESEN.match(deger):
+                            en_buyuk = deger or metin
+                            en_buyuk_sayi = 9999
+                        try:
+                            sayi = int(deger or metin)
+                            if sayi > en_buyuk_sayi:
+                                en_buyuk = deger
+                                en_buyuk_sayi = sayi
+                        except (ValueError, TypeError):
+                            pass
+                    except Exception:
+                        continue
+                if en_buyuk is not None and en_buyuk_sayi >= 100:
+                    try:
+                        sel.select_option(value=en_buyuk)
+                        if bildir:
+                            bildir("Sayfalama: yuksek satir sayisi secildi.")
+                        return True
+                    except Exception:
+                        try:
+                            sel.select_option(label=en_buyuk)
+                            return True
+                        except Exception:
+                            pass
+            except Exception:
+                continue
+    except Exception:
+        pass
+    # ADIM 2: Buton/link yaklasimi (eski davranis)
     try:
         return _indir_butonu_tikla(
-            sayfa, (r"^\s*(t[üu]m[üu]|500|1000|2000)\s*$",
-                    r"sat[ıi]r\s*say[ıi]s"), zaman_asimi=2)
+            sayfa, (r"(?i)^\s*(t.{0,2}m.{0,2}|500|1000|2000)\s*$",
+                    r"sat.r.say.s"), zaman_asimi=2)
     except Exception:
         return False
-
 
 def _sayfa_butonlari(cerceve):
     """Luca belge listesindeki sayfa ilerleme düğmelerini döndürür.
@@ -2298,13 +2368,13 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             continue
                         durum_kisa = _turk_kucult(
                             str(belge.get("onay_durumu") or ""))
-                        iptal_ibare = str(belge.get("iptal_itiraz") or
-                                          belge.get("iptal_itiraz_durumu")
-                                          or "").strip()
+                        iptal_ibare_raw = str(belge.get("iptal_itiraz") or
+                                              belge.get("iptal_itiraz_durumu") or "").strip()
+                        # "0", "false", "hayir" = iptal degil
+                        iptal_ibare = "" if iptal_ibare_raw.lower() in ("", "0", "false", "hayir", "yok") else iptal_ibare_raw
                         if (iptal_ibare
                                 or ("red" in durum_kisa)
-                                or ("iptal" in durum_kisa)
-                                or (durum_kisa and "onay" not in durum_kisa)):
+                                or ("iptal" in durum_kisa)):
                             atlanan_belge += 1
                             continue
                         belge_no = (belge.get("belge_numarasi")

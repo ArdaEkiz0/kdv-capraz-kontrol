@@ -1,4 +1,4 @@
-import os
+﻿import os
 import re
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -448,8 +448,7 @@ def fatura_luca_ozet_parse(dosya_yolu):
         durum_metni = str(hucre("durum") or "").strip()
         durum_kucuk = (durum_metni.replace("İ", "i").replace("I", "i")
                        .replace("ı", "i").lower())
-        if (durum_kucuk and "onay" not in durum_kucuk) or \
-                "red" in durum_kucuk or "iptal" in durum_kucuk:
+        if "red" in durum_kucuk or "iptal" in durum_kucuk:
             continue
 
         tarih_deger = hucre("tarih")
@@ -1453,3 +1452,101 @@ def muavin_genel_parse(dosya_yolu):
         sonuc["notlar"].append(
             f"Genel format otomatik tanındı ({mod}, {len(sonuc['kayitlar'])} kayıt)")
     return sonuc
+
+
+def luca_ozet_xlsx_parse(dosya_yolu):
+    """Luca ozet xlsx dosyasini parse eder.
+
+    luca_cekme.py tarafindan uretilen ozet tablolarini okur:
+    belge_numarasi, belge_tarihi, karsi_vkn, matrah, kdv_toplam kolonlari.
+    Baslik satiri otomatik tespit edilir.
+
+    Her satirdan {belge_no, tarih, vkn, matrah, kdv, tutar, tip, kaynak: 'luca'}
+    dondurulen sozlukler listesi.
+    """
+    from utils import fatura_no_temizle, tarih_parse, tutar_parse, vkn_temizle
+
+    # Once fatura_luca_ozet_parse dene (daha zengin format)
+    sonuc = fatura_luca_ozet_parse(dosya_yolu)
+    if sonuc is not None:
+        # Sonuclara kaynak='luca' ekle
+        for kayit in sonuc:
+            kayit.setdefault('kaynak', 'luca')
+            kayit.setdefault('tutar', kayit.get('toplam'))
+        return sonuc
+
+    # Alternatif: sade Luca ozet formati (belge_no, tarih, vkn, matrah, kdv)
+    satirlar = excel_satirlar(dosya_yolu)
+    baslik_i = None
+    kolon = {}
+    LUCA_OZET_ALANLARI = {
+        'belge': ['BELGE NO', 'BELGE NUMARASI', 'BELGE_NUMARASI', 'FATURA NO'],
+        'tarih': ['TARIH', 'BELGE TARIHI', 'BELGE_TARIHI', 'FATURA TARIHI'],
+        'vkn':   ['VKN', 'KARSI VKN', 'KARSI_VKN', 'VERGI NO', 'TCKN'],
+        'matrah':['MATRAH', 'KDV MATRAHI', 'KDV HARIC TUTAR'],
+        'kdv':   ['KDV', 'KDV TUTARI', 'KDV TOPLAM', 'KDV_TOPLAM', 'HESAPLANAN KDV'],
+        'tutar': ['GENEL TOPLAM', 'TOPLAM', 'FATURA TOPLAMI'],
+    }
+
+    def norm(d):
+        if d is None:
+            return ''
+        metin = str(d).upper()
+        for k, v in {'I': 'I', 'I': 'I', 'G': 'G', 'U': 'U', 'S': 'S', 'O': 'O', 'C': 'C'}.items():
+            pass
+        tr = {'\u0130': 'I', '\u011e': 'G', '\xdc': 'U', '\u015e': 'S',
+               '\xd6': 'O', '\xc7': 'C', '\u0131': 'I', '\u011f': 'G',
+               '\xfc': 'U', '\u015f': 'S', '\xf6': 'O', '\xe7': 'C'}
+        for k, v in tr.items():
+            metin = metin.replace(k, v)
+        return ' '.join(''.join(c if c.isalnum() else ' ' for c in metin).split())
+
+    for i, satir in enumerate(satirlar):
+        normlar = [norm(c) for c in satir]
+        eslesen = 0
+        gecici_kolon = {}
+        for alan, adaylar in LUCA_OZET_ALANLARI.items():
+            for j, n in enumerate(normlar):
+                if any(n == norm(a) or n.startswith(norm(a)) for a in adaylar):
+                    gecici_kolon[alan] = j
+                    eslesen += 1
+                    break
+        if eslesen >= 3 and 'belge' in gecici_kolon:
+            baslik_i = i
+            kolon = gecici_kolon
+            break
+
+    if baslik_i is None:
+        return None
+
+    sonuc = []
+    for i in range(baslik_i + 1, len(satirlar)):
+        satir = satirlar[i]
+        if not any(c is not None and str(c).strip() for c in satir):
+            continue
+        belge_ham = satir[kolon['belge']] if kolon.get('belge') is not None and kolon['belge'] < len(satir) else None
+        if belge_ham is None or not str(belge_ham).strip():
+            continue
+        def h(alan):
+            j = kolon.get(alan)
+            if j is None or j >= len(satir):
+                return None
+            return satir[j]
+        tarih_val = h('tarih')
+        t = tarih_parse(str(tarih_val).strip()) if tarih_val else None
+        kayit = {
+            'belge_no': fatura_no_temizle(str(belge_ham)),
+            'tarih': str(t) if t else None,
+            'vkn': vkn_temizle(str(h('vkn') or '')),
+            'matrah': tutar_parse(h('matrah')),
+            'kdv': tutar_parse(h('kdv')),
+            'tutar': tutar_parse(h('tutar')),
+            'tip': 'luca_ozet',
+            'kaynak': 'luca',
+            'dosya': dosya_yolu,
+            'satir': i + 1,
+        }
+        sonuc.append(kayit)
+
+    return sonuc if sonuc else None
+
