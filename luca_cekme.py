@@ -1298,45 +1298,30 @@ def _tani_kaydet(kategori, cerceve):
 
 
 def _gib530_frame(erp, tur, uye_no, bildir=None):
-    """Ana icerik cercevesini istenen gib530 ekranina goturur ve frame'i
-    dondurur; yuklenmezse None doner.
+    """frm3 frame'ini gib530 ekranina goturur ve frame'i dondurur.
 
-    Firma secimi sonrasi cerceveler yeniden yuklendigi icin ilk
-    denemede 'execution context destroyed' hatasi normaldir; gezinme
-    araliklarla yeniden denenir.
+    Luca'nin frameset yapisi:
+      frm1 = ust bar, frm2 = tab, frm3 = ana icerik (gib530 burada).
+      frm3 disindaki frame'lere dokunulmaz (sayfayi bozar).
 
-    Yeni mükellefte 'E-Fatura Satış' turunun ana menüde takılmasını
-    önlemek için: tur adresi yalnız frm3'e değil, bulunan her
-    gib530 frame'ine uygulanır; ayrıca her denemede tüm frame'ler
-    taranır ve yalnız istenen turdaki gib530 döndürülür (eski turdayken
-    yanlış frame dönmesin diye URL içinde tur de denetlenir).
-
-    Bazen tur geçişi frm3 yönlendirmesiyle olmaz (Luca'nın kimi
-    ekranları farklı frame/sekme kullanır). Bu yüzden yönlendirme
-    başarısız olursa, en-dış sayfada doğrudan gib530.do adresine
-    gidilir ve yükleme beklenir.
+    Yalnzca 3 deneme: frm3'u gonder, bekle, bul. Basarisizsa None don.
     """
     adres = f"gib530.do?tur={tur}&c_musteri_id={uye_no}"
-    # Yalnız frame-içi yönlendirme: ana pencereyi asla değiştirme (goto
-    # ana ERP'yi bozup çekimi çökertebiliyor). frm3 yanında, kullanıcı
-    # yapılandırmasına göre farklı olabilecek adları da dener.
-    frame_adlari = ["frm3", "frm1", "frm2", "main", "icerik", "content",
-                    "fatura"]
-    for deneme in range(10):
-        try:
-            if deneme in (0, 2, 4, 6, 8):
-                for fn in frame_adlari:
-                    erp.evaluate(
-                        "p => { const [fn, u] = p;"
-                        " const f = top.frames[fn];"
-                        " if (f) { f.location.href = u; }"
-                        " else { const el = document.querySelector("
-                        "   'iframe[name=\"' + fn + '\"],frame[name=\"' + fn + '\"]');"
-                        "   if (el) el.src = u; } }",
-                        [fn, adres])
-        except Exception:
-            pass
-        time.sleep(1.2)
+    if bildir is None:
+        bildir = lambda s: None
+
+    # ADIM 1: frm3'ü bir kez yönlendir (sayfayı BOZMADAN)
+    try:
+        erp.evaluate(
+            "a => { const f = top.frames['frm3'];"
+            " if (f) f.location.href = a; }",
+            adres)
+    except Exception:
+        pass
+
+    # ADIM 2: Yükleme bekle (en fazla 15sn)
+    for _ in range(15):
+        time.sleep(1)
         for f in erp.frames:
             try:
                 url = f.url or ""
@@ -1344,54 +1329,39 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
                     return f
             except Exception:
                 continue
-    # Frm3 yönlendirmesiyle olmadıysa, TÜM çocuk frame'lere tur adresini
-    # uygula (hangi frame gib530'u taşıyorsa o yüklensin).
+
+    # ADIM 3: Hâlâ yüklenmediyse,frm3'ü bir kez daha dene
+    bildir("frm3 yüklenmedi, tekrar deneniyor...")
     try:
-        for f in erp.frames:
-            try:
-                if f == erp:
-                    continue
-                f.evaluate("u => { window.location.href = u; }",
-                           adres if adres.startswith("http") else
-                           "gib530.do?tur=" + tur + "&c_musteri_id=" +
-                           str(uye_no))
-                time.sleep(1.5)
-                if "gib530" in (f.url or "") and tur in (f.url or ""):
-                    if len(f.content()) > 5000:
-                        return f
-            except Exception:
-                continue
+        erp.evaluate(
+            "a => { const f = top.frames['frm3'];"
+            " if (f) f.location.href = a; }",
+            adres)
     except Exception:
         pass
 
-    # Son çare: ERP sayfasında tüm frame'leri tara, herhangi birinde
-    # gib530 yüklenmiş mi bak (farklı isimlendirme olabilir).
-    try:
+    for _ in range(10):
+        time.sleep(1)
         for f in erp.frames:
             try:
                 url = f.url or ""
-                icerik = f.content() or ""
-                if ("gib530" in url or "gib_ebelge" in url
-                        or "gib_efatura" in url) and len(icerik) > 5000:
-                    return f
-                # Frame URL'de yok ama içerikte form alanları var mı?
-                if len(icerik) > 10000 and ("Belge Türü" in icerik
-                                            or "başlangıç" in icerik.lower()
-                                            or "gelen" in icerik.lower()):
+                if "gib530" in url and tur in url and len(f.content()) > 5000:
                     return f
             except Exception:
                 continue
-    except Exception:
-        pass
 
-    if bildir is not None:
+    # Son kontrol: frame URL'de gib530 yok ama içerikte form var mı?
+    for f in erp.frames:
         try:
-            nerede = erp.evaluate(
-                "top.frames['frm3'] "
-                "? top.frames['frm3'].location.href : 'frm3 yok'")
-            bildir(f"frm3 durumu: {str(nerede)[:100]}")
+            url = f.url or ""
+            icerik = f.content() or ""
+            if len(icerik) > 10000 and ("Belge Türü" in icerik
+                                        or "GİB E-Belge" in icerik):
+                return f
         except Exception:
-            pass
+            continue
+
+    bildir("gib530 frame yüklenemedi.")
     return None
 
 
