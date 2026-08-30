@@ -2154,6 +2154,107 @@ def _sonraki_sayfaya_git(cerceve):
 
 
 
+def _sayfa_butonlari(cerceve):
+    """Luca belge listesindeki sayfa ilerleme düğmelerini döndürür.
+
+    Geniş tarama: input/button/a + span/div + onclick içeren her öğe.
+    Metin ya da onclick'te 'sonraki/ileri/next/»/›/>' veya 'sayfa 2'
+    deseni aranır; 'önceki/geri' hariç.
+    """
+    adaylar = []
+    try:
+        ogeler = cerceve.query_selector_all(
+            "input, button, a, span, div, td, li, img, b, i")
+        for oge in ogeler:
+            try:
+                metin = ((oge.get_attribute("value") or "")
+                         + " " + (oge.inner_text() or "")
+                         + " " + (oge.get_attribute("onclick") or "")
+                         + " " + (oge.get_attribute("title") or "")
+                         + " " + (oge.get_attribute("alt") or "")).strip()
+                if not metin:
+                    continue
+                k = metin.lower()
+                # 'önceki/geri' hariç; ilerleme desenleri
+                if "onceki" in k or "geri" in k:
+                    continue
+                ilerleme = (
+                    "sonraki" in k or "ileri" in k or "next" in k
+                    or "»" in k or "›" in k or ">>" in k
+                    or k.strip() in (">", "→")
+                    or "sayfa 2" in k or "sayfa2" in k
+                    or re.search(r"goPage|nextPage|sayfaGec|ileri", k)
+                    or re.search(r"pager", k)
+                )
+                if ilerleme:
+                    adaylar.append(oge)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return adaylar
+
+
+
+def _satir_sayisini_buyut(sayfa, bildir):
+    """Sayfalama satir secicisinde yuksek deger/'tumu' secer (best effort).
+
+    Once <select> dropdown'larini dener (Luca sayfalama icin yaygin),
+    ardindan buton/link yaklasimini dener.
+    """
+    _BUYUK_DESEN = re.compile(
+    r"(?i)^\s*(t.{0,2}m.{0,2}|hepsi|all|500|1000|2000)\s*$")
+    # ADIM 1: select dropdown'dan buyuk deger sec
+    try:
+        for sel in sayfa.query_selector_all("select"):
+            try:
+                if not sel.is_visible():
+                    continue
+                en_buyuk = None
+                en_buyuk_sayi = 0
+                for opt in sel.query_selector_all("option"):
+                    try:
+                        deger = (opt.get_attribute("value") or "").strip()
+                        metin = (opt.inner_text() or "").strip()
+                        if _BUYUK_DESEN.match(metin) or _BUYUK_DESEN.match(deger):
+                            en_buyuk = deger or metin
+                            en_buyuk_sayi = 9999
+                        try:
+                            sayi = int(deger or metin)
+                            if sayi > en_buyuk_sayi:
+                                en_buyuk = deger
+                                en_buyuk_sayi = sayi
+                        except (ValueError, TypeError):
+                            pass
+                    except Exception:
+                        continue
+                if en_buyuk is not None and en_buyuk_sayi >= 100:
+                    try:
+                        sel.select_option(value=en_buyuk)
+                        if bildir:
+                            bildir("Sayfalama: yuksek satir sayisi secildi.")
+                        return True
+                    except Exception:
+                        try:
+                            sel.select_option(label=en_buyuk)
+                            return True
+                        except Exception:
+                            pass
+            except Exception:
+                continue
+    except Exception:
+        pass
+    # ADIM 2: Buton/link yaklasimi (eski davranis)
+    try:
+        return _indir_butonu_tikla(
+            sayfa, (r"(?i)^\s*(t.{0,2}m.{0,2}|500|1000|2000)\s*$",
+                    r"sat.r.say.s"), zaman_asimi=2)
+    except Exception:
+        return False
+
+
+
+
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                        hedef_klasor, kategoriler=None, ilerleme=None,
                        gorunur=True, firma_adi=None, duz_yaz=True,
