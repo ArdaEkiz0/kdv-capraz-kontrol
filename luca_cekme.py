@@ -1180,7 +1180,20 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
     ust.wait_for_timeout(500)
     ust.click("button:has-text('Tamam')")
     bildir(f"Firma/dönem seçildi: {hedef['t']} / {donem['t']}")
-    time.sleep(8)
+    # frm3'ün yüklenmesi için bekle — firmaya geçiş frame'leri yeniden
+    # yükler, 8sn her zaman yeterli olmayabilir.
+    for i in range(15):
+        time.sleep(1)
+        try:
+            for f in erp.frames:
+                url = f.url or ""
+                if "gib530" in url or "dummy" not in url:
+                    if len(f.content() or "") > 3000:
+                        time.sleep(1)
+                        return hedef["t"], donem["t"]
+        except Exception:
+            continue
+    time.sleep(5)
     return hedef["t"], donem["t"]
 
 
@@ -1304,13 +1317,45 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
       frm1 = ust bar, frm2 = tab, frm3 = ana icerik (gib530 burada).
       frm3 disindaki frame'lere dokunulmaz (sayfayi bozar).
 
-    Yalnzca 3 deneme: frm3'u gonder, bekle, bul. Basarisizsa None don.
+    Akis:
+    1. frm3 zaten gib530 mu? (firma/donem seciminden sonra yuklenebilir)
+    2. Degilse frm3'e gib530.do yukle, bekle
+    3. Hala yoksa icerige gore bul (URL'ye bagli degil)
     """
     adres = f"gib530.do?tur={tur}&c_musteri_id={uye_no}"
     if bildir is None:
         bildir = lambda s: None
 
-    # ADIM 1: frm3'ü bir kez yönlendir (sayfayı BOZMADAN)
+    def _frame_bul():
+        """Tum frame'lerde gib530 icerigi ara."""
+        for f in erp.frames:
+            try:
+                url = f.url or ""
+                icerik = f.content() or ""
+                if len(icerik) < 3000:
+                    continue
+                # URL'de gib530 var mi?
+                if "gib530" in url:
+                    return f
+                # Icerikte belge tablosu var mi?
+                if ("Belge Türü" in icerik or "GİB E-Belge" in icerik
+                        or "Belge Numarası" in icerik):
+                    return f
+            except Exception:
+                continue
+        return None
+
+    # ADIM 1: Zaten yuklu mu kontrol et (firma/donem secimi sonra
+    # frm3 otomatik olarak gib530 yukleyebilir).
+    bildir("frm3 kontrol ediliyor...")
+    for _ in range(5):
+        f = _frame_bul()
+        if f:
+            return f
+        time.sleep(1)
+
+    # ADIM 2: frm3'e yukle
+    bildir(f"frm3'e {tur} yükleniyor...")
     try:
         erp.evaluate(
             "a => { const f = top.frames['frm3'];"
@@ -1319,47 +1364,31 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
     except Exception:
         pass
 
-    # ADIM 2: Yükleme bekle (en fazla 15sn)
+    # ADIM 3: Yukleme bekle (en fazla 25sn)
+    for i in range(25):
+        time.sleep(1)
+        f = _frame_bul()
+        if f:
+            return f
+        # Her 5sn'de bir durum raporu
+        if i > 0 and i % 5 == 0:
+            bildir(f"frm3 yükleniyor... ({i}sn)")
+
+    # ADIM 4: Son bir deneme - frm3'e tekrar gonder
+    bildir("frm3 tekrar deneniyor...")
+    try:
+        erp.evaluate(
+            "a => { const f = top.frames['frm3'];"
+            " if (f) f.location.href = a; }",
+            adres)
+    except Exception:
+        pass
+
     for _ in range(15):
         time.sleep(1)
-        for f in erp.frames:
-            try:
-                url = f.url or ""
-                if "gib530" in url and tur in url and len(f.content()) > 5000:
-                    return f
-            except Exception:
-                continue
-
-    # ADIM 3: Hâlâ yüklenmediyse,frm3'ü bir kez daha dene
-    bildir("frm3 yüklenmedi, tekrar deneniyor...")
-    try:
-        erp.evaluate(
-            "a => { const f = top.frames['frm3'];"
-            " if (f) f.location.href = a; }",
-            adres)
-    except Exception:
-        pass
-
-    for _ in range(10):
-        time.sleep(1)
-        for f in erp.frames:
-            try:
-                url = f.url or ""
-                if "gib530" in url and tur in url and len(f.content()) > 5000:
-                    return f
-            except Exception:
-                continue
-
-    # Son kontrol: frame URL'de gib530 yok ama içerikte form var mı?
-    for f in erp.frames:
-        try:
-            url = f.url or ""
-            icerik = f.content() or ""
-            if len(icerik) > 10000 and ("Belge Türü" in icerik
-                                        or "GİB E-Belge" in icerik):
-                return f
-        except Exception:
-            continue
+        f = _frame_bul()
+        if f:
+            return f
 
     bildir("gib530 frame yüklenemedi.")
     return None
