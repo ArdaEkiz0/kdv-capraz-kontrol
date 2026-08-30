@@ -2023,7 +2023,7 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         # ADIM 2: Dialog handler (pop-up) ekle
     def oto_onay(dialog):
         try:
-            print("Dialog algilandi:", dialog.message)
+            bildir(f"Luca mesaji (Dialog): {dialog.message}")
             dialog.accept()
         except:
             pass
@@ -2077,7 +2077,12 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
             bildir("'Seçilenleri İndir' tıklanıyor...")
             indir_buton.scroll_into_view_if_needed()
             cerceve.page.wait_for_timeout(500)
-            indir_buton.click()
+            try:
+                # Eger buton tiklaninca JS olayi calismiyorsa
+                bildir(f'Buton bulundu: {str(indir_buton)[:70]}')
+                indir_buton.evaluate('node => node.click()')
+            except:
+                indir_buton.click(force=True)
             indirme = indirme_bekle.value
     except Exception as hata:
         bildir(f"İndirme başlatılamadı: {str(hata)[:60]}")
@@ -2087,7 +2092,12 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         sayfa.on("download", dinleyici)
         try:
             if indir_buton:
-                indir_buton.click()
+                try:
+                    # Eger buton tiklaninca JS olayi calismiyorsa
+                    bildir(f'Buton bulundu: {str(indir_buton)[:70]}')
+                    indir_buton.evaluate('node => node.click()')
+                except:
+                    indir_buton.click(force=True)
             indirme = kuyruk.get(timeout=30)
         except Exception:
             bildir("İndirme başarısız.")
