@@ -1209,16 +1209,20 @@ def _gibten_getir(cerceve, bildir=None):
     try:
         sayfa = cerceve.page
         buton = cerceve.query_selector(
-            "input[type=button][value*='Getir' i], "
-            "input[type=submit][value*='Getir' i], "
-            "button:has-text('Getir'), a:has-text('Getir')")
+            "input[type='button'][value*='Getir'], "
+            "input[type='submit'][value*='Getir'], "
+            "input[type='button'][value*='getir'], "
+            "button:has-text('Getir'), button:has-text('getir'), "
+            "a:has-text('Getir'), a:has-text('getir'), "
+            "td.button:has-text('Getir'), div.button:has-text('Getir')")
         if buton is None or not buton.is_visible():
             for d in (r"[Gİ]B.*[Gg]etir", r"[Gg]etir.*[Gİ]B",
                       r"[İi]nternetten [Gg]etir"):
                 try:
                     buton = cerceve.query_selector(
-                        f"input[type=button][value*='{d[:1]}'], "
-                        f"button:has-text('{d}')")
+                        f"input[type='button'][value*='{d[:1]}'], "
+                        f"input[type='button'][value*='{d[:1].upper()}'], "
+                        f"button:has-text('{d}'), a:has-text('{d}')")
                     if buton is not None and buton.is_visible():
                         break
                 except Exception:
@@ -1334,12 +1338,10 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
                 icerik = f.content() or ""
                 if len(icerik) < 3000:
                     continue
-                # URL'de gib530 var mi?
-                if "gib530" in url:
-                    return f
-                # Icerikte belge tablosu var mi?
-                if ("Belge Türü" in icerik or "GİB E-Belge" in icerik
-                        or "Belge Numarası" in icerik):
+                # URL'de gib530 VE dogru kategori (tur) var mi?
+                # VEYA eger URL gizlenmisse (bazı Luca surumleri URL'yi about:blank vs yapabiliyor)
+                # sayfa icinde secili olan kategoriyi anlatan metinler varsa (ornegin "e-Arsiv Fatura (Alis)")
+                if "gib530" in url and f"tur={tur}" in url:
                     return f
             except Exception:
                 continue
@@ -1355,14 +1357,31 @@ def _gib530_frame(erp, tur, uye_no, bildir=None):
         time.sleep(1)
 
     # ADIM 2: frm3'e yukle
-    bildir(f"frm3'e {tur} yükleniyor...")
-    try:
-        erp.evaluate(
-            "a => { const f = top.frames['frm3'];"
-            " if (f) f.location.href = a; }",
-            adres)
-    except Exception:
-        pass
+    bildir(f"frm3'e {tur} yukleniyor (URL: {adres})...")
+    # Playwright API'siyle frame'i bulup gitmek her zaman daha guvenlidir:
+    hedef_f = None
+    for f in erp.frames:
+        if f.name == "frm3":
+            hedef_f = f
+            break
+            
+    if hedef_f:
+        try:
+            # Domain'i ekleyerek tam URL olustur
+            # erp sayfasinin kok URL'sini bulalim
+            kok_url = "/".join(erp.url.split("/")[:3]) # orn: https://lms.luca.com.tr
+            tam_adres = kok_url + "/lms/" + adres
+            # Guncel Luca surumlerinde frame icinde link cagirmak "Navigation to url is restricted" verebilir
+            # bu yuzden evalute denemesi daha guvenli olabilir ama loglayalim
+            erp.evaluate(
+                "a => { const f = top.frames['frm3'];"
+                " if (f) f.location.href = a; }",
+                adres)
+            bildir(f"JS ile frm3 yonlendirmesi cagrildi.")
+        except Exception as e:
+            bildir(f"JS yonlendirme hatasi: {e}")
+    else:
+        bildir("UYARI: frm3 isimli frame Playwright tarafindan bulunamadi!")
 
     # ADIM 3: Yukleme bekle (en fazla 25sn)
     for i in range(25):
@@ -1529,7 +1548,7 @@ def _muavin_frame(erp, uye_no, bildir=None):
     return None
 
 
-_FATURA_JSON = re.compile(r'fatura="([^"]+)"')
+_FATURA_JSON = re.compile(r'fatura=[\"\'](.*?)[\"\']')
 
 
 def _satirlari_ayikla(html_metin):
@@ -2311,7 +2330,10 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # İlk olarak satır sayısını artırmayı dene (500/1000/tümü);
                     # Luca tek sayfada en fazla ~500 fatura listeler.
                     try:
-                        _satir_sayisini_buyut(cerceve, bildir)
+                        if _satir_sayisini_buyut(cerceve, bildir):
+                            import time
+                            time.sleep(6)
+                            bildir('Sayfalama yenilendi, bekleniyor...')
                         cerceve.page.wait_for_timeout(1000)
                     except Exception:
                         pass
