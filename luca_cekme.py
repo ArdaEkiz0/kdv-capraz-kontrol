@@ -1963,29 +1963,15 @@ def _dosya_saglam(yol):
 
 
 def _tumu_sec_ve_indir(cerceve, bildir=None):
-    """Tümünü Seç + Seçilenleri İndir akışını çalıştırır.
-
-    Sayfayı BOZMADAN sadece Playwright click kullanır:
-    1. Tablodaki tüm checkbox'ları tek tek tıkla (hepsini_sec JS'ini çağırmaz)
-    2. "Seçilenleri İndir" butonuna bas
-    3. İndirmeyi bekle
-
-    Dönüş: indirilen ZIP dosya yolu veya None.
-    """
+    """Tümünü Seç + Seçilenleri İndir akışını çalıştırır."""
     if bildir is None:
         bildir = lambda s: None
     sayfa = cerceve.page
 
-    # ADIM 1: Header checkbox'ı ile tümünü seç (tek tık)
     bildir("Tüm belgeler seçiliyor...")
     secildi = False
     try:
-        # Tablonun üst satırındaki checkbox (tümünü seç)
-        baslik_cb = cerceve.query_selector(
-            "table input[type='checkbox'], "
-            "th input[type='checkbox'], "
-            "thead input[type='checkbox'], "
-            ".grid-header input[type='checkbox']")
+        baslik_cb = cerceve.query_selector("table input[type='checkbox'], th input[type='checkbox'], thead input[type='checkbox'], .grid-header input[type='checkbox']")
         if baslik_cb and baslik_cb.is_visible():
             baslik_cb.click()
             cerceve.page.wait_for_timeout(1000)
@@ -1995,12 +1981,8 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         pass
 
     if not secildi:
-        # Fallback: tüm satır checkbox'larını tek tek tıkla
         try:
-            tum_cb = cerceve.query_selector_all(
-                "td input[type='checkbox'], "
-                "tbody input[type='checkbox'], "
-                "table input[type='checkbox']")
+            tum_cb = cerceve.query_selector_all("td input[type='checkbox'], tbody input[type='checkbox'], table input[type='checkbox']")
             tiklanan = 0
             for cb in tum_cb:
                 try:
@@ -2020,241 +2002,126 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         bildir("UYARI: Hiçbir checkbox seçilemedi.")
         return None
 
-        # ADIM 2: Dialog handler (pop-up) ekle
     def oto_onay(dialog):
         try:
             bildir(f"Luca mesaji (Dialog): {dialog.message}")
             dialog.accept()
         except:
             pass
-    
     sayfa.on('dialog', oto_onay)
+
+    bildir("'Seçilenleri İndir' aranıyor...")
     
-    # ADIM 2: "Secilenleri Indir" butonunu bul ve tikla
-    bildir("'Seçilenleri İndir' butonu aranıyor...")
-    indirme = None
+    # 1. Butonu Bul
+    butonlar = cerceve.query_selector_all(
+        "input[type='button'][value*='Seçilenleri' i], input[type='submit'][value*='Seçilenleri' i], "
+        "button:has-text('Seçilenleri'), a:has-text('Seçilenleri İndir'), a:has-text('Seçilenleri'), "
+        "input[value*='Seçilenleri'], .button:has-text('Seçilenleri')"
+    )
+    
+    indir_buton = None
+    for b in butonlar:
+        if b.is_visible():
+            indir_buton = b
+            break
+    if not indir_buton and len(butonlar) > 0:
+        indir_buton = butonlar[-1]
+
+    if indir_buton is None:
+        bildir("UYARI: Buton bulunamadi.")
+        return None
+
+    import queue
+    import threading
+    kuyruk = queue.Queue()
+    dinleyici = lambda d: kuyruk.put(d)
+    sayfa.on("download", dinleyici)
+    
+    # Eger popup acarsa, popup uzerindeki download'lari da dinle
+    popup_dinleyici = lambda popup: popup.on("download", lambda d: kuyruk.put(d))
+    sayfa.on("popup", popup_dinleyici)
+
+    cerceve.page.wait_for_timeout(200)
+    
     try:
-        with sayfa.expect_download(timeout=90000) as indirme_bekle:
-            # Butonu多种yoluyla bul
-            indir_buton = None
-            # Tum olasi butonlari topla
-            butonlar = cerceve.query_selector_all(
-                "input[type='button'][value*='Seçilenleri' i], "
-                "input[type='submit'][value*='Seçilenleri' i], "
-                "button:has-text('Seçilenleri'), "
-                "a:has-text('Seçilenleri İndir'), "
-                "a:has-text('Seçilenleri'), "
-                "input[value*='Seçilenleri'], "
-                ".button:has-text('Seçilenleri')"
-            )
+        onclick_kodu = indir_buton.get_attribute("onclick")
+        if not onclick_kodu and len(butonlar) > 1:
+            onclick_kodu = butonlar[0].get_attribute("onclick")
+    except:
+        onclick_kodu = None
 
-            indir_buton = None
-            # Gorunur olan ilk butonu sec
-            for b in butonlar:
-                if b.is_visible():
-                    indir_buton = b
-                    break
-
-            # Eger gorunur yoksa sonuncuyu al (bazen luca display:none icinde tutar)
-            if not indir_buton and len(butonlar) > 0:
-                indir_buton = butonlar[-1]
-
-            if indir_buton is None:
-                bildir("UYARI: Secilenleri Indir butonu bulunamadi.")
-                return None
-
-            bildir(f"'Seçilenleri İndir' tıklanıyor... ({len(butonlar)} aday bulundu)")
-            indir_buton.scroll_into_view_if_needed()
-            cerceve.page.wait_for_timeout(200)
+    basari = False
+    
+    # STRATEJI 1: Normal Click
+    bildir("Strateji 1: Standart Click")
+    try:
+        indir_buton.click(force=True)
+        indirme = kuyruk.get(timeout=20)
+        basari = True
+    except queue.Empty:
+        pass
+    except Exception as e:
+        bildir(f"S1 Hata: {str(e)[:50]}")
+        
+    # STRATEJI 2: Dispatch Event
+    if not basari:
+        bildir("Strateji 2: MouseEvent Enjeksiyonu")
+        try:
+            indir_buton.evaluate("node => { node.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window})); }")
+            indirme = kuyruk.get(timeout=20)
+            basari = True
+        except queue.Empty:
+            pass
+        except Exception as e:
+            bildir(f"S2 Hata: {str(e)[:50]}")
             
-            # Dogrudan butonun HTML'ini okuyalim (Teşhis için)
-            try:
-                b_html = indir_buton.evaluate("node => node.outerHTML")
-            except:
-                b_html = ""
-                
-            # Onclick degeri varsa, tiklamayla ugrasma, direkt JS olarak calistir!
-            try:
-                onclick_kodu = indir_buton.get_attribute("onclick")
-                if not onclick_kodu and len(butonlar) > 1:
-                    onclick_kodu = butonlar[0].get_attribute("onclick")
-                    
-                if onclick_kodu:
-                    # Formlarin baska bir sekmede (popup) acilip tarayicinin engelleyicisine takilmasini engelle!
-                    # Tum formlarin target degerini siler ki ayni sekmede indirsin.
-                    cerceve.evaluate("""
-                        Array.from(document.querySelectorAll('form')).forEach(f => f.removeAttribute('target'));
-                        window.__onay_kod = `""" + onclick_kodu + """`; 
-                        eval(window.__onay_kod);
-                    """)
-                else:
-                    indir_buton.evaluate("node => { node.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true, view: window})); }")
-            except Exception as ev_err:
-                indir_buton.click(force=True)
-                
-            indirme = indirme_bekle.value
-    except Exception as hata:
-        bildir(f"İndirme başlatılamadı: {str(hata)[:60]}")
-        # Fallback: sayfadaki download olayını dinle
-        kuyruk = queue.Queue()
-        dinleyici = lambda d: kuyruk.put(d)
-        sayfa.on("download", dinleyici)
+    # STRATEJI 3: Onclick Kodunu Calistir (Target ile)
+    if not basari and onclick_kodu:
+        bildir("Strateji 3: Onclick (Yeni Sekme) Calistirma")
         try:
-            if indir_buton:
-                try:
-                    indir_buton.click(force=True)
-                except:
-                    pass
-            indirme = kuyruk.get(timeout=15)
-        except Exception:
-            bildir("İndirme başarısız.")
-            return None
-        finally:
-            try:
-                sayfa.remove_listener("download", dinleyici)
-            except Exception:
-                pass
+            cerceve.evaluate(f"window.__onay_kod = `{onclick_kodu}`; eval(window.__onay_kod);")
+            indirme = kuyruk.get(timeout=20)
+            basari = True
+        except queue.Empty:
+            pass
+        except Exception as e:
+            bildir(f"S3 Hata: {str(e)[:50]}")
+            
+    # STRATEJI 4: Onclick Kodunu Calistir (Target SILINMIS)
+    if not basari and onclick_kodu:
+        bildir("Strateji 4: Onclick (Self Sekme) Calistirma")
+        try:
+            cerceve.evaluate("""
+                Array.from(document.querySelectorAll('form')).forEach(f => f.removeAttribute('target'));
+                window.__onay_kod = `""" + onclick_kodu + """`; 
+                eval(window.__onay_kod);
+            """)
+            indirme = kuyruk.get(timeout=30)
+            basari = True
+        except queue.Empty:
+            pass
+        except Exception as e:
+            bildir(f"S4 Hata: {str(e)[:50]}")
 
-    if indirme is None:
+    try:
+        sayfa.remove_listener("download", dinleyici)
+        sayfa.remove_listener("popup", popup_dinleyici)
+    except:
+        pass
+
+    if not basari:
+        bildir("UYARI: 4 farkli indirme stratejisi de basarisiz oldu.")
         return None
 
-    # ADIM 3: İndirilen dosyayı kaydet
-    import tempfile
-    hedef_yol = os.path.join(tempfile.gettempdir(),
-                             f"luca_toplu_{id(cerceve)}.zip")
+    import uuid, os
+    hedef = os.path.join(os.environ.get("TEMP", "C:/Windows/Temp"), f"luca_toplu_{uuid.uuid4().hex[:8]}.zip")
     try:
-        indirme.save_as(hedef_yol)
-        bildir(f"Toplu indirme tamamlandı: {os.path.basename(hedef_yol)}")
-        return hedef_yol
-    except Exception as hata:
-        bildir(f"İndirme kaydedilemedi: {str(hata)[:60]}")
+        indirme.save_as(hedef)
+        bildir(f"Toplu indirme tamamlandi: {os.path.basename(hedef)}")
+        return hedef
+    except Exception as e:
+        bildir(f"Indirilen dosya kaydedilemedi: {e}")
         return None
-
-
-def _satir_sayisini_buyut(sayfa, bildir):
-    """Sayfalama satir secicisinde yuksek deger/'tumu' secer (best effort).
-
-    Once <select> dropdown'larini dener (Luca sayfalama icin yaygin),
-    ardindan buton/link yaklasimini dener.
-    """
-    _BUYUK_DESEN = re.compile(
-    r"(?i)^\s*(t.{0,2}m.{0,2}|hepsi|all|500|1000|2000)\s*$")
-    # ADIM 1: select dropdown'dan buyuk deger sec
-    try:
-        for sel in sayfa.query_selector_all("select"):
-            try:
-                if not sel.is_visible():
-                    continue
-                en_buyuk = None
-                en_buyuk_sayi = 0
-                for opt in sel.query_selector_all("option"):
-                    try:
-                        deger = (opt.get_attribute("value") or "").strip()
-                        metin = (opt.inner_text() or "").strip()
-                        if _BUYUK_DESEN.match(metin) or _BUYUK_DESEN.match(deger):
-                            en_buyuk = deger or metin
-                            en_buyuk_sayi = 9999
-                        try:
-                            sayi = int(deger or metin)
-                            if sayi > en_buyuk_sayi:
-                                en_buyuk = deger
-                                en_buyuk_sayi = sayi
-                        except (ValueError, TypeError):
-                            pass
-                    except Exception:
-                        continue
-                if en_buyuk is not None and en_buyuk_sayi >= 100:
-                    try:
-                        sel.select_option(value=en_buyuk)
-                        if bildir:
-                            bildir("Sayfalama: yuksek satir sayisi secildi.")
-                        return True
-                    except Exception:
-                        try:
-                            sel.select_option(label=en_buyuk)
-                            return True
-                        except Exception:
-                            pass
-            except Exception:
-                continue
-    except Exception:
-        pass
-    # ADIM 2: Buton/link yaklasimi (eski davranis)
-    try:
-        return _indir_butonu_tikla(
-            sayfa, (r"(?i)^\s*(t.{0,2}m.{0,2}|500|1000|2000)\s*$",
-                    r"sat.r.say.s"), zaman_asimi=2)
-    except Exception:
-        return False
-
-def _sayfa_butonlari(cerceve):
-    """Luca belge listesindeki sayfa ilerleme düğmelerini döndürür.
-
-    Geniş tarama: input/button/a + span/div + onclick içeren her öğe.
-    Metin ya da onclick'te 'sonraki/ileri/next/»/›/>' veya 'sayfa 2'
-    deseni aranır; 'önceki/geri' hariç.
-    """
-    adaylar = []
-    try:
-        ogeler = cerceve.query_selector_all(
-            "input, button, a, span, div, td, li, img, b, i")
-        for oge in ogeler:
-            try:
-                metin = ((oge.get_attribute("value") or "")
-                         + " " + (oge.inner_text() or "")
-                         + " " + (oge.get_attribute("onclick") or "")
-                         + " " + (oge.get_attribute("title") or "")
-                         + " " + (oge.get_attribute("alt") or "")).strip()
-                if not metin:
-                    continue
-                k = metin.lower()
-                # 'önceki/geri' hariç; ilerleme desenleri
-                if "onceki" in k or "geri" in k:
-                    continue
-                ilerleme = (
-                    "sonraki" in k or "ileri" in k or "next" in k
-                    or "»" in k or "›" in k or ">>" in k
-                    or k.strip() in (">", "→")
-                    or "sayfa 2" in k or "sayfa2" in k
-                    or re.search(r"goPage|nextPage|sayfaGec|ileri", k)
-                    or re.search(r"pager", k)
-                )
-                if ilerleme:
-                    adaylar.append(oge)
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return adaylar
-
-
-def _sonraki_sayfa_var_mi(cerceve):
-    """Luca belge listesinde 'Sonraki' / ileri sayfa düğmesi varsa True."""
-    return len(_sayfa_butonlari(cerceve)) > 0
-
-
-def _sonraki_sayfaya_git(cerceve):
-    """Listedeki 'Sonraki' / 'İleri' düğmesine tıklar; yönlendirme
-    sonrası yeni sayfa içeriği yüklenir. Dönüş: True/False."""
-    adaylar = _sayfa_butonlari(cerceve)
-    for oge in adaylar:
-        try:
-            oge.scroll_into_view_if_needed()
-        except Exception:
-            pass
-        try:
-            oge.click()
-        except Exception:
-            continue
-        try:
-            cerceve.page.wait_for_timeout(1300)
-        except Exception:
-            pass
-        # Tıklama sonrası gerçekten sayfa değişti mi? İlk sayfa ile
-        # aynı belgeleri tekrar görüyorsak ilerlememiş olabilir;
-        # yine de döngü dedup ile yönetir.
-        return True
-    return False
 
 
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
