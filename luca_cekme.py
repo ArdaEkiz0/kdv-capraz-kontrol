@@ -2124,6 +2124,36 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         return None
 
 
+def _sonraki_sayfa_var_mi(cerceve):
+    """Luca belge listesinde 'Sonraki' / ileri sayfa düğmesi varsa True."""
+    return len(_sayfa_butonlari(cerceve)) > 0
+
+
+def _sonraki_sayfaya_git(cerceve):
+    """Listedeki 'Sonraki' / 'İleri' düğmesine tıklar; yönlendirme
+    sonrası yeni sayfa içeriği yüklenir. Dönüş: True/False."""
+    adaylar = _sayfa_butonlari(cerceve)
+    for oge in adaylar:
+        try:
+            oge.scroll_into_view_if_needed()
+        except Exception:
+            pass
+        try:
+            oge.click()
+        except Exception:
+            continue
+        try:
+            cerceve.page.wait_for_timeout(1300)
+        except Exception:
+            pass
+        # Tıklama sonrası gerçekten sayfa değişti mi? İlk sayfa ile
+        # aynı belgeleri tekrar görüyorsak ilerlememiş olabilir;
+        # yine de döngü dedup ile yönetir.
+        return True
+    return False
+
+
+
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                        hedef_klasor, kategoriler=None, ilerleme=None,
                        gorunur=True, firma_adi=None, duz_yaz=True,
