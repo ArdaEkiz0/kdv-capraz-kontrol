@@ -2456,6 +2456,9 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
 
                     # TOPLU İNDİRME: Checkbox seç + Seçilenleri İndir
                     # JS fonksiyonları KULLANILMAZ, sayfayı bozmaz.
+                    if len(secili) == 0:
+                        bildir(f"{kategori}: Indirilecek belge yok, atlanıyor.")
+                        continue
                     toplu_zip = _tumu_sec_ve_indir(cerceve, bildir)
                     if toplu_zip and _dosya_saglam(toplu_zip):
                         bildir(f"{kategori}: ZIP indirildi, açılıyor...")
