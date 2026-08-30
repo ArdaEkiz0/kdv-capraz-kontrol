@@ -1,6 +1,6 @@
 """Uygulama sürüm bilgisi."""
 import os
 
-SURUM = "2.9.65"
+SURUM = "2.9.66"
 REPO = "ArdaEkiz0/kdv-capraz-kontrol"
 YOL = os.path.dirname(os.path.abspath(__file__))
