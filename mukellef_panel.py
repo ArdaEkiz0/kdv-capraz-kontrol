@@ -7,7 +7,7 @@ from datetime import date
 from tkinter import filedialog, messagebox, ttk
 
 import gib_cekme
-import luca_cekme
+import luca_bot
 import mukellefler
 
 AYLAR = [(str(a), a) for a in range(1, 13)]
@@ -400,7 +400,7 @@ class MukellefPaneli(tk.Toplevel):
                         kullanilacak = indirilen
                         self.after(0, lambda k=kayit, y=list(indirilen):
                                        self._cetvel_hatirla(k, donem, y))
-                    except luca_cekme.LucaHata as lhata:
+                    except luca_bot.LucaHata as lhata:
                         yedek = self._kayitli_cetveller(kayit, donem)
                         if yedek:
                             kullanilacak = yedek
@@ -415,7 +415,7 @@ class MukellefPaneli(tk.Toplevel):
                 # bagli (muavin secilmese de calisir).
                 if luca_planli and fatura_luca_istendi:
                     try:
-                        belge_sonuc = luca_cekme.cek_luca_belgeleri(
+                        belge_sonuc = luca_bot.cek_luca_belgeleri(
                             degerler["luca_uye"],
                             degerler["ent_kullanici"],
                             degerler["ent_sifre"], bas, bit,
@@ -437,7 +437,7 @@ class MukellefPaneli(tk.Toplevel):
                                 "(e-Arsiv/e-Fatura, alis/satis).")
                         else:
                             self._logla("UYARI: Luca'dan hic e-belge indirilemedi.")
-                    except luca_cekme.LucaHata as bhata:
+                    except luca_bot.LucaHata as bhata:
                         hata_mesaj = str(bhata)[:120]
                         self._logla(f"Luca belge cekimi hatasi: {hata_mesaj}")
                         # Muavin basariyla indirildiyse kontrol yine de baslasin;
