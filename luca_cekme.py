@@ -757,7 +757,7 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                         bildir("Rapor türü Excel olarak seçildi.")
                     raporda_indi = False
                     try:
-                        with erp.expect_download(timeout=25000) as indirme:
+                        with erp.expect_download(timeout=60000) as indirme:
                             _indir_butonu_tikla(
                                 cerceve,
                                 (r"^rapor$", r"^liste$", r"listele",
@@ -775,7 +775,7 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                         # Rapor ekranda açıldı; ayrı Excel/döküm düğmesi ara
                         try:
                             with erp.expect_download(
-                                    timeout=20000) as indirme:
+                                    timeout=60000) as indirme:
                                 if not _indir_butonu_tikla(
                                         cerceve,
                                         (r"excel", r"\bxls\b",
@@ -1622,7 +1622,7 @@ def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
                 continue
         # Hala yoksa fallback: click event dispatch et
         sayfa2 = frame.page
-        with sayfa2.expect_download(timeout=20000) as bekle:
+        with sayfa2.expect_download(timeout=60000) as bekle:
             frame.evaluate(
                 "n => { const e = [...document.querySelectorAll('[onclick]')]"
                 ".filter(x => x.getAttribute('onclick')"
@@ -1921,7 +1921,7 @@ def _belge_sorgula_ve_indir(sayfa, hedef, bildir):
     """
     raporda_indi = False
     try:
-        with sayfa.expect_download(timeout=25000) as indirme:
+        with sayfa.expect_download(timeout=60000) as indirme:
             _indir_butonu_tikla(
                 sayfa, (r"^rapor$", r"^liste$", r"listele", r"sorgula",
                         r"getir"), zaman_asimi=6)
@@ -1931,7 +1931,7 @@ def _belge_sorgula_ve_indir(sayfa, hedef, bildir):
         pass
     if not raporda_indi:
         try:
-            with sayfa.expect_download(timeout=20000) as indirme:
+            with sayfa.expect_download(timeout=60000) as indirme:
                 if not _indir_butonu_tikla(
                         sayfa, (r"excel", r"\bxls\b", r"aktar",
                                 r"d[öo]k[üu]m\s*al")):
@@ -2020,11 +2020,21 @@ def _tumu_sec_ve_indir(cerceve, bildir=None):
         bildir("UYARI: Hiçbir checkbox seçilemedi.")
         return None
 
-    # ADIM 2: "Seçilenleri İndir" butonunu bul ve tıkla
+        # ADIM 2: Dialog handler (pop-up) ekle
+    def oto_onay(dialog):
+        try:
+            print("Dialog algilandi:", dialog.message)
+            dialog.accept()
+        except:
+            pass
+    
+    sayfa.on('dialog', oto_onay)
+    
+    # ADIM 2: "Secilenleri Indir" butonunu bul ve tikla
     bildir("'Seçilenleri İndir' butonu aranıyor...")
     indirme = None
     try:
-        with sayfa.expect_download(timeout=60000) as indirme_bekle:
+        with sayfa.expect_download(timeout=120000) as indirme_bekle:
             # Butonu多种yoluyla bul
             indir_buton = None
             for secici in (
