@@ -1333,7 +1333,6 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
             time.sleep(0.5)
         # Belgeler listeye gelene kadar bekle (akıllı).
         # GİB sorguları 10-30 sn sürebilir; 30 denemeye kadar bekle.
-        # İlk 5sn'de belge gelmezse popup kapanmamış olabilir → kapat.
         try:
             import luca_cekme as _l
             for _i in range(30):
@@ -1342,14 +1341,6 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 if belge_sayisi > 0:
                     bildir(f"Listede {belge_sayisi} belge göründü.")
                     break
-                # 5sn'de belge yoksa popup hala açık olabilir
-                if _i == 5:
-                    try:
-                        cerceve.evaluate("hide_window()")
-                        bildir("5sn'de belge gelmedi; popup kapatılmaya "
-                               "çalışıldı.")
-                    except Exception:
-                        pass
                 if _i % 5 == 4:
                     bildir(f"Hâlâ bekleniyor... ({_i+1}s)")
                 time.sleep(1)
@@ -2440,7 +2431,8 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         bildir(f"{kategori}: {atlanan_belge2} red/iptal "
                                "belge dışarıda bırakıldı.")
                     if not kayitlar:
-                        raise RuntimeError("tarih aralığında belge inmedi")
+                        bildir(f"{kategori}: tarih aralığında belge bulunamadı "
+                               "(0 belge).")
                     ozet_yol = _ozet_tablo_yaz(
                         os.path.join(
                             hedef_klasor,
