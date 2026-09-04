@@ -1283,7 +1283,7 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
         # tarih aralığı filtresi içerir. Kapatılıp直接 GİB'den Getir
         # butonuyla devam edilir.
         time.sleep(2)
-        self._belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir)
+        _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir)
         # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
         for _ in range(3):
             try:
@@ -2267,11 +2267,14 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # sira'larıyla (DOM sırası) ZIP'ler indirilir; sayfa
                     # geçişleri arasında sira sıfırlandığı için aynı
                     # sayfada kalan belgelerin tamamı o sayfadayken.
+                    # NOT: zip_indir() yeni sekme/popup açabildiği için
+                    # ZIP indirme yerine HTML'deki fatura JSON'undan
+                    # doğrudan veri çekilir (daha güvenilir).
+                    bildir(f"{kategori}: belge verileri HTML'den okunuyor...")
                     indirilen_yollar = set()
                     for _sayfa in range(1, 60):
                         sayfa_satirlari = _satirlari_ayikla(
                             cerceve.content())
-                        sayfa_hedef = []
                         for sira, belge in sayfa_satirlari:
                             if not _tarih_araliginda(
                                     belge.get("belge_tarihi"),
@@ -2291,26 +2294,19 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 continue
                             belge_no = (belge.get("belge_numarasi")
                                         or f"belge{sira}").strip()
-                            # Bu sayfadaki geçerli tekrarlar: ilk_gör =
-                            # global görülme sayısı (tumsayfadaki konum).
                             g_say = gorulen_no.get(belge_no, 1)
-                            hedef = _hedef_zip(belge_no, g_say)
-                            # Aynı sayfada aynı belge_no ikinci kez varsa
-                            # dosya adı _2 ile devam eder.
-                            sayfa_hedef.append((sira, hedef, belge_no))
-                        # Sadece henüz inmemis olanları indir
-                        bekleyen = []
-                        for sira, hedef, bno in sayfa_hedef:
-                            if hedef not in indirilen_yollar \
-                                    and not _dosya_saglam(hedef):
-                                bekleyen.append((sira, hedef))
-                        if bekleyen:
-                            bildir(f"{kategori}: {len(bekleyen)} ZIP "
-                                   "indiriliyor...")
-                            _zip_toplu_indir(cerceve, sayfa2,
-                                             list(bekleyen), bildir)
-                            indirilen_yollar.update(h for _, h in bekleyen)
-                            bildir(f"{kategori}: ZIP indirme tamamlandı.")
+                            # ZIP yerine HTML JSON'dan özet oluştur
+                            ozet = {
+                                "belge_numarasi": belge_no,
+                                "belge_tarihi": belge.get("belge_tarihi", ""),
+                                "ettn": belge.get("ettn", ""),
+                                "karsi_vkn": str(belge.get("alici_vkn_tckn", "")),
+                                "unvan": belge.get("alici_unvan_ad_soyad", ""),
+                                "toplam": None,
+                                "kdv": None,
+                                "matrah": None,
+                            }
+                            kayitlar.append(ozet)
                         tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
                         sonraki_var = _sonraki_sayfa_var_mi(cerceve)
                         if not sonraki_var and not tam_sayfa:
@@ -2323,49 +2319,22 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 except Exception:
                                     pass
                             break
+                    # ZIP yolları boş — HTML'den toplandı
+                    zip_yollari = []
 
-                    # Kayıt oluştur: indirilen/hedef ZIP'lerden özet oku.
-                    bildir(f"{kategori}: {len(tum_secili)} belge "
+                    # Kayıt oluştur: HTML'deki fatura JSON'undan.
+                    bildir(f"{kategori}: {len(secili)} belge "
                            "kayıt oluşturuluyor...")
+                    # kayitlar zaten döngüde dolduruldu; burada yalnızca
+                    # takip ekranını güncelle.
                     for numara, (sira, belge, belge_no, gor_c) \
                             in enumerate(tum_secili, 1):
-                        zip_yol = _hedef_zip(belge_no, gor_c)
-                        ozet = {}
-                        if not _dosya_saglam(zip_yol):
-                            try:
-                                _zip_tikla_indir(cerceve, sayfa2, sira,
-                                                 zip_yol)
-                            except Exception as hata:
-                                bildir(f"{kategori}: {belge_no} inmedi "
-                                       f"({str(hata)[:50]}), atlanıyor.")
-                                continue
-                        ozet = _zipten_ozet(zip_yol)
-                        kayitlar.append({
-                            "belge_numarasi": belge_no,
-                            "belge_tarihi": belge.get("belge_tarihi", ""),
-                            "belge_turu": belge.get("belge_turu", ""),
-                            "karsi_vkn": str(belge.get("alici_vkn_tckn",
-                                                       "")),
-                            "unvan": belge.get("alici_unvan_ad_soyad", ""),
-                            "onay_durumu": belge.get("onay_durumu", ""),
-                            "ettn": belge.get("ettn", ""),
-                            "dosya": os.path.basename(zip_yol),
-                            **ozet})
-                        # Her belge indikçe takip ekranı güncellensin.
                         olay({"kategori": kategori, "adim": "indirildi",
                               "durum": "calisiyor",
-                              "sayi": len(kayitlar),
+                              "sayi": numara,
                               "toplam": len(secili),
-                              "mesaj": f"{birim}: {len(kayitlar)}/"
-                                       f"{len(secili)} indirildi"})
-                        kayit = kayitlar[-1]
-                        if ozet.get("oran_kalemleri"):
-                            kayit["oranlar_metni"] = "; ".join(
-                                f"{a['oran']:g}%:"
-                                f"{(a.get('matrah') or 0):.2f}/"
-                                f"{a['kdv']:.2f}"
-                                for a in ozet["oran_kalemleri"])
-                        zip_yollari.append(zip_yol)
+                              "mesaj": f"{birim}: {numara}/{len(secili)} "
+                                       f"({belge_no})"})
                         bildir(f"{kategori}: {numara}/{len(secili)} "
                                f"belge ({belge_no}).")
                     if atlanan_belge:
