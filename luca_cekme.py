@@ -2131,6 +2131,34 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             gorulen_no.get(belge_no, 0) + 1
                         tum_secili.append((sira, belge, belge_no,
                                            gorulen_no[belge_no]))
+                    # Tarih alanları doldurulamadıysa Luca kendi
+                    # dönemini kullanmış olabilir; filtre Hiç belge
+                    # tutmadıysa tarihsiz tüm belgeleri al.
+                    if not tum_secili and satirlar:
+                        bildir(f"{kategori}: tarih filtresi hiçbir belge "
+                               "tutmadı; tüm belgeler alınıyor.")
+                        gorulen_no = {}
+                        tum_secili = []
+                        atlanan_belge = 0
+                        for sira, belge in satirlar:
+                            durum_kisa = _turk_kucult(
+                                str(belge.get("onay_durumu") or ""))
+                            iptal_ibare = str(belge.get("iptal_itiraz") or
+                                              belge.get("iptal_itiraz_durumu")
+                                              or "").strip()
+                            if (iptal_ibare
+                                    or ("red" in durum_kisa)
+                                    or ("iptal" in durum_kisa)
+                                    or (durum_kisa
+                                        and "onay" not in durum_kisa)):
+                                atlanan_belge += 1
+                                continue
+                            belge_no = (belge.get("belge_numarasi")
+                                        or f"belge{sira}").strip()
+                            gorulen_no[belge_no] = \
+                                gorulen_no.get(belge_no, 0) + 1
+                            tum_secili.append((sira, belge, belge_no,
+                                               gorulen_no[belge_no]))
                     secili = [(sira, belge)
                               for sira, belge, _, _ in tum_secili]
                     bildir(f"{kategori}: listede {len(satirlar)} belge, "
