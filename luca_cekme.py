@@ -2186,7 +2186,16 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         # Sayfada tam limit kadar belge var mı? O zaman
                         # mutlaka devamı vardır.
                         tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
-                        sonraki_var = _sonraki_sayfa_var_mi(cerceve)
+                        if not tam_sayfa:
+                            break
+                        try:
+                            sonraki_var = _sonraki_sayfa_var_mi(cerceve)
+                            bildir(f"{kategori}: sonraki sayfa var mi: "
+                                   f"{sonraki_var}")
+                        except Exception as hata:
+                            bildir(f"{kategori}: sonraki sayfa kontrol hata: "
+                                   f"{str(hata)[:60]}")
+                            sonraki_var = False
                         if sayfa_sirasi >= 30 and sonraki_var:
                             bildir(f"{kategori}: {sayfa_sirasi}. sayfa "
                                    "toplandı, ilerleniyor...")
@@ -2357,8 +2366,13 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             }
                             kayitlar.append(ozet)
                         tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
-                        sonraki_var = _sonraki_sayfa_var_mi(cerceve)
-                        if not sonraki_var and not tam_sayfa:
+                        if not tam_sayfa:
+                            break
+                        try:
+                            sonraki_var = _sonraki_sayfa_var_mi(cerceve)
+                        except Exception:
+                            sonraki_var = False
+                        if not sonraki_var:
                             break
                         if not _sonraki_sayfaya_git(cerceve):
                             if tam_sayfa:
