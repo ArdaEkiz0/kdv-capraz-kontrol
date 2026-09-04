@@ -2139,10 +2139,13 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # İlk olarak satır sayısını artırmayı dene (500/1000/tümü);
                     # Luca tek sayfada en fazla ~500 fatura listeler.
                     try:
+                        bildir(f"{kategori}: satır sayısı artırılıyor...")
                         _satir_sayisini_buyut(cerceve, bildir)
                         cerceve.page.wait_for_timeout(1000)
-                    except Exception:
-                        pass
+                        bildir(f"{kategori}: satır sayısı artırıldı.")
+                    except Exception as hata:
+                        bildir(f"{kategori}: satır sayısı artırılamadı "
+                               f"({str(hata)[:40]})")
                     # TÜM SAYFALARI TOPLA: ilk sayfa + 'Sonraki' ile gidilen
                     # her sayfa. Aynı belgeleri alt alta ekleme (tekrar koru).
                     # Güvence: sayfada tam sayfa limiti (500) belge görünüyorsa
@@ -2289,8 +2292,23 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     bildir(f"{kategori}: belge verileri HTML'den okunuyor...")
                     indirilen_yollar = set()
                     for _sayfa in range(1, 60):
-                        sayfa_satirlari = _satirlari_ayikla(
-                            cerceve.content())
+                        html_icerik = cerceve.content()
+                        sayfa_satirlari = _satirlari_ayikla(html_icerik)
+                        bildir(f"{kategori}: sayfa {_sayfa} - "
+                               f"HTML {len(html_icerik)} bayt, "
+                               f"{len(sayfa_satirlari)} belge bulundu.")
+                        if not sayfa_satirlari:
+                            # Frame degismis olabilir, sayfadan direkt dene
+                            try:
+                                html_icerik = cerceve.page.content()
+                                sayfa_satirlari = _satirlari_ayikla(html_icerik)
+                                bildir(f"{kategori}: sayfa {_sayfa} (sayfadan) - "
+                                       f"HTML {len(html_icerik)} bayt, "
+                                       f"{len(sayfa_satirlari)} belge bulundu.")
+                            except Exception:
+                                pass
+                        if not sayfa_satirlari:
+                            break
                         for sira, belge in sayfa_satirlari:
                             if not _tarih_araliginda(
                                     belge.get("belge_tarihi"),
