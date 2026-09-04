@@ -1107,26 +1107,28 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
     """'BELGE ARAMA' popup'ı açıksa tarih girip arama yapar veya kapatır.
 
     Luca'nın gib530 ekranında gonder('indir') bazı durumlarda belge
-    arama popup'ı açar. Popup açıksa:
-      1. Tarih alanlarını (#baslangic/#bitis) doldurup 'Belge Ara'ya basar.
-      2. Bulamazsa hide_window() ile kapatır.
+    arama popup'ı açar.
     """
     if bildir is None:
         bildir = lambda s: None
-    # Popup görünür mü? (display:none yerine offsetParent kontrolü)
-    popup_var = False
+    # Basit algılama: #arama-window-div varsa ve display:none değilse
+    acik = False
     try:
-        popup_var = cerceve.evaluate(
-            "() => { const d = document.getElementById('arama-window-div');"
-            " return d && d.style.display !== 'none' && d.offsetParent !== null; }")
+        acik = cerceve.evaluate(
+            "() => {"
+            " const d = document.getElementById('arama-window-div');"
+            " if (!d) return false;"
+            " if (d.style.display === 'none') return false;"
+            " if (d.classList.contains('hidden')) return false;"
+            " return true; }")
     except Exception:
         pass
-    if not popup_var:
+    if not acik:
         return
     bildir("BELGE ARAMA popup'ı algılandı, tarih giriliyor...")
     bas_metin = bas_tarih.strftime("%d/%m/%Y")
     bit_metin = bit_tarih.strftime("%d/%m/%Y")
-    # Tarih alanlarını doldur (#baslangic / #bitis)
+    # Tarih alanlarını doldur
     for secici, metin in (("#baslangic", bas_metin), ("#bitis", bit_metin)):
         try:
             alan = cerceve.query_selector(secici)
@@ -1136,7 +1138,7 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
                     "el.dispatchEvent(new Event('change')); }", metin)
         except Exception:
             pass
-    # 'Belge Ara' butonuna bas (#faturalari-ara-btn)
+    # 'Belge Ara' butonuna bas
     try:
         ara_btn = cerceve.query_selector("#faturalari-ara-btn")
         if ara_btn is not None:
@@ -1146,21 +1148,10 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
             return
     except Exception:
         pass
-    # Fallback: onclick='gonder("arama")' olan herhangi bir buton
-    try:
-        for btn in cerceve.query_selector_all("button"):
-            oc = btn.get_attribute("onclick") or ""
-            if "arama" in oc and "window" not in oc:
-                btn.click()
-                bildir("Belge Ara (fallback) tıklandı.")
-                time.sleep(4)
-                return
-    except Exception:
-        pass
-    # Hiçbiri olmadıysa hide_window() ile kapat
+    # Fallback: hide_window()
     try:
         cerceve.evaluate("hide_window()")
-        bildir("BELGE ARAMA popup'ı hide_window() ile kapatıldı.")
+        bildir("BELGE ARAMA popup'ı kapatıldı.")
         time.sleep(1)
     except Exception:
         pass
