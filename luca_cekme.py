@@ -1199,45 +1199,69 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 pass
             return
         bildir("GİB'ten getir tıklanıyor (belgeler çekiliyor)...")
+        # gonder('indir') Luca'nın kendi JS fonksiyonudur; çerçeve
+        # context'inden doğrudan çağrılır (buton.click() bazı frame
+        # yapılarında event'i tetiklemeyebilir).
         try:
-            buton.scroll_into_view_if_needed()
+            cerceve.evaluate("gonder('indir')")
+            bildir("gonder('indir') JS ile çağrıldı.")
         except Exception:
-            pass
-        try:
-            buton.click()
-        except Exception:
-            # onclick ile tıkla
             try:
-                buton.evaluate("e => e.click()")
+                buton.scroll_into_view_if_needed()
             except Exception:
                 pass
-        # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
-        time.sleep(1.5)
-        # Onay penceresi varsa 'Evet'/'Tamam'a bas.
-        try:
-            onay = cerceve.query_selector(
-                "button:has-text('Evet'), button:has-text('Tamam'), "
-                "input[value*='Evet'], input[value*='Tamam']")
-            if onay is not None:
+            try:
+                buton.click()
+            except Exception:
                 try:
-                    onay.click()
-                    time.sleep(1)
+                    buton.evaluate("e => e.click()")
                 except Exception:
                     pass
-        except Exception:
-            pass
-        # Belgeler listeye gelene kadar kısa aralıklarla bekle (akıllı).
-        # Sabit 6-8 sn beklemek yerine, liste dolmaya başlayınca çık.
+            bildir("Buton tıklama ile çağrıldı (JS fallback).")
+        # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
+        time.sleep(2)
+        # Onay/SweetAlert penceresi varsa 'Evet'/'Tamam'a bas.
+        for _ in range(3):
+            try:
+                onay = cerceve.query_selector(
+                    "button:has-text('Evet'), button:has-text('Tamam'), "
+                    "button:has-text('OK'), input[value*='Evet'], "
+                    "input[value*='Tamam']")
+                if onay is not None and onay.is_visible():
+                    try:
+                        onay.click()
+                        bildir("Onay penceresi kapatıldı.")
+                        time.sleep(1)
+                    except Exception:
+                        pass
+                    break
+            except Exception:
+                pass
+            # SweetAlert / custom popup
+            try:
+                cerceve.evaluate(
+                    "document.querySelectorAll('.swal2-confirm, "
+                    ".swal2-styled').forEach(b => b.click())")
+            except Exception:
+                pass
+            time.sleep(0.5)
+        # Belgeler listeye gelene kadar bekle (akıllı).
+        # GİB sorguları 10-30 sn sürebilir; 30 denemeye kadar bekle.
         try:
             import luca_cekme as _l
-            for _i in range(10):
+            for _i in range(30):
                 deneme_html = cerceve.content()
                 belge_sayisi = len(_l._satirlari_ayikla(deneme_html))
                 if belge_sayisi > 0:
+                    bildir(f"Listede {belge_sayisi} belge göründü.")
                     break
+                if _i % 5 == 4:
+                    bildir(f"Hâlâ bekleniyor... ({_i+1}s)")
                 time.sleep(1)
+            else:
+                bildir("30 sn'de belge gelmedi; mevcut liste kullanılıyor.")
         except Exception:
-            time.sleep(2)
+            time.sleep(3)
         bildir("GİB'ten getir tamamlandı; liste güncellendi.")
 
         # Güvence: getir sonrası 'Sorgula'/'Listele' butonuna basarak
