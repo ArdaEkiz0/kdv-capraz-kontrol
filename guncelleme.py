@@ -135,13 +135,20 @@ def guncellemeyi_kur(indirme_url, hedef_yol, ilerleme_callback=None):
 
     kopyalanan = 0
     os.makedirs(hedef_yol, exist_ok=True)
-    for kok_ad, _, dosyalar in os.walk(kok):
+    for kok_ad, klasorler, dosyalar in os.walk(kok):
+        # Derlenmiş/gereksiz klasörleri atla (kopyalamaya değmez, ve
+        # __pycache__ eski .pyc'lerin yanlış sürümle karışmasını önler).
+        klasorler[:] = [k for k in klasorler if k not in ("__pycache__", ".git")]
         for dosya in dosyalar:
             if not dosya.lower().endswith((".py", ".bat", ".ico", ".png")):
                 continue
             kaynak = os.path.join(kok_ad, dosya)
-            hedef = os.path.join(hedef_yol, dosya)
+            # Kök'e göre göreli yolu koru (örn. luca_bot/authenticator.py),
+            # böylece alt paketler ana dizine düz kopyalanıp dağılmaz.
+            goreli = os.path.relpath(kaynak, kok)
+            hedef = os.path.join(hedef_yol, goreli)
             try:
+                os.makedirs(os.path.dirname(hedef), exist_ok=True)
                 shutil.copy2(kaynak, hedef)
                 kopyalanan += 1
             except Exception:

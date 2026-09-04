@@ -8,6 +8,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import gib_cekme
 import luca_bot
+import luca_cekme
 import mukellefler
 
 AYLAR = [(str(a), a) for a in range(1, 13)]

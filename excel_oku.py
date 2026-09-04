@@ -1,9 +1,12 @@
-﻿import os
+﻿import logging
+import os
 import re
 from datetime import date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from utils import fatura_no_temizle, tarih_parse, tutar_parse, vkn_temizle
+
+logger = logging.getLogger(__name__)
 
 KOLON_SINONIMLERI = {
     "belge_no": [
@@ -105,12 +108,40 @@ def _spreadsheetml_satirlar(dosya_yolu):
     return tumu
 
 
+def _csv_tsv_satirlar(dosya_yolu):
+    """CSV/TSV dosyasını satır listesine çevirir; ayıracı otomatik algılar."""
+    import csv as _csv
+    son_hata = None
+    for kodlama in ("utf-8-sig", "cp1254", "latin-1"):
+        try:
+            with open(dosya_yolu, "r", encoding=kodlama, newline="") as fh:
+                ornek = fh.read(4096)
+                fh.seek(0)
+                noktali = ornek.count(";")
+                sekmeli = ornek.count("\t")
+                virgul = ornek.count(",")
+                ayirici = ";" if (noktali >= virgul and noktali > 0) else (
+                    "\t" if (sekmeli >= virgul and sekmeli > 0) else ",")
+                okuyucu = _csv.reader(fh, delimiter=ayirici)
+                return [list(satir) for satir in okuyucu]
+        except Exception as hata:
+            son_hata = hata
+            continue
+    logger.warning(
+        "CSV/TSV dosyası hiçbir kodlamayla (utf-8-sig, cp1254, latin-1) "
+        "okunamadı, boş liste dönülüyor: %s — son hata: %s",
+        dosya_yolu, son_hata)
+    return []
+
+
 def excel_satirlar(dosya_yolu):
     try:
         with open(dosya_yolu, "rb") as fh:
             bas = fh.read(2048)
     except OSError:
         bas = b""
+    if dosya_yolu.lower().endswith((".csv", ".tsv")):
+        return _csv_tsv_satirlar(dosya_yolu)
     if bas.lstrip().startswith(b"<?xml") and (
             b"SpreadsheetML" in bas or b"office:spreadsheet" in bas):
         return _spreadsheetml_satirlar(dosya_yolu)

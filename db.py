@@ -268,7 +268,25 @@ def db_al() -> KdvDatabase:
     global _db
     if _db is None:
         _db = KdvDatabase()
+        try:
+            import atexit
+            atexit.register(db_kapat)
+        except Exception:
+            pass
     return _db
+
+
+def db_kapat():
+    """Açık singleton bağlantıyı kapatır (varsa). Uygulama çıkışında
+    ve testlerde çağrılabilir; DB dosyasının Windows'ta kilitli kalıp
+    günlük yedeğin başarısız olmasını önler."""
+    global _db
+    if _db is not None:
+        try:
+            _db.kapat()
+        except Exception:
+            pass
+        _db = None
 
 
 YEDEK_ADET = 14

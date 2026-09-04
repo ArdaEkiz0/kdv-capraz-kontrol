@@ -1,6 +1,9 @@
 import json
+import logging
 import os
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 YOL = os.path.dirname(os.path.abspath(__file__))
 AYAR_YOLU = os.path.join(YOL, "ayar.json")
@@ -11,7 +14,10 @@ def _yukle(yol, varsayilan):
     try:
         with open(yol, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except FileNotFoundError:
+        return varsayilan
+    except Exception as hata:
+        logger.warning("Ayar dosyası okunamadı (%s): %s — varsayılan kullanılıyor", yol, hata)
         return varsayilan
 
 
@@ -19,8 +25,8 @@ def _kaydet(yol, veri):
     try:
         with open(yol, "w", encoding="utf-8") as f:
             json.dump(veri, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as hata:
+        logger.warning("Ayar dosyası kaydedilemedi (%s): %s", yol, hata)
 
 
 def ayar_yukle():

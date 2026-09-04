@@ -130,7 +130,7 @@ class LucaDownloader:
         
         if onclick_kodu:
             stratejiler.append(("Onclick Yeni Sekme", lambda: self.cerceve.evaluate(f"window.__onay_kod = `{onclick_kodu}`; eval(window.__onay_kod);"), 20))
-            stratejiler.append(("Onclick Self Form", lambda: self.cerceve.evaluate("Array.from(document.querySelectorAll('form')).forEach(f => f.removeAttribute('target')); window.__onay_kod = `""" + onclick_kodu + """`; eval(window.__onay_kod);"), 30))
+            stratejiler.append(("Onclick Self Form", lambda: self.cerceve.evaluate("Array.from(document.querySelectorAll('form')).forEach(f => f.removeAttribute('target')); window.__onay_kod = `" + onclick_kodu + "`; eval(window.__onay_kod);"), 30))
 
         for ad, func, sure in stratejiler:
             if basari: break
