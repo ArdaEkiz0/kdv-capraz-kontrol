@@ -1603,15 +1603,41 @@ def _muavin_frame(erp, uye_no, bildir=None):
     return None
 
 
-_FATURA_JSON = re.compile(r'fatura="([^"]+)"')
-_FATURA_TD = re.compile(r'<td[^>]*>(.*?)</td>', re.DOTALL | re.IGNORECASE)
+_FATURA_JSON_RE = re.compile(
+    r"fatura=(?:\"([^\"]*)\"|'([^']*)')")
+
+
+def _fatura_json_bul(html_metin):
+    """HTML icindeki fatura="..." / fatura='...' attribute'larini dondurur."""
+    for eslesme in _FATURA_JSON_RE.finditer(html_metin):
+        # Hangi grup yakalandiysa onu kullan
+        veri = eslesme.group(1) or eslesme.group(2) or ""
+        if veri.strip():
+            yield veri.strip()
+_FATURA_TD = re.compile(r'<(?:td|th)[^>]*>(.*?)</(?:td|th)>',
+                         re.DOTALL | re.IGNORECASE)
 _FATURA_TR = re.compile(r'<tr[^>]*>(.*?)</tr>', re.DOTALL | re.IGNORECASE)
 
 
 def _tutar_cevir(metin):
-    """HTML hücresinden tutar değerini Decimal'e çevirir."""
+    """HTML hücresinden tutar değerini float'a çevirir.
+
+    Türk (1.234,56) ve uluslararası (1234567.89 / 1,234.56) formatları destekler.
+    """
+    if metin is None:
+        return None
     try:
-        temiz = metin.replace(".", "").replace(",", ".").strip()
+        metin = str(metin).strip()
+        if not metin:
+            return None
+        virgul = metin.rfind(",")
+        nokta = metin.rfind(".")
+        if virgul > nokta:
+            temiz = metin.replace(".", "").replace(",", ".")
+        elif nokta > virgul:
+            temiz = metin.replace(",", "")
+        else:
+            temiz = metin.replace(",", ".")
         temiz = re.sub(r'[^\d.\-]', '', temiz)
         if temiz:
             return float(temiz)
@@ -1655,36 +1681,35 @@ def _tablo_basliklarini_bul(html_metin):
 def _satirlari_ayikla(html_metin):
     """gib530 listesindeki her satirin 'fatura' JSON ozelligini cozer.
 
-    Donen liste [(satir_sirasi, sozluk), ...]; satir_sirasi DOM sirasidir
-    ve ZIP indirme tuslarinin sirasiyla birebir ortusur.
+    Donen liste [(satir_sirasi, sozluk), ...]; satir_sirasi DOM sirasidir.
     Ek olarak HTML tablosundan matrah/kdv/toplam degerlerini cikarir.
     """
     kolonlar = _tablo_basliklarini_bul(html_metin)
-    tum_tr = _FATURA_TR.findall(html_metin)
+    # fatura iceren TR'leri bul (baslik satirlarini atla)
+    fatura_tr = []
+    for tr in _FATURA_TR.finditer(html_metin):
+        # fatura attribute'u <tr> taginin icinde, group(0) tum eslesme
+        if _FATURA_JSON_RE.search(tr.group(0)):
+            fatura_tr.append(tr.group(1))
     satirlar = []
-    for sira, ham in enumerate(_FATURA_JSON.findall(html_metin)):
+    for sira, ham in enumerate(_fatura_json_bul(html_metin)):
         try:
             veri = json.loads(html_cevir.unescape(ham))
         except Exception:
             continue
         # HTML tablosundan matrah/kdv/toplam cek
-        if sira < len(tum_tr):
-            td_liste = _FATURA_TD.findall(tum_tr[sira])
-            if kolonlar.get("matrah") is not None:
-                idx = kolonlar["matrah"]
-                if idx < len(td_liste):
-                    veri["matrah_html"] = _tutar_cevir(
-                        re.sub(r'<[^>]+>', '', td_liste[idx]))
-            if kolonlar.get("kdv") is not None:
-                idx = kolonlar["kdv"]
-                if idx < len(td_liste):
-                    veri["kdv_html"] = _tutar_cevir(
-                        re.sub(r'<[^>]+>', '', td_liste[idx]))
-            if kolonlar.get("genel_toplam") is not None:
-                idx = kolonlar["genel_toplam"]
-                if idx < len(td_liste):
-                    veri["toplam_html"] = _tutar_cevir(
-                        re.sub(r'<[^>]+>', '', td_liste[idx]))
+        if sira < len(fatura_tr):
+            td_liste = _FATURA_TD.findall(fatura_tr[sira])
+            for alan, anahtar in (("matrah", "matrah_html"),
+                                  ("kdv", "kdv_html"),
+                                  ("genel_toplam", "toplam_html")):
+                idx = kolonlar.get(alan)
+                if idx is not None and idx < len(td_liste):
+                    ham_hucre = re.sub(r'<[^>]+>', '', td_liste[idx])
+                    hucre = html_cevir.unescape(ham_hucre).strip()
+                    deger = _tutar_cevir(hucre)
+                    if deger is not None:
+                        veri[anahtar] = deger
         satirlar.append((sira, veri))
     return satirlar
 
@@ -2530,6 +2555,16 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         bildir(f"{kategori}: tarih aralığında belge bulunamadı "
                                "(0 belge).")
                         ozet_yol = None
+                        # Eski Excel dosyasını temizle
+                        eski_xlsx = os.path.join(
+                            hedef_klasor,
+                            f"luca_{kategori}_{bas_tarih:%Y%m%d}_"
+                            f"{bit_tarih:%Y%m%d}.xlsx")
+                        if os.path.exists(eski_xlsx):
+                            try:
+                                os.remove(eski_xlsx)
+                            except Exception:
+                                pass
                     else:
                         ozet_yol = _ozet_tablo_yaz(
                             os.path.join(
