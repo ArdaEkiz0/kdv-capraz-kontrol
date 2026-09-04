@@ -2153,8 +2153,23 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     SAYFA_LIMITI = 500
                     tum_satirlar = []
                     gorulen_belge = set()
-                    for sayfa_sirasi in range(1, 60):  # 500*59≈30k, güvenlik sınırı
-                        sayfa_satirlari = _satirlari_ayikla(cerceve.content())
+                    for sayfa_sirasi in range(1, 60):
+                        try:
+                            html_icerik = cerceve.content()
+                        except Exception as hata:
+                            bildir(f"{kategori}: cerceve.content() hatası: "
+                                   f"{str(hata)[:80]}")
+                            # Frame ölmüş olabilir; sayfadan dene
+                            try:
+                                html_icerik = cerceve.page.content()
+                                bildir(f"{kategori}: sayfadan HTML alındı "
+                                       f"({len(html_icerik)} bayt)")
+                            except Exception:
+                                break
+                        sayfa_satirlari = _satirlari_ayikla(html_icerik)
+                        bildir(f"{kategori}: sayfa {sayfa_sirasi} - "
+                               f"HTML {len(html_icerik)} bayt, "
+                               f"{len(sayfa_satirlari)} belge.")
                         yeni = 0
                         for sira, belge in sayfa_satirlari:
                             anahtar = (str(belge.get("belge_numarasi") or "")
