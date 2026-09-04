@@ -1300,6 +1300,12 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
         # butonuyla devam edilir.
         time.sleep(2)
         _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir)
+        # Ek kontrol: popup 2sn'de açılmamışsa biraz daha bekle ve tekrar dene
+        try:
+            time.sleep(3)
+            _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir)
+        except Exception:
+            pass
         # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
         for _ in range(3):
             try:
@@ -1327,6 +1333,7 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
             time.sleep(0.5)
         # Belgeler listeye gelene kadar bekle (akıllı).
         # GİB sorguları 10-30 sn sürebilir; 30 denemeye kadar bekle.
+        # İlk 5sn'de belge gelmezse popup kapanmamış olabilir → kapat.
         try:
             import luca_cekme as _l
             for _i in range(30):
@@ -1335,6 +1342,14 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 if belge_sayisi > 0:
                     bildir(f"Listede {belge_sayisi} belge göründü.")
                     break
+                # 5sn'de belge yoksa popup hala açık olabilir
+                if _i == 5:
+                    try:
+                        cerceve.evaluate("hide_window()")
+                        bildir("5sn'de belge gelmedi; popup kapatılmaya "
+                               "çalışıldı.")
+                    except Exception:
+                        pass
                 if _i % 5 == 4:
                     bildir(f"Hâlâ bekleniyor... ({_i+1}s)")
                 time.sleep(1)
@@ -2315,6 +2330,8 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # doğrudan veri çekilir (daha güvenilir).
                     bildir(f"{kategori}: belge verileri HTML'den okunuyor...")
                     indirilen_yollar = set()
+                    ikinci_dongu_belge = []
+                    atlanan_belge2 = 0
                     for _sayfa in range(1, 60):
                         html_icerik = cerceve.content()
                         sayfa_satirlari = _satirlari_ayikla(html_icerik)
@@ -2322,7 +2339,6 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                f"HTML {len(html_icerik)} bayt, "
                                f"{len(sayfa_satirlari)} belge bulundu.")
                         if not sayfa_satirlari:
-                            # Frame degismis olabilir, sayfadan direkt dene
                             try:
                                 html_icerik = cerceve.page.content()
                                 sayfa_satirlari = _satirlari_ayikla(html_icerik)
@@ -2350,21 +2366,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                     or (durum_kisa
                                         and "onay" not in durum_kisa)):
                                 continue
-                            belge_no = (belge.get("belge_numarasi")
-                                        or f"belge{sira}").strip()
-                            g_say = gorulen_no.get(belge_no, 1)
-                            # ZIP yerine HTML JSON'dan özet oluştur
-                            ozet = {
-                                "belge_numarasi": belge_no,
-                                "belge_tarihi": belge.get("belge_tarihi", ""),
-                                "ettn": belge.get("ettn", ""),
-                                "karsi_vkn": str(belge.get("alici_vkn_tckn", "")),
-                                "unvan": belge.get("alici_unvan_ad_soyad", ""),
-                                "toplam": None,
-                                "kdv": None,
-                                "matrah": None,
-                            }
-                            kayitlar.append(ozet)
+                            ikinci_dongu_belge.append((sira, belge))
                         tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
                         if not tam_sayfa:
                             break
@@ -2382,26 +2384,60 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 except Exception:
                                     pass
                             break
+                    # Tarih filtresi tutmadıysa tüm belgeleri al
+                    if not ikinci_dongu_belge and sayfa_satirlari:
+                        bildir(f"{kategori}: tarih filtresi tutmadı; "
+                               "tüm belgeler alınıyor.")
+                        for sira, belge in sayfa_satirlari:
+                            durum_kisa = _turk_kucult(
+                                str(belge.get("onay_durumu") or ""))
+                            iptal_ibare = str(
+                                belge.get("iptal_itiraz") or
+                                belge.get("iptal_itiraz_durumu")
+                                or "").strip()
+                            if (iptal_ibare
+                                    or ("red" in durum_kisa)
+                                    or ("iptal" in durum_kisa)
+                                    or (durum_kisa
+                                        and "onay" not in durum_kisa)):
+                                continue
+                            ikinci_dongu_belge.append((sira, belge))
                     # ZIP yolları boş — HTML'den toplandı
                     zip_yollari = []
 
                     # Kayıt oluştur: HTML'deki fatura JSON'undan.
-                    bildir(f"{kategori}: {len(secili)} belge "
+                    bildir(f"{kategori}: {len(ikinci_dongu_belge)} belge "
                            "kayıt oluşturuluyor...")
-                    # kayitlar zaten döngüde dolduruldu; burada yalnızca
-                    # takip ekranını güncelle.
-                    for numara, (sira, belge, belge_no, gor_c) \
-                            in enumerate(tum_secili, 1):
+                    for sira, belge in ikinci_dongu_belge:
+                        belge_no = (belge.get("belge_numarasi")
+                                    or f"belge{sira}").strip()
+                        ozet = {
+                            "belge_numarasi": belge_no,
+                            "belge_tarihi": belge.get("belge_tarihi", ""),
+                            "ettn": belge.get("ettn", ""),
+                            "karsi_vkn": str(belge.get("alici_vkn_tckn", "")),
+                            "unvan": belge.get("alici_unvan_ad_soyad", ""),
+                            "toplam": None,
+                            "kdv": None,
+                            "matrah": None,
+                        }
+                        kayitlar.append(ozet)
+                    for numara, (sira, belge) in \
+                            enumerate(ikinci_dongu_belge, 1):
+                        belge_no = (belge.get("belge_numarasi")
+                                    or f"belge{sira}").strip()
                         olay({"kategori": kategori, "adim": "indirildi",
                               "durum": "calisiyor",
                               "sayi": numara,
-                              "toplam": len(secili),
-                              "mesaj": f"{birim}: {numara}/{len(secili)} "
+                              "toplam": len(ikinci_dongu_belge),
+                              "mesaj": f"{birim}: {numara}/"
+                                       f"{len(ikinci_dongu_belge)} "
                                        f"({belge_no})"})
-                        bildir(f"{kategori}: {numara}/{len(secili)} "
+                        bildir(f"{kategori}: {numara}/"
+                               f"{len(ikinci_dongu_belge)} "
                                f"belge ({belge_no}).")
-                    if atlanan_belge:
-                        bildir(f"{kategori}: {atlanan_belge} red/iptal "
+                    if atlanan_belge2:
+                        bildir(f"{kategori}: {atlanan_belge2} red/iptal "
                                "belge dışarıda bırakıldı.")
                     if not kayitlar:
                         raise RuntimeError("tarih aralığında belge inmedi")
