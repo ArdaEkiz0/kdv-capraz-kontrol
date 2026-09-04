@@ -2402,15 +2402,39 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     for sira, belge in ikinci_dongu_belge:
                         belge_no = (belge.get("belge_numarasi")
                                     or f"belge{sira}").strip()
+                        # İlk belgede tüm alanları logla (debug)
+                        if sira == 0 and ikinci_dongu_belge:
+                            bildir(f"{kategori}: belge alanları: "
+                                   f"{list(belge.keys())}")
+                        # fatura JSON'unda olası alan isimleri
+                        matrah = (belge.get("matrah")
+                                  or belge.get("mal_hizmet_tutari")
+                                  or belge.get("matrah_tutari"))
+                        kdv = (belge.get("kdv_toplam")
+                               or belge.get("kdv")
+                               or belge.get("kdv_tutari")
+                               or belge.get("toplam_kdv"))
+                        toplam = (belge.get("genel_toplam")
+                                  or belge.get("toplam")
+                                  or belge.get("toplam_tutar")
+                                  or belge.get("genel_toplam_tutari"))
                         ozet = {
                             "belge_numarasi": belge_no,
                             "belge_tarihi": belge.get("belge_tarihi", ""),
+                            "belge_turu": kategori,
                             "ettn": belge.get("ettn", ""),
                             "karsi_vkn": str(belge.get("alici_vkn_tckn", "")),
                             "unvan": belge.get("alici_unvan_ad_soyad", ""),
-                            "toplam": None,
-                            "kdv": None,
-                            "matrah": None,
+                            "onay_durumu": belge.get("onay_durumu", ""),
+                            "matrah": matrah,
+                            "kdv_toplam": kdv,
+                            "genel_toplam": toplam,
+                            "para": belge.get("para_birimi",
+                                              belge.get("para", "TRY")),
+                            "oranlar_metni": belge.get("oranlar_metni",
+                                                       belge.get("kdv_oran",
+                                                                 "")),
+                            "dosya": "",
                         }
                         kayitlar.append(ozet)
                     for numara, (sira, belge) in \
@@ -2433,11 +2457,13 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     if not kayitlar:
                         bildir(f"{kategori}: tarih aralığında belge bulunamadı "
                                "(0 belge).")
-                    ozet_yol = _ozet_tablo_yaz(
-                        os.path.join(
-                            hedef_klasor,
-                            f"luca_{kategori}_{bas_tarih:%Y%m%d}_"
-                            f"{bit_tarih:%Y%m%d}.xlsx"), kayitlar)
+                        ozet_yol = None
+                    else:
+                        ozet_yol = _ozet_tablo_yaz(
+                            os.path.join(
+                                hedef_klasor,
+                                f"luca_{kategori}_{bas_tarih:%Y%m%d}_"
+                                f"{bit_tarih:%Y%m%d}.xlsx"), kayitlar)
                     sonuc[kategori] = {
                         "zip": zip_yollari,
                         "ozet": ozet_yol,
