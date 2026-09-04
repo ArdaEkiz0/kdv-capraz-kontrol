@@ -1103,17 +1103,78 @@ def _firma_donem_sec(erp, firma_adi, bas_tarih, bildir):
     return hedef["t"], donem["t"]
 
 
+def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
+    """'BELGE ARAMA' popup'ı açıksa tarih girip arama yapar veya kapatır.
+
+    Luca'nın gib530 ekranında gonder('indir') bazı durumlarda belge
+    arama popup'ı açar. Popup açıksa:
+      1. Tarih alanlarını (#baslangic/#bitis) doldurup 'Belge Ara'ya basar.
+      2. Bulamazsa hide_window() ile kapatır.
+    """
+    if bildir is None:
+        bildir = lambda s: None
+    # Popup görünür mü? (display:none yerine offsetParent kontrolü)
+    popup_var = False
+    try:
+        popup_var = cerceve.evaluate(
+            "() => { const d = document.getElementById('arama-window-div');"
+            " return d && d.style.display !== 'none' && d.offsetParent !== null; }")
+    except Exception:
+        pass
+    if not popup_var:
+        return
+    bildir("BELGE ARAMA popup'ı algılandı, tarih giriliyor...")
+    bas_metin = bas_tarih.strftime("%d/%m/%Y")
+    bit_metin = bit_tarih.strftime("%d/%m/%Y")
+    # Tarih alanlarını doldur (#baslangic / #bitis)
+    for secici, metin in (("#baslangic", bas_metin), ("#bitis", bit_metin)):
+        try:
+            alan = cerceve.query_selector(secici)
+            if alan is not None:
+                alan.evaluate(
+                    "el => { el.value = arguments[0]; "
+                    "el.dispatchEvent(new Event('change')); }", metin)
+        except Exception:
+            pass
+    # 'Belge Ara' butonuna bas (#faturalari-ara-btn)
+    try:
+        ara_btn = cerceve.query_selector("#faturalari-ara-btn")
+        if ara_btn is not None:
+            ara_btn.click()
+            bildir("Belge Ara butonuna basıldı, sonuçlar bekleniyor...")
+            time.sleep(4)
+            return
+    except Exception:
+        pass
+    # Fallback: onclick='gonder("arama")' olan herhangi bir buton
+    try:
+        for btn in cerceve.query_selector_all("button"):
+            oc = btn.get_attribute("onclick") or ""
+            if "arama" in oc and "window" not in oc:
+                btn.click()
+                bildir("Belge Ara (fallback) tıklandı.")
+                time.sleep(4)
+                return
+    except Exception:
+        pass
+    # Hiçbiri olmadıysa hide_window() ile kapat
+    try:
+        cerceve.evaluate("hide_window()")
+        bildir("BELGE ARAMA popup'ı hide_window() ile kapatıldı.")
+        time.sleep(1)
+    except Exception:
+        pass
+
+
 def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
-    """Luca e-belge ekranında 'GİB'ten Getir' (İnternetten Getir) adımını çalıştırır.
+    """Luca e-belge ekranında 'GİB'ten Getir' adımını çalıştırır.
 
-    Luca'nın gib530 ekranı iki adımlıdır: belgeler önce GİB'den bu butonla
-    çekilir (listeye yüklenir), ardından indirilir.
-
-    Buton bulma ÇOK GENİŞ yapılır: input/button/a + span/div/img + onclick/
-    title/alt + 'getir', 'indir', 'internetten', 'gib' gibi anahtar
-    kelimeler taranır. is_visible() güvenilir olmadığı için DOM'da olan
-    öğelerden tıklanabilir ilk aday seçilir; bulunamazsa en kötü ihtimalle
-    'gib530' ekranında ilk butona tıklanmaz, sessizce dönülür.
+    akış:
+    1. gonder('indir') çağrılır → Luca "BELGE ARAMA" popup'ı açabilir.
+    2. Popup varsa: tarih alanları doldurulup 'Belge Ara'ya basılır
+       ya da X ile kapatılıp araç çubuğundaki 'GİB'den Getir' ile devam
+       edilir.
+    3. Belge listesi dolana kadar beklenir.
     """
     if bildir is None:
         bildir = lambda s: None
@@ -1218,9 +1279,12 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 except Exception:
                     pass
             bildir("Buton tıklama ile çağrıldı (JS fallback).")
-        # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
+        # Luca bazı ekranlarda 'BELGE ARAMA' popup'ı açar; bu popup
+        # tarih aralığı filtresi içerir. Kapatılıp直接 GİB'den Getir
+        # butonuyla devam edilir.
         time.sleep(2)
-        # Onay/SweetAlert penceresi varsa 'Evet'/'Tamam'a bas.
+        self._belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir)
+        # İlgili onay/uyarı penceresi çıkabilir (Evet/Tamam/liste).
         for _ in range(3):
             try:
                 onay = cerceve.query_selector(
