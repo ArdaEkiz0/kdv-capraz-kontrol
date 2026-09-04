@@ -1125,10 +1125,10 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
         pass
     if not acik:
         return
-    bildir("BELGE ARAMA popup'ı algılandı, tarih giriliyor...")
+    bildir("BELGE ARAMA popup'i algilandi, tarih giriliyor...")
     bas_metin = bas_tarih.strftime("%d/%m/%Y")
     bit_metin = bit_tarih.strftime("%d/%m/%Y")
-    # Tarih alanlarını doldur
+    # Tarih alanlarini doldur
     for secici, metin in (("#baslangic", bas_metin), ("#bitis", bit_metin)):
         try:
             alan = cerceve.query_selector(secici)
@@ -1138,20 +1138,45 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
                     "el.dispatchEvent(new Event('change')); }", metin)
         except Exception:
             pass
-    # 'Belge Ara' butonuna bas
-    try:
-        ara_btn = cerceve.query_selector("#faturalari-ara-btn")
-        if ara_btn is not None:
-            ara_btn.click()
-            bildir("Belge Ara butonuna basıldı, sonuçlar bekleniyor...")
-            time.sleep(4)
-            return
-    except Exception:
-        pass
-    # Fallback: hide_window()
+    # 'Belge Ara' butonuna bas — popup kapanana kadar bekle
+    for deneme in range(3):
+        try:
+            ara_btn = cerceve.query_selector("#faturalari-ara-btn")
+            if ara_btn is not None:
+                ara_btn.click()
+                bildir(f"Belge Ara tiklandi (deneme {deneme+1}), "
+                       "sonuclar bekleniyor...")
+                # Sonuclarin yuklenmesini bekle (popup kapanana kadar)
+                for _ in range(20):  # max 20 saniye
+                    time.sleep(1)
+                    hala_acik = False
+                    try:
+                        hala_acik = cerceve.evaluate(
+                            "() => {"
+                            " const d = document.getElementById("
+                            "'arama-window-div');"
+                            " if (!d) return false;"
+                            " if (d.style.display === 'none') return false;"
+                            " if (d.classList.contains('hidden')) return false;"
+                            " return true; }")
+                    except Exception:
+                        pass
+                    if not hala_acik:
+                        bildir("BELGE ARAMA popup'i kapandi.")
+                        return
+                bildir("Popup hala acik, hide_window() ile kapatiliyor...")
+                try:
+                    cerceve.evaluate("hide_window()")
+                    time.sleep(1)
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+    # Hiçbir但ona.calısmadıysa hide_window() ile kapat
     try:
         cerceve.evaluate("hide_window()")
-        bildir("BELGE ARAMA popup'ı kapatıldı.")
+        bildir("BELGE ARAMA popup'i hide_window() ile kapatildi.")
         time.sleep(1)
     except Exception:
         pass
