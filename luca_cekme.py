@@ -2152,6 +2152,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     sayfa2 = cerceve.page
                     zip_yollari = []
                     kayitlar = []
+                    bildir(f"{kategori}: {len(secili)} belge indirilecek.")
 
                     def _hedef_zip(no, c):
                         ad = no if c <= 1 else f"{no}_{c}"
@@ -2212,9 +2213,12 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                     and not _dosya_saglam(hedef):
                                 bekleyen.append((sira, hedef))
                         if bekleyen:
+                            bildir(f"{kategori}: {len(bekleyen)} ZIP "
+                                   "indiriliyor...")
                             _zip_toplu_indir(cerceve, sayfa2,
                                              list(bekleyen), bildir)
                             indirilen_yollar.update(h for _, h in bekleyen)
+                            bildir(f"{kategori}: ZIP indirme tamamlandı.")
                         tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
                         sonraki_var = _sonraki_sayfa_var_mi(cerceve)
                         if not sonraki_var and not tam_sayfa:
@@ -2229,6 +2233,8 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             break
 
                     # Kayıt oluştur: indirilen/hedef ZIP'lerden özet oku.
+                    bildir(f"{kategori}: {len(tum_secili)} belge "
+                           "kayıt oluşturuluyor...")
                     for numara, (sira, belge, belge_no, gor_c) \
                             in enumerate(tum_secili, 1):
                         zip_yol = _hedef_zip(belge_no, gor_c)
