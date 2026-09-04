@@ -1604,6 +1604,52 @@ def _muavin_frame(erp, uye_no, bildir=None):
 
 
 _FATURA_JSON = re.compile(r'fatura="([^"]+)"')
+_FATURA_TD = re.compile(r'<td[^>]*>(.*?)</td>', re.DOTALL | re.IGNORECASE)
+_FATURA_TR = re.compile(r'<tr[^>]*>(.*?)</tr>', re.DOTALL | re.IGNORECASE)
+
+
+def _tutar_cevir(metin):
+    """HTML hücresinden tutar değerini Decimal'e çevirir."""
+    try:
+        temiz = metin.replace(".", "").replace(",", ".").strip()
+        temiz = re.sub(r'[^\d.\-]', '', temiz)
+        if temiz:
+            return float(temiz)
+    except Exception:
+        pass
+    return None
+
+
+def _tablo_basliklarini_bul(html_metin):
+    """HTML tablosundaki başlık satırını bulup sütun indekslerini döndürür.
+
+    Döndürdüğü dict: {"matrah": 5, "kdv": 6, "genel_toplam": 7, ...}
+    """
+    kolon = {}
+    baslik_desen = {
+        "matrah": re.compile(r"matrah", re.IGNORECASE),
+        "kdv": re.compile(r"\bkdv\b", re.IGNORECASE),
+        "genel_toplam": re.compile(r"genel\s*toplam|toplam\s*tutar|ödenecek",
+                                   re.IGNORECASE),
+        "belge_numarasi": re.compile(r"belge\s*no|fatura\s*no", re.IGNORECASE),
+        "belge_tarihi": re.compile(r"tarih", re.IGNORECASE),
+    }
+    for tr_eslesme in _FATURA_TR.finditer(html_metin):
+        tr_icerik = tr_eslesme.group(1)
+        td_liste = _FATURA_TD.findall(tr_icerik)
+        if len(td_liste) < 3:
+            continue
+        eslesme_sayisi = 0
+        for j, td in enumerate(td_liste):
+            import html as _html_mod
+            temiz = _html_mod.unescape(re.sub(r'<[^>]+>', '', td)).strip()
+            for anahtar, desen in baslik_desen.items():
+                if desen.search(temiz) and anahtar not in kolon:
+                    kolon[anahtar] = j
+                    eslesme_sayisi += 1
+        if eslesme_sayisi >= 2:
+            break
+    return kolon
 
 
 def _satirlari_ayikla(html_metin):
@@ -1611,13 +1657,34 @@ def _satirlari_ayikla(html_metin):
 
     Donen liste [(satir_sirasi, sozluk), ...]; satir_sirasi DOM sirasidir
     ve ZIP indirme tuslarinin sirasiyla birebir ortusur.
+    Ek olarak HTML tablosundan matrah/kdv/toplam degerlerini cikarir.
     """
+    kolonlar = _tablo_basliklarini_bul(html_metin)
+    tum_tr = _FATURA_TR.findall(html_metin)
     satirlar = []
     for sira, ham in enumerate(_FATURA_JSON.findall(html_metin)):
         try:
             veri = json.loads(html_cevir.unescape(ham))
         except Exception:
             continue
+        # HTML tablosundan matrah/kdv/toplam cek
+        if sira < len(tum_tr):
+            td_liste = _FATURA_TD.findall(tum_tr[sira])
+            if kolonlar.get("matrah") is not None:
+                idx = kolonlar["matrah"]
+                if idx < len(td_liste):
+                    veri["matrah_html"] = _tutar_cevir(
+                        re.sub(r'<[^>]+>', '', td_liste[idx]))
+            if kolonlar.get("kdv") is not None:
+                idx = kolonlar["kdv"]
+                if idx < len(td_liste):
+                    veri["kdv_html"] = _tutar_cevir(
+                        re.sub(r'<[^>]+>', '', td_liste[idx]))
+            if kolonlar.get("genel_toplam") is not None:
+                idx = kolonlar["genel_toplam"]
+                if idx < len(td_liste):
+                    veri["toplam_html"] = _tutar_cevir(
+                        re.sub(r'<[^>]+>', '', td_liste[idx]))
         satirlar.append((sira, veri))
     return satirlar
 
@@ -2406,15 +2473,20 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                         if sira == 0 and ikinci_dongu_belge:
                             bildir(f"{kategori}: belge alanları: "
                                    f"{list(belge.keys())}")
-                        # fatura JSON'unda olası alan isimleri
-                        matrah = (belge.get("matrah")
+                            bildir(f"{kategori}: matrah={matrah} "
+                                   f"kdv={kdv} toplam={toplam}")
+                        # fatura JSON'unda olası alan isimleri + HTML tablosu
+                        matrah = (belge.get("matrah_html")
+                                  or belge.get("matrah")
                                   or belge.get("mal_hizmet_tutari")
                                   or belge.get("matrah_tutari"))
-                        kdv = (belge.get("kdv_toplam")
+                        kdv = (belge.get("kdv_html")
+                               or belge.get("kdv_toplam")
                                or belge.get("kdv")
                                or belge.get("kdv_tutari")
                                or belge.get("toplam_kdv"))
-                        toplam = (belge.get("genel_toplam")
+                        toplam = (belge.get("toplam_html")
+                                  or belge.get("genel_toplam")
                                   or belge.get("toplam")
                                   or belge.get("toplam_tutar")
                                   or belge.get("genel_toplam_tutari"))
