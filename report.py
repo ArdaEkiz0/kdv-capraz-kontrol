@@ -504,6 +504,9 @@ def rapor_olustur(sonuc_satirlari, ozet, faturalar, cetvel_kayitlari, hedef_yol,
     # ---------- 12) KDV oran kontrolü ----------
     oran_kontrol_sayfasi_ekle(wb, faturalar)
 
+    # ---------- 12b) KDV matematiksel doğrulama (phobo3s formülleri) ----------
+    dogrulama_sayfasi_ekle(wb, faturalar)
+
     # ---------- 13) Veri (düz tablo - pivot/filtre için) ----------
     veri = wb.create_sheet("Veri")
     veri_basliklar = ["Tarih", "Durum", "Kaynak", "VKN", "Unvan", "Belge No",
@@ -709,6 +712,102 @@ def satici_ozet_sayfasi_ekle(wb, sonuc_satirlari, faturalar):
         for g in gruplar.values())
     ws.cell(row=satir_no + 1, column=2,
             value=f"Toplam {len(gruplar)} satıcı, {toplam_sorunlu} tanesinde sorun").font = Font(bold=True)
+
+
+# ============================================================================
+# KDV MATEMATİKSEL DOĞRULAMA SAYFASI (phobo3s formülleri)
+# ============================================================================
+
+def dogrulama_sayfasi_ekle(wb, faturalar):
+    """KDV matematiksel doğrulama raporu.
+
+    Her fatura için:
+    - Matrah + KDV + Diğer Vergi = Toplam kontrolü
+    - Tevkifat oranı standart fraksiyon kontrolü
+    - Olası iskonto tespiti
+    """
+    if "KDV Doğrulama" in wb.sheetnames:
+        return
+    from fatura_dogrulama import faturayi_dogrula
+
+    kontroller = []
+    for f in faturalar:
+        if not f.get("belge_no"):
+            continue
+        sonuclar = faturayi_dogrula(f)
+        kontroller.append({"fatura": f, "sonuclar": sonuclar})
+
+    if not kontroller:
+        return
+
+    def _sirala(k):
+        hatali = sum(1 for s in k["sonuclar"] if not s["ok"])
+        return (0 if hatali else 1, k["fatura"].get("belge_no", ""))
+
+    kontroller.sort(key=_sirala)
+
+    ws = wb.create_sheet("KDV Doğrulama")
+    INCE = Border(left=Side(style="thin"), right=Side(style="thin"),
+                  top=Side(style="thin"), bottom=Side(style="thin"))
+    BASLIK = Font(bold=True, color="FFFFFF", size=11)
+    DOLGU = PatternFill("solid", fgColor="4472C4")
+    HATA_DOLGU = PatternFill("solid", fgColor="FFC7CE")
+    OK_DOLGU = PatternFill("solid", fgColor="C6EFCE")
+
+    basliklar = ["Belge No", "VKN", "Tarih", "Ünvan", "Matrah", "KDV",
+                 "Toplam", "Kontrol Sayısı", "Hata Sayısı", "Durum",
+                 "Doğrulama Detayları"]
+    for j, b in enumerate(basliklar, 1):
+        h = ws.cell(row=1, column=j, value=b)
+        h.font = BASLIK
+        h.fill = DOLGU
+        h.border = INCE
+
+    satir_no = 2
+    toplam_hata = 0
+    for k in kontroller:
+        f = k["fatura"]
+        sonuclar = k["sonuclar"]
+        hatalar = [s for s in sonuclar if not s["ok"]]
+        toplam_hata += len(hatalar)
+
+        durum = "HATALI" if hatalar else "TAMAM"
+        detaylar = " | ".join(s["text"] for s in sonuclar)
+
+        hucreler = [
+            f.get("belge_no", ""),
+            f.get("satici_vkn") or f.get("vkn") or "",
+            f.get("tarih", ""),
+            f.get("satici_unvan") or f.get("unvan") or "",
+            float(f["matrah"]) if f.get("matrah") is not None else None,
+            float(f["kdv"]) if f.get("kdv") is not None else None,
+            float(f["toplam"]) if f.get("toplam") is not None else None,
+            len(sonuclar),
+            len(hatalar),
+            durum,
+            detaylar,
+        ]
+        for j, deger in enumerate(hucreler, 1):
+            c = ws.cell(row=satir_no, column=j, value=deger)
+            c.border = INCE
+            if j in (5, 6, 7):
+                c.number_format = "#,##0.00"
+            if j == 10:
+                if durum == "HATALI":
+                    c.fill = HATA_DOLGU
+                    c.font = Font(bold=True, color="9C0006")
+                else:
+                    c.fill = OK_DOLGU
+        satir_no += 1
+
+    ozet_satir = satir_no + 1
+    hatali_sayisi = sum(1 for k in kontroller
+                        if any(not s["ok"] for s in k["sonuclar"]))
+    ws.cell(row=ozet_satir, column=1,
+            value=f"Toplam {len(kontroller)} fatura | "
+                  f"Hatalı: {hatali_sayisi} | "
+                  f"Başarılı: {len(kontroller) - hatali_sayisi}"
+                  ).font = Font(bold=True, size=11)
 
 
 # ============================================================================
