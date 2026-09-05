@@ -209,6 +209,28 @@ def _guvenli_cikar(zipp, klasor):
         zipp.extract(ic_ad, klasor)
     return atlanan
 
+
+def _zipten_ozet(zip_yol, hedef_klasor=None):
+    """ZIP icinden UBL XML okuyup matrah/KDV/toplam ozeti cikarir.
+
+    hedef_klasor verilirse ZIP icerigi guvenli sekilde o klasore cikarilir.
+    Zengin hata durumunda bos sozluk dondurur (cagri noktasi hatayi
+    kendi bildirir).
+    """
+    o = {}
+    try:
+        with zipfile.ZipFile(zip_yol) as zipp:
+            for ic_ad in zipp.namelist():
+                icerik = zipp.read(ic_ad)
+                if ic_ad.lower().endswith(".xml"):
+                    o = _ubl_ozet(icerik)
+            if hedef_klasor:
+                _guvenli_cikar(zipp, hedef_klasor)
+    except Exception:
+        pass
+    return o
+
+
 LUCA_GIRIS_ADRESI = "https://agiris.luca.com.tr/LUCASSO/giris.erp"
 LUCA_GIRIS_ADRESLERI = (
     "https://agiris.luca.com.tr/LUCASSO/giris.erp",
@@ -2809,23 +2831,6 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     kayitlar = []
                     bildir(f"{kategori}: {len(secili)} belge indirilecek.")
 
-                    def _hedef_zip(no, c):
-                        ad = no if c <= 1 else f"{no}_{c}"
-                        return os.path.join(klasor, f"{on_ek}{ad}.zip")
-
-                    def _zipten_ozet(zip_yol):
-                        o = {}
-                        try:
-                            with zipfile.ZipFile(zip_yol) as zipp:
-                                for ic_ad in zipp.namelist():
-                                    icerik = zipp.read(ic_ad)
-                                    if ic_ad.lower().endswith(".xml"):
-                                        o = _ubl_ozet(icerik)
-                                _guvenli_cikar(zipp, klasor)
-                        except Exception:
-                            pass
-                        return o
-
                     # ZIP indirme: filtrelenmiş belgeler için ikinci geçiş
                     # Her sayfayı tekrar gez, o sayfadaki seçili belgeleri indir.
                     if kategori in ("efatura_alis", "efatura_satis",
@@ -2863,7 +2868,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 zip_yol = os.path.join(klasor, f"{on_ek}{belge_no}.zip")
                                 try:
                                     _zip_tikla_indir(cerceve, cerceve.page, sira, zip_yol)
-                                    ubl_ozet = _zipten_ozet(zip_yol)
+                                    ubl_ozet = _zipten_ozet(zip_yol, klasor)
                                     if ubl_ozet:
                                         belge["matrah"] = ubl_ozet.get("matrah")
                                         belge["kdv_toplam"] = ubl_ozet.get("kdv_toplam")
