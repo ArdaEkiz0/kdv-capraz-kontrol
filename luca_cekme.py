@@ -1954,13 +1954,53 @@ def _tarih_araliginda(metin, bas_tarih, bit_tarih):
     reraise=True
 )
 def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
-    """Satirdaki ZIP ikonuna tiklar; indigi dosyayi kaydeder."""
+    """Satirdaki ZIP ikonuna tiklar; indigi dosyayi kaydeder.
+    
+    Farklı sayfalarda ZIP butonu farkli selector'larla olabilir:
+    - onclick="zip_indir(...)" 
+    - onclick="indir('zip', ...)"
+    - class="zip-btn" / title="ZIP"
+    - img[src*="zip"] / i.fa-file-archive
+    """
+    # Çoklu selector dene
+    selectors = [
+        "[onclick*='zip_indir']",
+        "[onclick*=\"zip_indir\"]",
+        "[onclick*='indir'][onclick*='zip']",
+        "[onclick*='indir'][onclick*='ZIP']",
+        "a[title*='ZIP']",
+        "button[title*='ZIP']",
+        "img[src*='zip']",
+        "i.fa-file-archive-o",
+        "i.fa-file-zip-o",
+        ".zip-btn",
+        "[data-tip*='ZIP']",
+    ]
+    
+    js_template = """
+        (n, selectors) => {{
+            for (const sel of selectors) {{
+                const els = [...document.querySelectorAll(sel)];
+                if (els.length > n) {{
+                    els[n].click();
+                    return;
+                }}
+            }}
+            // Fallback: onclick içinde 'zip' veya 'indir' geçen herhangi bir element
+            const all = [...document.querySelectorAll('[onclick]')]
+                .filter(x => {{
+                    const oc = (x.getAttribute('onclick') || '').toLowerCase();
+                    return oc.includes('zip') || oc.includes('indir');
+                }});
+            if (all.length > n) {{
+                all[n].click();
+                return;
+            }}
+            throw new Error('ZIP düğmesi yok (denenen: ' + selectors.join(', ') + ')');
+        }}
+    """
     with sayfa.expect_download(timeout=30000) as bekle:
-        frame.evaluate(
-            "n => { const e = [...document.querySelectorAll('[onclick]')]"
-            ".filter(x => x.getAttribute('onclick').includes('zip_indir'))"
-            "[n]; if (!e) throw new Error('ZIP düğmesi yok'); e.click(); }",
-            satir_sirasi)
+        frame.evaluate(js_template, satir_sirasi, selectors)
     indirme = bekle.value
     indirme.save_as(hedef_yol)
     return indirme.suggested_filename
@@ -2695,18 +2735,6 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 except Exception:
                                     pass
                             break
-                    # ZIP indirme planını çalıştır (sayfa başına tek tek, doğru sira ile)
-                    if zip_indirme_plani:
-                        bildir(f"{kategori}: {len(zip_indirme_plani)} belge için ZIP indiriliyor...")
-                        for sayfa_no, sira, belge_no, zip_yol in zip_indirme_plani:
-                            # İlgili sayfaya git (ilk sayfa hariç)
-                            # Not: zip_indirme_plani sayfa sırasıyla doldu, o sayfadayken indirmek lazım
-                            # Ama şu an son sayfadayız. Basit çözüm: baştan gez ve indir.
-                            pass
-                        # Daha basit: zip_indirme_plani'ni kullanıp baştan gez
-                        # Ama bu karmaşık. Alternatif: tum_satirlar'ı kullan, ikinci geçişte
-                        # sayfa sayfa gez ve eşleşenleri indir.
-                        pass
                     # Tarih aralığında kalan ve geçerli (red/iptal olmayan)
                     # belgelerin tam listesi (belge no, sayac ile).
                     gorulen_no = {}
@@ -2885,23 +2913,18 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             "dosya": "",
                         }
                         kayitlar.append(ozet)
-                    for numara, (sira, belge) in \
-                            enumerate(ikinci_dongu_belge, 1):
-                        belge_no = (belge.get("belge_numarasi")
-                                    or f"belge{sira}").strip()
+                    for numara, (sayfa_no, sira, belge, belge_no) in \
+                            enumerate(secili, 1):
                         olay({"kategori": kategori, "adim": "indirildi",
                               "durum": "calisiyor",
                               "sayi": numara,
-                              "toplam": len(ikinci_dongu_belge),
+                              "toplam": len(secili),
                               "mesaj": f"{birim}: {numara}/"
-                                       f"{len(ikinci_dongu_belge)} "
+                                       f"{len(secili)} "
                                        f"({belge_no})"})
                         bildir(f"{kategori}: {numara}/"
-                               f"{len(ikinci_dongu_belge)} "
+                               f"{len(secili)} "
                                f"belge ({belge_no}).")
-                    if atlanan_belge2:
-                        bildir(f"{kategori}: {atlanan_belge2} red/iptal "
-                               "belge dışarıda bırakıldı.")
                     if not kayitlar:
                         bildir(f"{kategori}: tarih aralığında belge bulunamadı "
                                "(0 belge).")
