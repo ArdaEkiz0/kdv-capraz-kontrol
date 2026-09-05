@@ -2491,6 +2491,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # Kayıt oluştur: HTML'deki fatura JSON'undan.
                     bildir(f"{kategori}: {len(ikinci_dongu_belge)} belge "
                            "kayıt oluşturuluyor...")
+                    matrah = kdv = toplam = None
                     for sira, belge in ikinci_dongu_belge:
                         belge_no = (belge.get("belge_numarasi")
                                     or f"belge{sira}").strip()
