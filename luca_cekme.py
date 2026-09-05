@@ -18,6 +18,36 @@ import re
 import time
 import zipfile
 from datetime import date, datetime
+from functools import wraps
+
+# Optional deps (graceful fallback)
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+except Exception:  # pragma: no cover
+    def retry(*a, **k):
+        def deco(f): return f
+        return deco
+    stop_after_attempt = wait_exponential = retry_if_exception_type = None
+
+try:
+    from lxml import etree as ET_LXML
+except Exception:  # pragma: no cover
+    ET_LXML = None
+
+try:
+    from babel.dates import format_date as babel_format_date
+except Exception:  # pragma: no cover
+    babel_format_date = None
+
+
+def tr_tarih(tarih):
+    """Tarihi TR locale (gg.aa.yyyy) formatinda dondurur; babel yoksa fallback."""
+    if babel_format_date:
+        try:
+            return babel_format_date(tarih, "dd.MM.yyyy", locale="tr_TR")
+        except Exception:
+            pass
+    return tarih.strftime("%d.%m.%Y")
 
 
 # ZIP icinden asla cikarilmamasi gereken dosya/klasor adlari (kucuk harfe
@@ -439,8 +469,8 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
     İkincil: Muavin ekranındaki #tarih_ilk/#tarih_son.
     Üçüncül: Genel seçicilerle tarama.
     """
-    bas_metin = bas_tarih.strftime("%d.%m.%Y")
-    bit_metin = bit_tarih.strftime("%d.%m.%Y")
+    bas_metin = tr_tarih(bas_tarih)
+    bit_metin = tr_tarih(bit_tarih)
     doldurulan = 0
     # Birincil: gib530 e-Belge ekranındaki tarih alanları
     for secici, metin in (("#tarih1", bas_metin),
@@ -1127,8 +1157,8 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
         bildir("BELGE ARAMA popup'i AÇIK DEĞİL (varsayılan dönem kullanılıyor).")
         return
     bildir("BELGE ARAMA popup'i algilandi, tarih giriliyor...")
-    bas_metin = bas_tarih.strftime("%d/%m/%Y")
-    bit_metin = bit_tarih.strftime("%d/%m/%Y")
+    bas_metin = tr_tarih(bas_tarih).replace(".", "/")
+    bit_metin = tr_tarih(bit_tarih).replace(".", "/")
     # Tarih alanlarini doldur
     for secici, metin in (("#baslangic", bas_metin), ("#bitis", bit_metin)):
         try:
@@ -1187,6 +1217,12 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
         pass
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=3, max=15),
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
 def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
     """Luca e-belge ekranında 'GİB'ten Getir' adımını çalıştırır.
 
@@ -1697,6 +1733,12 @@ def _tablo_basliklarini_bul(html_metin):
     return kolon
 
 
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=5),
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
 def _satirlari_ayikla(html_metin):
     """gib530 listesindeki her satirin 'fatura' JSON ozelligini cozer.
 
@@ -1741,6 +1783,12 @@ def _tarih_araliginda(metin, bas_tarih, bit_tarih):
     return bas_tarih <= gun <= bit_tarih
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(Exception),
+    reraise=True
+)
 def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
     """Satirdaki ZIP ikonuna tiklar; indigi dosyayi kaydeder."""
     with sayfa.expect_download(timeout=30000) as bekle:
@@ -1840,7 +1888,7 @@ def _zip_toplu_indir(frame, sayfa, indirme_planlari, bildir=None,
 
 
 def _ubl_ozet(xml_bytes):
-    """UBL fatura XML'inden tutarlari cikarir.
+    """UBL fatura XML'inden tutarlari cikarir (lxml ile namespace-aware).
 
     Kurallar:
     - Para birimi TRY olan degerler oncelidir; hic TRY yoksa belge
@@ -1853,6 +1901,163 @@ def _ubl_ozet(xml_bytes):
       degerlendirilir. (Uygulamanin diger yerlerindeki oranlar=[18, 8]
       duz oran listesinden farkli alandir.)
     """
+    if ET_LXML is None:
+        # fallback to stdlib
+        return _ubl_ozet_stdlib(xml_bytes)
+
+    try:
+        parser = ET_LXML.XMLParser(recover=True, huge_tree=True)
+        kok = ET_LXML.fromstring(xml_bytes, parser=parser)
+    except Exception:
+        return _ubl_ozet_stdlib(xml_bytes)
+
+    # UBL namespace map
+    NS = {
+        "cac": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
+        "cbc": "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2",
+        "ext": "urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2",
+    }
+
+    def sayi(metin):
+        try:
+            return float((metin or "0").replace(",", "."))
+        except (ValueError, TypeError):
+            return None
+
+    # TaxTotal blocks with xpath
+    bloklar = []
+    for tax_total in kok.xpath("//cac:TaxTotal", namespaces=NS):
+        dogrudan = None
+        para_b = ""
+        alt = []
+
+        # Direct TaxAmount
+        tax_amount_el = tax_total.xpath("cbc:TaxAmount", namespaces=NS)
+        if tax_amount_el:
+            dogrudan = sayi(tax_amount_el[0].text)
+            para_b = tax_amount_el[0].get("currencyID") or para_b
+
+        # TaxSubtotal children
+        for subtotal in tax_total.xpath("cac:TaxSubtotal", namespaces=NS):
+            yuzde = None
+            taban_t = None
+            alt_kdv = None
+
+            pct = subtotal.xpath("cbc:Percent", namespaces=NS)
+            if pct:
+                yuzde = sayi(pct[0].text)
+
+            taxable = subtotal.xpath("cbc:TaxableAmount", namespaces=NS)
+            if taxable:
+                taban_t = sayi(taxable[0].text)
+
+            sub_tax = subtotal.xpath("cbc:TaxAmount", namespaces=NS)
+            if sub_tax:
+                alt_kdv = sayi(sub_tax[0].text)
+
+            if yuzde is not None and alt_kdv is not None:
+                alt.append({"oran": round(yuzde, 2),
+                            "matrah": round(taban_t, 2) if taban_t is not None else None,
+                            "kdv": round(alt_kdv, 2)})
+
+        tutarli = bool(alt) and dogrudan is not None and \
+            abs(sum(a["kdv"] for a in alt) - dogrudan) <= 0.02
+        bloklar.append({"para": para_b, "dogrudan": dogrudan,
+                        "alt": alt, "tutarli": tutarli})
+
+    secili = [b for b in bloklar if b["tutarli"]]
+    if not secili:
+        secili = [b for b in bloklar if b["alt"]] or bloklar
+
+    # PayableAmount & TaxExclusiveAmount
+    genels = []
+    matrahs = []
+
+    for pa in kok.xpath("//cbc:PayableAmount", namespaces=NS):
+        genels.append((sayi(pa.text), pa.get("currencyID") or ""))
+    for ta in kok.xpath("//cbc:TaxExclusiveAmount", namespaces=NS):
+        matrahs.append((sayi(ta.text), ta.get("currencyID") or ""))
+
+    def tercih(ciftler):
+        temiz = [(d, p) for d, p in ciftler if d is not None]
+        if not temiz:
+            return None, ""
+        for d, p in temiz:
+            if p in ("TRY", "TL"):
+                return d, "TRY"
+        return temiz[0]
+
+    genel_toplam, genel_para = tercih(genels)
+    matrah, matrah_para = tercih(matrahs)
+
+    # Blok secimi: gondericiler hem satir kirilimini hem belge toplamini
+    # ayri TaxTotal bloklari olarak yazabiliyor. Tabanlari toplami KDV-
+    # haric matraya esit olan blok(lar) gercek vergi bilesenleridir;
+    # matraya eslesen tek blok varsa digerleri (kismi/kopya) atlanir.
+    if len(secili) > 1 and matrah is not None:
+        tam_bloklar = [b for b in secili
+                       if abs(sum((a.get("matrah") or 0.0)
+                                  for a in b["alt"]) - matrah) <= 0.05]
+        if len(tam_bloklar) == 1:
+            secili = tam_bloklar
+
+    # Alt kalemleri temizle: belge duzeyinde tekrarlanan ozet satirini
+    # (tabani diger satirlarin toplami) ve sent kopyalarini kaldirir.
+    tum_alt = []
+    for b in secili:
+        tum_alt.extend(b["alt"])
+    temiz = []
+    for i, a in enumerate(tum_alt):
+        taban_a = a.get("matrah")
+        if taban_a is None:
+            continue
+        digerler = [x for j, x in enumerate(tum_alt) if j != i]
+        if digerler and abs(
+                sum((x.get("matrah") or 0.0) for x in digerler)
+                - taban_a) <= 0.05:
+            continue
+        temiz.append(a)
+
+    oranlar = []
+    for a in sorted(temiz,
+                    key=lambda x: (-x["oran"], -x["kdv"])):
+        benzer = [b for b in oranlar
+                  if b["oran"] == a["oran"]
+                  and abs(b["kdv"] - a["kdv"]) <= 0.05]
+        if not benzer:
+            oranlar.append(a)
+
+    # KDV toplami: tutarli bloklarin dogrudan degerleri; yakin degerler
+    # tek sayilir (tekrarlanan TaxTotal bloklari yaygin).
+    kdvs = []
+    for b in secili:
+        d = b["dogrudan"]
+        if d is None:
+            continue
+        if not any(abs(d - y) <= 0.05 for y in kdvs):
+            kdvs.append(round(d, 2))
+
+    para = "TRY" if (genel_para == "TRY" or matrah_para == "TRY"
+                     or any(b["para"] in ("TRY", "TL")
+                            for b in secili)) else (
+        genel_para or (secili[0]["para"] if secili else ""))
+
+    ozet = {}
+    if matrahs:
+        ozet["matrah"] = round(matrah, 2)
+    if kdvs:
+        ozet["kdv_toplam"] = round(sum(kdvs), 2)
+    if genel_toplam is not None:
+        ozet["genel_toplam"] = round(genel_toplam, 2)
+    if para:
+        ozet["para"] = para
+    if oranlar:
+        ozet["oran_kalemleri"] = oranlar
+    return ozet
+
+
+def _ubl_ozet_stdlib(xml_bytes):
+    """Fallback: stdlib ElementTree ile UBL parse (eski kod)."""
     try:
         import xml.etree.ElementTree as ET
         kok = ET.fromstring(xml_bytes)
@@ -1929,10 +2134,6 @@ def _ubl_ozet(xml_bytes):
     genel_toplam, genel_para = tercih(genels)
     matrah, matrah_para = tercih(matrahs)
 
-    # Blok secimi: gondericiler hem satir kirilimini hem belge toplamini
-    # ayri TaxTotal bloklari olarak yazabiliyor. Tabanlari toplami KDV-
-    # haric matraya esit olan blok(lar) gercek vergi bilesenleridir;
-    # matraya eslesen tek blok varsa digerleri (kismi/kopya) atlanir.
     if len(secili) > 1 and matrah is not None:
         tam_bloklar = [b for b in secili
                        if abs(sum((a.get("matrah") or 0.0)
@@ -1940,8 +2141,6 @@ def _ubl_ozet(xml_bytes):
         if len(tam_bloklar) == 1:
             secili = tam_bloklar
 
-    # Alt kalemleri temizle: belge duzeyinde tekrarlanan ozet satirini
-    # (tabani diger satirlarin toplami) ve sent kopyalarini kaldirir.
     tum_alt = []
     for b in secili:
         tum_alt.extend(b["alt"])
@@ -1966,8 +2165,6 @@ def _ubl_ozet(xml_bytes):
         if not benzer:
             oranlar.append(a)
 
-    # KDV toplami: tutarli bloklarin dogrudan degerleri; yakin degerler
-    # tek sayilir (tekrarlanan TaxTotal bloklari yaygin).
     kdvs = []
     for b in secili:
         d = b["dogrudan"]
