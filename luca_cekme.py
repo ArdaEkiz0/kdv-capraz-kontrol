@@ -1286,7 +1286,7 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
                 " const s = window.getComputedStyle(d);"
                 " if (s.display === 'none') return false;"
                 " if (s.visibility === 'hidden') return false;"
-                " if (d.classList.contains('hidden')) return false;"
+                " if (s.opacity === '0') return false;"
                 " return true; }")
         except Exception:
             return False
@@ -1299,19 +1299,26 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
     bildir("BELGE ARAMA popup'i algilandi, tarih giriliyor...")
     bas_metin = tr_tarih(bas_tarih).replace(".", "/")
     bit_metin = tr_tarih(bit_tarih).replace(".", "/")
-    # Tarih alanlarini doldur (frame + sayfa dene)
+    # Tarih alanlarini doldur (frame + sayfa dene) - date picker handler'ları tetikle
     for ctx in (cerceve, sayfa):
         for secici, metin in (("#baslangic", bas_metin), ("#bitis", bit_metin)):
             try:
                 alan = ctx.query_selector(secici)
                 if alan is not None:
-                    alan.evaluate(
-                        "el => { el.value = arguments[0]; "
-                        "el.dispatchEvent(new Event('change')); }", metin)
+                    # Luca date picker: focus -> click -> value -> blur zinciri
+                    alan.evaluate("""(el, val) => {
+                        el.focus();
+                        if (typeof dateFocus === 'function') dateFocus(el);
+                        if (typeof dateClick === 'function') dateClick(el);
+                        el.value = val;
+                        el.dispatchEvent(new Event('input', {bubbles: true}));
+                        el.dispatchEvent(new Event('change', {bubbles: true}));
+                        if (typeof dateBlur === 'function') dateBlur(el, '', '', true, 2026);
+                    }""", metin)
                     bildir(f"  {secici} = {metin} dolduruldu ({'frame' if ctx is cerceve else 'page'})")
                     break
-            except Exception:
-                pass
+            except Exception as e:
+                bildir(f"  {secici} doldurma hatası: {e}")
     # 'Belge Ara' butonuna bas — popup kapanana kadar bekle
     for deneme in range(3):
         try:
@@ -1341,7 +1348,7 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
                 bildir("  #faturalari-ara-btn BULUNAMADI")
         except Exception as e:
             bildir(f"  Belge Ara tiklama hatası: {e}")
-    # Hiçbir但ona.calısmadıysa hide_window() ile kapat
+    # Hiçbir buton calısmadıysa hide_window() ile kapat
     try:
         cerceve.evaluate("hide_window()")
         bildir("BELGE ARAMA popup'i hide_window() ile kapatildi.")
