@@ -1978,29 +1978,34 @@ def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
     ]
     
     js_template = """
-        (n, selectors) => {{
-            for (const sel of selectors) {{
+        (args) => {
+            const n = args.n;
+            const selectors = args.selectors;
+            for (const sel of selectors) {
                 const els = [...document.querySelectorAll(sel)];
-                if (els.length > n) {{
+                if (els.length > n) {
                     els[n].click();
                     return;
-                }}
-            }}
+                }
+            }
             // Fallback: onclick içinde 'zip' veya 'indir' geçen herhangi bir element
             const all = [...document.querySelectorAll('[onclick]')]
-                .filter(x => {{
+                .filter(x => {
                     const oc = (x.getAttribute('onclick') || '').toLowerCase();
                     return oc.includes('zip') || oc.includes('indir');
-                }});
-            if (all.length > n) {{
+                });
+            if (all.length > n) {
                 all[n].click();
                 return;
-            }}
+            }
             throw new Error('ZIP düğmesi yok (denenen: ' + selectors.join(', ') + ')');
-        }}
+        }
     """
+    # Playwright evaluate: expression + 1 arg (object). selectors'ı JSON olarak geçir.
+    import json
+    args = {"n": satir_sirasi, "selectors": selectors}
     with sayfa.expect_download(timeout=30000) as bekle:
-        frame.evaluate(js_template, satir_sirasi, selectors)
+        frame.evaluate(js_template, args)
     indirme = bekle.value
     indirme.save_as(hedef_yol)
     return indirme.suggested_filename
@@ -2735,6 +2740,17 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 except Exception:
                                     pass
                             break
+                    # klasor/on_ek'i ZIP planlaması için ERKEK tanımla
+                    if duz_yaz:
+                        klasor = hedef_klasor
+                    else:
+                        klasor = os.path.join(
+                            hedef_klasor,
+                            f"luca_{kategori}_{bas_tarih:%Y%m%d}_"
+                            f"{bit_tarih:%Y%m%d}")
+                    on_ek = ("" if duz_yaz
+                             else f"luca_{kategori}_")
+                    os.makedirs(klasor, exist_ok=True)
                     # Tarih aralığında kalan ve geçerli (red/iptal olmayan)
                     # belgelerin tam listesi (belge no, sayac ile).
                     gorulen_no = {}
@@ -2797,16 +2813,6 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                           "durum": "calisiyor", "sayi": len(secili),
                           "toplam": len(secili),
                           "mesaj": f"{birim}: {len(secili)} belge bulundu"})
-                    if duz_yaz:
-                        klasor = hedef_klasor
-                    else:
-                        klasor = os.path.join(
-                            hedef_klasor,
-                            f"luca_{kategori}_{bas_tarih:%Y%m%d}_"
-                            f"{bit_tarih:%Y%m%d}")
-                    on_ek = ("" if duz_yaz
-                             else f"luca_{kategori}_")
-                    os.makedirs(klasor, exist_ok=True)
                     zip_yollari = []
                     kayitlar = []
                     bildir(f"{kategori}: {len(secili)} belge indirilecek.")
