@@ -2488,6 +2488,33 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # ZIP yolları boş — HTML'den toplandı
                     zip_yollari = []
 
+                    # e-Fatura (efatura_alis, efatura_satis) için ZIP indirip
+                    # UBL XML'den matrah/kdv/toplam çek (HTML tablosunda yok)
+                    if kategori in ("efatura_alis", "efatura_satis") and ikinci_dongu_belge:
+                        bildir(f"{kategori}: {len(ikinci_dongu_belge)} belge için ZIP indiriliyor...")
+                        for sira, belge in ikinci_dongu_belge:
+                            belge_no = (belge.get("belge_numarasi")
+                                        or f"belge{sira}").strip()
+                            zip_yol = os.path.join(klasor, f"{on_ek}{belge_no}.zip")
+                            try:
+                                _zip_tikla_indir(cerceve, cerceve.page, sira, zip_yol)
+                                ubl_ozet = _zipten_ozet(zip_yol)
+                                if ubl_ozet:
+                                    belge["matrah"] = ubl_ozet.get("matrah")
+                                    belge["kdv_toplam"] = ubl_ozet.get("kdv")
+                                    belge["genel_toplam"] = ubl_ozet.get("toplam")
+                                    belge["para"] = ubl_ozet.get("para", "TRY")
+                                    belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
+                            except Exception as e:
+                                bildir(f"{kategori}: {belge_no} ZIP indirme hatası: {e}")
+                            finally:
+                                if os.path.exists(zip_yol):
+                                    try:
+                                        os.remove(zip_yol)
+                                    except Exception:
+                                        pass
+                            zip_yollari.append(zip_yol)
+
                     # Kayıt oluştur: HTML'deki fatura JSON'undan.
                     bildir(f"{kategori}: {len(ikinci_dongu_belge)} belge "
                            "kayıt oluşturuluyor...")
