@@ -2145,7 +2145,7 @@ def _sonraki_sayfaya_git(cerceve):
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                        hedef_klasor, kategoriler=None, ilerleme=None,
                        gorunur=True, firma_adi=None, duz_yaz=True,
-                       olay=None):
+                       olay=None, onay_callback=None):
     """Luca ERP Akıllı Entegrasyon ekranlarından e-Belgeleri indirir.
 
     Gerçek akış: giriş → portalda gonder('formTarget') ile MM Paketi
