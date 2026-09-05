@@ -2503,8 +2503,8 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 ubl_ozet = _zipten_ozet(zip_yol)
                                 if ubl_ozet:
                                     belge["matrah"] = ubl_ozet.get("matrah")
-                                    belge["kdv_toplam"] = ubl_ozet.get("kdv")
-                                    belge["genel_toplam"] = ubl_ozet.get("toplam")
+                                    belge["kdv_toplam"] = ubl_ozet.get("kdv_toplam")
+                                    belge["genel_toplam"] = ubl_ozet.get("genel_toplam")
                                     belge["para"] = ubl_ozet.get("para", "TRY")
                                     belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
                             except Exception as e:
