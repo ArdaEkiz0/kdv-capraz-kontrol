@@ -1332,10 +1332,10 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 pass
             time.sleep(0.5)
         # Belgeler listeye gelene kadar bekle (akıllı).
-        # GİB sorguları 10-30 sn sürebilir; 30 denemeye kadar bekle.
+        # GİB sorguları 10-60 sn sürebilir; 60 denemeye kadar bekle.
         try:
             import luca_cekme as _l
-            for _i in range(30):
+            for _i in range(60):
                 deneme_html = cerceve.content()
                 belge_sayisi = len(_l._satirlari_ayikla(deneme_html))
                 if belge_sayisi > 0:
@@ -1345,7 +1345,7 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                     bildir(f"Hâlâ bekleniyor... ({_i+1}s)")
                 time.sleep(1)
             else:
-                bildir("30 sn'de belge gelmedi; mevcut liste kullanılıyor.")
+                bildir("60 sn'de belge gelmedi; mevcut liste kullanılıyor.")
         except Exception:
             time.sleep(3)
         bildir("GİB'ten getir tamamlandı; liste güncellendi.")
@@ -2488,9 +2488,10 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # ZIP yolları boş — HTML'den toplandı
                     zip_yollari = []
 
-                    # e-Fatura (efatura_alis, efatura_satis) için ZIP indirip
-                    # UBL XML'den matrah/kdv/toplam çek (HTML tablosunda yok)
-                    if kategori in ("efatura_alis", "efatura_satis") and ikinci_dongu_belge:
+                    # e-Fatura ve e-Arşiv için ZIP indirip UBL XML'den
+                    # matrah/kdv/toplam çek (HTML tablosunda bu sütunlar yok)
+                    if kategori in ("efatura_alis", "efatura_satis",
+                                    "earsiv_alis", "earsiv_satis") and ikinci_dongu_belge:
                         bildir(f"{kategori}: {len(ikinci_dongu_belge)} belge için ZIP indiriliyor...")
                         for sira, belge in ikinci_dongu_belge:
                             belge_no = (belge.get("belge_numarasi")
