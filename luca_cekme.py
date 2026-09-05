@@ -2083,12 +2083,14 @@ def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol, belge=None,
         data=params,
         headers={"Content-Type": "application/json"})
     icerik = cevap.body()
-    if not icerik or len(icerik) < 100:
-        # Belki JSON sarmalı döndü: {data:{zip:"base64"}} -> base64 çöz
+    # Yanıt JSON sarmalı olabilir: {data:{zip:"base64"}} ya da {zip:"base64"}
+    if icerik[:1] in (b"{", b"["):
         try:
             json_cevap = json.loads(icerik)
-            zipb64 = (json_cevap.get("data") or {}).get("zip")
-            if zipb64:
+            zipb64 = ((json_cevap.get("data") or {}).get("zip")
+                      or json_cevap.get("zip")
+                      or json_cevap.get("data"))
+            if zipb64 and isinstance(zipb64, str) and zipb64:
                 import base64
                 icerik = base64.b64decode(zipb64)
         except Exception:
@@ -2096,6 +2098,16 @@ def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol, belge=None,
     if not icerik or len(icerik) < 50:
         raise RuntimeError("İndirme yanıtı boş geldi "
                            f"(HTTP {cevap.status})")
+    # Yanıt gerçekten ZIP mi? ZIP imzası 'PK' ile başlar; değilse HTML
+    # hata sayfası gelmiş olabilir (sessiz yazmayalım).
+    if icerik[:2] != b"PK":
+        try:
+            metin = icerik.decode("utf-8", "replace")
+            kisa = " ".join(metin.split())[:180]
+        except Exception:
+            kisa = ""
+        raise RuntimeError(
+            f"İndirme yanıtı ZIP değil (HTTP {cevap.status}): {kisa}")
     with open(hedef_yol, "wb") as f:
         f.write(icerik)
     return os.path.basename(hedef_yol)
@@ -2587,45 +2599,46 @@ def _satir_sayisini_buyut(sayfa, bildir):
         return False
 
 
-def _sayfa_butonlari(cerceve):
-    """Luca belge listesindeki sayfa ilerleme düğmelerini döndürür.
+_SAYFA_TARA_JS = r"""
+() => {
+    const eles = document.querySelectorAll(
+        'input, button, a, span, div, td, li, img, b, i');
+    const aday = [];
+    for (const e of eles) {
+        const t = ((e.value || '') + ' ' + ((e.innerText || '').trim())
+                  + ' ' + (e.getAttribute('onclick') || '')
+                  + ' ' + (e.getAttribute('title') || '')
+                  + ' ' + (e.getAttribute('alt') || '')).trim();
+        if (!t) continue;
+        const k = t.toLowerCase();
+        if (k.includes('onceki') || k.includes('geri')) continue;
+        const ilerle = k.includes('sonraki') || k.includes('ileri')
+            || k.includes('next') || k.includes('»') || k.includes('›')
+            || k.includes('>>') || k.trim() === '>' || k.includes('sayfa 2')
+            || k.includes('sayfa2')
+            || /goPage|nextPage|sayfaGec|ileri|pager/.test(k);
+        if (ilerle) {
+            aday.push({t: t.slice(0, 120), tag: e.tagName});
+            if (aday.length >= 10) break;
+        }
+    }
+    return aday;
+}
+"""
 
-    Geniş tarama: input/button/a + span/div + onclick içeren her öğe.
-    Metin ya da onclick'te 'sonraki/ileri/next/»/›/>' veya 'sayfa 2'
-    deseni aranır; 'önceki/geri' hariç.
+
+def _sayfa_butonlari(cerceve):
+    """Luca belge listesindeki sayfa ilerleme düğmelerini bulur.
+
+    Tarama tarayıcı İÇİNDE tek evaluate ile yapılır (500+faturalı dev
+    sayfalar için kritik: her inner_text/get_attribute ayrı Playwright
+    protokol turudur ve döngü dakikalarca sürebilir). Dönüş: bulunan
+    adayların sözlük listesi (tıklanacak öğe değil, metadata).
     """
-    adaylar = []
     try:
-        ogeler = cerceve.query_selector_all(
-            "input, button, a, span, div, td, li, img, b, i")
-        for oge in ogeler:
-            try:
-                metin = ((oge.get_attribute("value") or "")
-                         + " " + (oge.inner_text() or "")
-                         + " " + (oge.get_attribute("onclick") or "")
-                         + " " + (oge.get_attribute("title") or "")
-                         + " " + (oge.get_attribute("alt") or "")).strip()
-                if not metin:
-                    continue
-                k = metin.lower()
-                # 'önceki/geri' hariç; ilerleme desenleri
-                if "onceki" in k or "geri" in k:
-                    continue
-                ilerleme = (
-                    "sonraki" in k or "ileri" in k or "next" in k
-                    or "»" in k or "›" in k or ">>" in k
-                    or k.strip() in (">", "→")
-                    or "sayfa 2" in k or "sayfa2" in k
-                    or re.search(r"goPage|nextPage|sayfaGec|ileri", k)
-                    or re.search(r"pager", k)
-                )
-                if ilerleme:
-                    adaylar.append(oge)
-            except Exception:
-                continue
+        return cerceve.evaluate(_SAYFA_TARA_JS) or []
     except Exception:
-        pass
-    return adaylar
+        return []
 
 
 def _sonraki_sayfa_var_mi(cerceve):
@@ -2635,26 +2648,48 @@ def _sonraki_sayfa_var_mi(cerceve):
 
 def _sonraki_sayfaya_git(cerceve):
     """Listedeki 'Sonraki' / 'İleri' düğmesine tıklar; yönlendirme
-    sonrası yeni sayfa içeriği yüklenir. Dönüş: True/False."""
-    adaylar = _sayfa_butonlari(cerceve)
-    for oge in adaylar:
-        try:
-            oge.scroll_into_view_if_needed()
-        except Exception:
-            pass
-        try:
-            oge.click()
-        except Exception:
-            continue
-        try:
-            cerceve.page.wait_for_timeout(1300)
-        except Exception:
-            pass
-        # Tıklama sonrası gerçekten sayfa değişti mi? İlk sayfa ile
-        # aynı belgeleri tekrar görüyorsak ilerlememiş olabilir;
-        # yine de döngü dedup ile yönetir.
-        return True
-    return False
+    sonrası yeni sayfa içeriği yüklenir. Dönüş: True/False.
+
+    Aday taraması + tıklama yine tek evaluate içinde yapılır (DOM taraması
+    sayfa içinde hızlıdır, protokol turu yok).
+    """
+    try:
+        ok = cerceve.evaluate(
+            r"""() => {
+                const eles = document.querySelectorAll(
+                    'input, button, a, span, div, td, li, img, b, i');
+                const aday = [];
+                for (const e of eles) {
+                    const t = ((e.value || '') + ' ' + ((e.innerText || '').trim())
+                              + ' ' + (e.getAttribute('onclick') || '')
+                              + ' ' + (e.getAttribute('title') || '')
+                              + ' ' + (e.getAttribute('alt') || '')).trim();
+                    if (!t) continue;
+                    const k = t.toLowerCase();
+                    if (k.includes('onceki') || k.includes('geri')) continue;
+                    const ilerle = k.includes('sonraki') || k.includes('ileri')
+                        || k.includes('next') || k.includes('»')
+                        || k.includes('›') || k.includes('>>')
+                        || k.trim() === '>' || k.includes('sayfa 2')
+                        || k.includes('sayfa2')
+                        || /goPage|nextPage|sayfaGec|ileri|pager/.test(k);
+                    if (ilerle) { aday.push(e); }
+                }
+                if (!aday.length) return false;
+                const hedef = aday[0];
+                try { hedef.scrollIntoView(); } catch (_) {}
+                hedef.click();
+                return true;
+            }""")
+    except Exception:
+        return False
+    if not ok:
+        return False
+    try:
+        cerceve.page.wait_for_timeout(1500)
+    except Exception:
+        pass
+    return True
 
 
 def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
@@ -2938,7 +2973,8 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 try:
                                     _zip_tikla_indir(cerceve, cerceve.page, sira,
                                                      zip_yol, belge=belge,
-                                                     kategori=kategori)
+                                                     kategori=kategori,
+                                                     bildir=bildir)
                                     ubl_ozet = _zipten_ozet(zip_yol, klasor)
                                     if ubl_ozet:
                                         belge["matrah"] = ubl_ozet.get("matrah")
