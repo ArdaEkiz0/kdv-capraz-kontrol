@@ -10,15 +10,20 @@ Not: Luca uygulamasının oturum sonrası ekranları müşteri yapılandırması
 değişebilir; gezinme metin eşleştirmesiyle yapılır ve başarısızlıkta hata ayıkla-
 ma için ekran görüntüsü %%TEMP%% altına kaydedilir.
 """
+import hashlib
 import html as html_cevir
 import io
 import json
 import os
 import re
+import shutil
+import tempfile
 import time
 import zipfile
+from contextlib import contextmanager
 from datetime import date, datetime
 from functools import wraps
+from pathlib import Path
 
 # Optional deps (graceful fallback)
 try:
@@ -48,6 +53,113 @@ def tr_tarih(tarih):
         except Exception:
             pass
     return tarih.strftime("%d.%m.%Y")
+
+
+# ==================== PREVENTIVE UTILITIES ====================
+
+def _zip_dogrula(zip_yol, min_boyut=100):
+    """ZIP dosyasının bozuk/boş olmadığını doğrular."""
+    try:
+        if not os.path.exists(zip_yol):
+            return False, "dosya yok"
+        boyut = os.path.getsize(zip_yol)
+        if boyut < min_boyut:
+            return False, f"boyut cok kucuk: {boyut} bayt"
+        with zipfile.ZipFile(zip_yol, 'r') as zf:
+            # En az bir XML/Excel dosyası olmalı
+            uyeler = [u for u in zf.namelist() if _zip_uyesi_guvenli_mi(u)]
+            if not uyeler:
+                return False, "icerik yok (guvenli uye yok)"
+            # CRC kontrolü
+            corrupt = zf.testzip()
+            if corrupt:
+                return False, f"CRC hatali: {corrupt}"
+        return True, "OK"
+    except zipfile.BadZipFile:
+        return False, "gecersiz ZIP"
+    except Exception as e:
+        return False, f"hata: {e}"
+
+
+def _frame_saglikli_mi(cerceve):
+    """Frame'in detached/crashed olmadığını kontrol eder."""
+    try:
+        # Basit bir evaluate ile frame canlı mı?
+        cerceve.evaluate("() => document.readyState")
+        return True
+    except Exception:
+        return False
+
+
+def _sayfa_saglikli_mi(sayfa):
+    """Sayfa/context'in canlı olduğunu kontrol eder."""
+    try:
+        sayfa.evaluate("() => document.readyState")
+        return True
+    except Exception:
+        return False
+
+
+@contextmanager
+def _gecici_klasor(on_ek="luca_"):
+    """Otomatik temizlenen geçici klasör (hata durumunda bile)."""
+    tmp = Path(tempfile.mkdtemp(prefix=on_ek))
+    try:
+        yield tmp
+    finally:
+        try:
+            shutil.rmtree(tmp, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def _dosya_kilidi_kontrol(yol, timeout=10):
+    """Dosya başka bir süreçce kilitli mi? (Windows antivirus vb.)"""
+    import time as _time
+    basla = _time.time()
+    while _time.time() - basla < timeout:
+        try:
+            with open(yol, 'r+b'):
+                return False  # kilitli değil
+        except (OSError, PermissionError):
+            _time.sleep(0.5)
+    return True  # hala kilitli
+
+
+def _indirme_tamamlandi_mi(yol, onceki_boyut=-1, bekle=2):
+    """Dosya boyutu belli süre değişmezse indirme bitmiş sayılır."""
+    import time as _time
+    for _ in range(3):
+        try:
+            boyut = os.path.getsize(yol)
+            if boyut == onceki_boyut and boyut > 0:
+                return True
+            onceki_boyut = boyut
+        except OSError:
+            return False
+        _time.sleep(bekle)
+    return False
+
+
+def _etag_hesapla(icerik):
+    """İçerik hash'i (idempotency için)."""
+    return hashlib.sha256(icerik).hexdigest()[:16]
+
+
+def _log_yapilandir(log_klasor=None):
+    """Structured JSON log dosyası (CI/CD için)."""
+    import logging
+    import logging.handlers
+    if log_klasor is None:
+        log_klasor = Path(os.environ.get("TEMP", ".")) / "luca_logs"
+    log_klasor.mkdir(parents=True, exist_ok=True)
+    log_dosya = log_klasor / f"luca_{datetime.now():%Y%m%d_%H%M%S}.jsonl"
+    logger = logging.getLogger("luca")
+    logger.setLevel(logging.DEBUG)
+    handler = logging.FileHandler(log_dosya, encoding="utf-8")
+    handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(handler)
+    return logger, log_dosya
 
 
 # ZIP icinden asla cikarilmamasi gereken dosya/klasor adlari (kucuk harfe
@@ -159,12 +271,15 @@ def _tarayici_ac(playwright, gorunur=True):
     return tarayici
 
 
-def _luca_oturum_ac(tarayici, accept_downloads=True):
+def _luca_oturum_ac(tarayici, accept_downloads=True, storage_state=None):
     """Luca icin tarayici oturumu (context) acar.
 
     Headless modda UA'daki 'HeadlessChrome' ibaresi sunucuda SSO 500'e
     yol actigi icin temizlenir. Sabit viewport da SSO'yu bozdugu icin
     no_viewport kullanilir.
+
+    storage_state: onceki oturumun cookie/localStorage'sini yüklemek için
+    JSON dosya yolu (context.storage_state ile kaydedilmiş).
     """
     user_agent = None
     if not getattr(tarayici, "_luca_gorunur", False):
@@ -185,7 +300,18 @@ def _luca_oturum_ac(tarayici, accept_downloads=True):
         kwargs["accept_downloads"] = True
     if user_agent:
         kwargs["user_agent"] = user_agent
+    if storage_state and os.path.exists(storage_state):
+        kwargs["storage_state"] = storage_state
     return tarayici.new_context(**kwargs)
+
+
+def _oturum_kaydet(oturum, dosya_yol):
+    """Oturum cookie/localStorage'ını JSON olarak kaydet (session persistence)."""
+    try:
+        oturum.storage_state(path=dosya_yol)
+        return True
+    except Exception:
+        return False
 
 
 def _hata_ekrani_kaydet(sayfa, etiket):
@@ -1627,6 +1753,24 @@ def _muavin_dosya_denetle(yol, hesap, bildir):
         pass
 
 
+def _frame_saglikli_mi(cerceve):
+    """Frame'in detached/crashed olmadığını kontrol eder."""
+    try:
+        cerceve.evaluate("() => document.readyState")
+        return True
+    except Exception:
+        return False
+
+
+def _sayfa_saglikli_mi(sayfa):
+    """Sayfa/context'in canlı olduğunu kontrol eder."""
+    try:
+        sayfa.evaluate("() => document.readyState")
+        return True
+    except Exception:
+        return False
+
+
 def _muavin_frame(erp, uye_no, bildir=None):
     """Icerik cercevesini muavin defter ekranina goturur ve frame'i
     dondurur; yuklenmezse None doner.
@@ -1650,7 +1794,8 @@ def _muavin_frame(erp, uye_no, bildir=None):
         for f in erp.frames:
             try:
                 if ("raporMizanDetayHazirla" in f.url
-                        and len(f.content()) > 5000):
+                        and len(f.content()) > 5000
+                        and _frame_saglikli_mi(f)):
                     return f
             except Exception:
                 continue
@@ -2713,17 +2858,56 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             belge_no = (belge.get("belge_numarasi")
                                         or f"belge{sira}").strip()
                             zip_yol = os.path.join(klasor, f"{on_ek}{belge_no}.zip")
-                            try:
-                                _zip_tikla_indir(cerceve, cerceve.page, sira, zip_yol)
-                                ubl_ozet = _zipten_ozet(zip_yol)
-                                if ubl_ozet:
-                                    belge["matrah"] = ubl_ozet.get("matrah")
-                                    belge["kdv_toplam"] = ubl_ozet.get("kdv_toplam")
-                                    belge["genel_toplam"] = ubl_ozet.get("genel_toplam")
-                                    belge["para"] = ubl_ozet.get("para", "TRY")
-                                    belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
-                            except Exception as e:
-                                bildir(f"{kategori}: {belge_no} ZIP indirme hatası: {e}")
+                            # Idempotency: zaten geçerli ZIP varsa atla
+                            if os.path.exists(zip_yol):
+                                gecerli, msg = _zip_dogrula(zip_yol)
+                                if gecerli:
+                                    bildir(f"{kategori}: {belge_no} ZIP zaten mevcut ve geçerli, atlanıyor.")
+                                    ubl_ozet = _zipten_ozet(zip_yol)
+                                    if ubl_ozet:
+                                        belge["matrah"] = ubl_ozet.get("matrah")
+                                        belge["kdv_toplam"] = ubl_ozet.get("kdv_toplam")
+                                        belge["genel_toplam"] = ubl_ozet.get("genel_toplam")
+                                        belge["para"] = ubl_ozet.get("para", "TRY")
+                                        belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
+                                    zip_yollari.append(zip_yol)
+                                    continue
+                                else:
+                                    bildir(f"{kategori}: {belge_no} mevcut ZIP bozuk ({msg}), yeniden indiriliyor.")
+                                    try:
+                                        os.remove(zip_yol)
+                                    except Exception:
+                                        pass
+                            # İndir + doğrula (retry ile)
+                            basarili = False
+                            for deneme in range(3):
+                                try:
+                                    _zip_tikla_indir(cerceve, cerceve.page, sira, zip_yol)
+                                    # Dosya boyutu sabitleşene kadar bekle (antivirus tarama vb.)
+                                    if not _indirme_tamamlandi_mi(zip_yol):
+                                        raise RuntimeError("indirme tamamlanmadı (boyut değişiyor)")
+                                    gecerli, msg = _zip_dogrula(zip_yol)
+                                    if not gecerli:
+                                        raise RuntimeError(f"ZIP doğrulama başarısız: {msg}")
+                                    ubl_ozet = _zipten_ozet(zip_yol)
+                                    if ubl_ozet:
+                                        belge["matrah"] = ubl_ozet.get("matrah")
+                                        belge["kdv_toplam"] = ubl_ozet.get("kdv_toplam")
+                                        belge["genel_toplam"] = ubl_ozet.get("genel_toplam")
+                                        belge["para"] = ubl_ozet.get("para", "TRY")
+                                        belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
+                                    basarili = True
+                                    break
+                                except Exception as e:
+                                    bildir(f"{kategori}: {belge_no} ZIP deneme {deneme+1}/3 hata: {e}")
+                                    try:
+                                        if os.path.exists(zip_yol):
+                                            os.remove(zip_yol)
+                                    except Exception:
+                                        pass
+                                    time.sleep(2 * (deneme + 1))
+                            if not basarili:
+                                bildir(f"{kategori}: {belge_no} ZIP 3 denemede de indirilemedi, atlanıyor.")
                             zip_yollari.append(zip_yol)
 
                     # Kayıt oluştur: HTML'deki fatura JSON'undan.
