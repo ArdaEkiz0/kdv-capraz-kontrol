@@ -1281,9 +1281,24 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 pass
             return
         bildir("GİB'ten getir tıklanıyor (belgeler çekiliyor)...")
-        # gonder('indir') Luca'nın kendi JS fonksiyonudur; çerçeve
-        # context'inden doğrudan çağrılır (buton.click() bazı frame
-        # yapılarında event'i tetiklemeyebilir).
+        # ÖNCE: Toolbar'daki "Belge Ara" butonunu tıkla (gonder('arama-window'))
+        # bu BELGE ARAMA popup'ını açar; içine tarih girip arama yaparız.
+        try:
+            arama_btn = cerceve.query_selector("button[onclick*=\"gonder('arama-window')\"]")
+            if arama_btn is not None:
+                arama_btn.click()
+                bildir("Toolbar 'Belge Ara' butonu tıklandı (arama-window açılıyor).")
+                time.sleep(1.5)
+            else:
+                # Fallback: JS ile aç
+                cerceve.evaluate("gonder('arama-window')")
+                bildir("gonder('arama-window') JS ile çağrıldı.")
+                time.sleep(1.5)
+        except Exception as e:
+            bildir(f"Belge Ara butonu tıklanamadı: {e}")
+
+        # SONRA: Popup'ı doldur ve ara (zaten _belge_arama_popup_kapat yapar)
+        # ama önce gonder('indir') de çağır (bazı ekranlar bunu ister).
         try:
             cerceve.evaluate("gonder('indir')")
             bildir("gonder('indir') JS ile çağrıldı.")
@@ -1301,8 +1316,7 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                     pass
             bildir("Buton tıklama ile çağrıldı (JS fallback).")
         # Luca bazı ekranlarda 'BELGE ARAMA' popup'ı açar; bu popup
-        # tarih aralığı filtresi içerir. Kapatılıp直接 GİB'den Getir
-        # butonuyla devam edilir.
+        # tarih aralığı filtresi içerir. Doldurup 'Belge Ara' ya basar.
         time.sleep(2)
         _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir)
         # Ek kontrol: popup 2sn'de açılmamışsa biraz daha bekle ve tekrar dene
