@@ -1980,62 +1980,125 @@ def _tarih_araliginda(metin, bas_tarih, bit_tarih):
     retry=retry_if_exception_type(Exception),
     reraise=True
 )
-def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol):
-    """Satirdaki ZIP ikonuna tiklar; indigi dosyayi kaydeder.
-    
-    Farklı sayfalarda ZIP butonu farkli selector'larla olabilir:
-    - onclick="zip_indir(...)" 
-    - onclick="indir('zip', ...)"
-    - class="zip-btn" / title="ZIP"
-    - img[src*="zip"] / i.fa-file-archive
+def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol, belge=None,
+                     kategori=None, uye_no=None, bas_tarih=None,
+                     bit_tarih=None, bildir=None):
+    """Satırdaki ZIP indirme isteğini backend .jq adresine doğrudan POST eder.
+
+    Luca'nın kendi akışı (gib530.js): zip_indir -> goster(obj, 'download') ->
+    Luca.downloadPost(url, x, '_blank')  ->  form submit ile YENİ SEKMEDE
+    indirme başlatır. Bu iki sorun yaratır:
+      1) Her tık bir sekme/pencere açar („ekranlar üst üste açılıyor" bug'ı)
+      2) Playwright expect_download bunu yakalayamaz (indirme form-submit ile
+         başladığı için download olayı sayfa bağlamında tetiklenmez)
+
+    Bu fonksiyon aynı işi ağ üzerinden doğrudan yapar: gib530/{menu_tur}.jq
+    adresine gerekli parametrelerle POST eder ve dönen ZIP'i dosyaya yazar.
     """
-    # Çoklu selector dene
-    selectors = [
-        "[onclick*='zip_indir']",
-        "[onclick*=\"zip_indir\"]",
-        "[onclick*='indir'][onclick*='zip']",
-        "[onclick*='indir'][onclick*='ZIP']",
-        "a[title*='ZIP']",
-        "button[title*='ZIP']",
-        "img[src*='zip']",
-        "i.fa-file-archive-o",
-        "i.fa-file-zip-o",
-        ".zip-btn",
-        "[data-tip*='ZIP']",
-    ]
-    
-    js_template = """
-        (args) => {
-            const n = args.n;
-            const selectors = args.selectors;
-            for (const sel of selectors) {
-                const els = [...document.querySelectorAll(sel)];
-                if (els.length > n) {
-                    els[n].click();
-                    return;
-                }
-            }
-            // Fallback: onclick içinde 'zip' veya 'indir' geçen herhangi bir element
-            const all = [...document.querySelectorAll('[onclick]')]
-                .filter(x => {
-                    const oc = (x.getAttribute('onclick') || '').toLowerCase();
-                    return oc.includes('zip') || oc.includes('indir');
-                });
-            if (all.length > n) {
-                all[n].click();
-                return;
-            }
-            throw new Error('ZIP düğmesi yok (denenen: ' + selectors.join(', ') + ')');
-        }
-    """
-    # Playwright evaluate: expression + 1 arg (object). selectors'ı JSON olarak geçir.
+    if bildir is None:
+        bildir = lambda s: None
     import json
-    args = {"n": satir_sirasi, "selectors": selectors}
-    with sayfa.expect_download(timeout=30000) as bekle:
-        frame.evaluate(js_template, args)
-    indirme = bekle.value
-    indirme.save_as(hedef_yol)
-    return indirme.suggested_filename
+    # 1) Frame'den menü türünü ve oturum kimliklerini al
+    try:
+        menu_tur = frame.evaluate(
+            "() => (typeof menu_tur !== 'undefined') ? menu_tur : null")
+    except Exception:
+        menu_tur = None
+    if not menu_tur:
+        # kategori'den türet (LUCA_GIB_TURLER tersi yoksa varsayılan)
+        estr = {"earsiv_alis": "gib_ebelge_alis",
+                "earsiv_satis": "gib_ebelge_satis",
+                "efatura_alis": "gib_efatura_alis",
+                "efatura_satis": "gib_efatura_satis"}
+        menu_tur = estr.get(kategori, "gib_ebelge_alis")
+    try:
+        sirket_id = frame.evaluate("session('SIRKET_ID')")
+    except Exception:
+        sirket_id = ""
+    try:
+        donem_id = frame.evaluate("session('DONEM_ID')")
+    except Exception:
+        donem_id = ""
+    # 2) Fatura bilgisini satırdan oku (fatura={...} JSON)
+    fatura = {}
+    if belge:
+        fatura = belge
+    else:
+        try:
+            fatura_json = frame.evaluate(
+                """(n) => {
+                    const trs = [...document.querySelectorAll('tr[fatura]')];
+                    return (trs[n] && trs[n].getAttribute('fatura')) || '';
+                }""", satir_sirasi)
+            if fatura_json:
+                fatura = json.loads(html_cevir.unescape(fatura_json))
+        except Exception:
+            pass
+    ettn = fatura.get("ettn")
+    if not ettn:
+        raise RuntimeError(f"{satir_sirasi}. satırda fatura bilgisi bulunamadı")
+    # 3) Backend adresi: gib530/{menu_tur}.jq
+    #    frame url'si .../gib530.do?tur=... ; mutlak adresi page üzerinden kur
+    taban = (frame.page.url.rsplit("/", 1)[0]
+             if "/" in (frame.page.url or "") else "")
+    if "gib530" not in (taban or ""):
+        taban = taban + "/gib530"
+    url = f"{taban}/{menu_tur}.jq"
+    # 4) goster(obj,'download') ile aynı data + downloadPost params sarmalı
+    data = {
+        "islem": "download",
+        "etti": "",
+        "gibKullaniciKodu": "",
+        "gibSifre": "",
+        "bayiNo": fatura.get("bayi_no") or fatura.get("bayiNo") or "",
+        "onayDurumu": fatura.get("onay_durumu") or "",
+        "ettn": ettn,
+        "belgeTuru": fatura.get("belge_turu") or fatura.get("belgeTuru") or "",
+        "belgeNumarasi": fatura.get("belge_numarasi") or fatura.get("belgeNumarasi") or "",
+        "entegrator": fatura.get("entegrator") or "",
+        "url": fatura.get("url") or "",
+        "dosya_adi": f"{fatura.get('belge_numarasi') or ettn}.zip",
+        "_u": "ea530:download",
+    }
+    params = json.dumps({"sirket_id": sirket_id, "donem_id": donem_id,
+                         "params": data}, ensure_ascii=False)
+    # gibKullaniciKodu/gibSifre inputlar da varsa oku
+    try:
+        gkk = frame.evaluate("document.querySelector('#gib_kullanici_adi') ? "
+                             "document.querySelector('#gib_kullanici_adi').value : ''")
+        gks = frame.evaluate("document.querySelector('#gib_sifre') ? "
+                             "document.querySelector('#gib_sifre').value : ''")
+        if gkk or gks:
+            params = params.replace('"gibKullaniciKodu": ""',
+                                    f'"gibKullaniciKodu": {json.dumps(gkk)}')
+            params = params.replace('"gibSifre": ""',
+                                    f'"gibSifre": {json.dumps(gks)}')
+    except Exception:
+        pass
+    # 5) POST + yanıtı kaydet (Playwright context.request frame cookies kullanır)
+    bildir(f"{'' if kategori is None else kategori}: {ettn[:20]}... "
+           f"doğrudan indiriliyor ({url})")
+    cevap = sayfa.request.post(
+        url,
+        data=params,
+        headers={"Content-Type": "application/json"})
+    icerik = cevap.body()
+    if not icerik or len(icerik) < 100:
+        # Belki JSON sarmalı döndü: {data:{zip:"base64"}} -> base64 çöz
+        try:
+            json_cevap = json.loads(icerik)
+            zipb64 = (json_cevap.get("data") or {}).get("zip")
+            if zipb64:
+                import base64
+                icerik = base64.b64decode(zipb64)
+        except Exception:
+            pass
+    if not icerik or len(icerik) < 50:
+        raise RuntimeError("İndirme yanıtı boş geldi "
+                           f"(HTTP {cevap.status})")
+    with open(hedef_yol, "wb") as f:
+        f.write(icerik)
+    return os.path.basename(hedef_yol)
 
 
 
@@ -2873,7 +2936,9 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                             for sira, belge, belge_no in secili_sayfa[hedef_sayfa]:
                                 zip_yol = os.path.join(klasor, f"{on_ek}{belge_no}.zip")
                                 try:
-                                    _zip_tikla_indir(cerceve, cerceve.page, sira, zip_yol)
+                                    _zip_tikla_indir(cerceve, cerceve.page, sira,
+                                                     zip_yol, belge=belge,
+                                                     kategori=kategori)
                                     ubl_ozet = _zipten_ozet(zip_yol, klasor)
                                     if ubl_ozet:
                                         belge["matrah"] = ubl_ozet.get("matrah")
