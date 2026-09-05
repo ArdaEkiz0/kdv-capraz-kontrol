@@ -469,29 +469,37 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
     İkincil: Muavin ekranındaki #tarih_ilk/#tarih_son.
     Üçüncül: Genel seçicilerle tarama.
     """
-    bas_metin = tr_tarih(bas_tarih)
-    bit_metin = tr_tarih(bit_tarih)
+    # Hem dd.MM.yyyy hem dd/MM/yyyy dene (Luca ekranları farklı format bekleyebilir)
+    bas_metin_v1 = tr_tarih(bas_tarih)       # dd.MM.yyyy
+    bit_metin_v1 = tr_tarih(bit_tarih)
+    bas_metin_v2 = bas_metin_v1.replace(".", "/")  # dd/MM/yyyy
+    bit_metin_v2 = bit_metin_v1.replace(".", "/")
     doldurulan = 0
     # Birincil: gib530 e-Belge ekranındaki tarih alanları
-    for secici, metin in (("#tarih1", bas_metin),
-                          ("#tarih2", bit_metin)):
+    for secici, metin_v1, metin_v2 in (("#tarih1", bas_metin_v1, bas_metin_v2),
+                                        ("#tarih2", bit_metin_v1, bit_metin_v2)):
         try:
             oge = sayfa.query_selector(secici)
             if oge is None or not oge.is_visible():
                 continue
-            if _luca_metin_gir(oge, metin) == metin:
+            # Önce v1 dene, olmazsa v2
+            if _luca_metin_gir(oge, metin_v1) == metin_v1:
+                doldurulan += 1
+            elif _luca_metin_gir(oge, metin_v2) == metin_v2:
                 doldurulan += 1
         except Exception:
             continue
     if doldurulan < 2:
         # İkincil: Muavin ekranındaki tarih alanları
-        for secici, metin in (("#tarih_ilk", bas_metin),
-                              ("#tarih_son", bit_metin)):
+        for secici, metin_v1, metin_v2 in (("#tarih_ilk", bas_metin_v1, bas_metin_v2),
+                                            ("#tarih_son", bit_metin_v1, bit_metin_v2)):
             try:
                 oge = sayfa.query_selector(secici)
                 if oge is None or not oge.is_visible():
                     continue
-                if _luca_metin_gir(oge, metin) == metin:
+                if _luca_metin_gir(oge, metin_v1) == metin_v1:
+                    doldurulan += 1
+                elif _luca_metin_gir(oge, metin_v2) == metin_v2:
                     doldurulan += 1
             except Exception:
                 continue
@@ -1137,63 +1145,62 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
     """'BELGE ARAMA' popup'ı açıksa tarih girip arama yapar veya kapatır.
 
     Luca'nın gib530 ekranında gonder('indir') bazı durumlarda belge
-    arama popup'ı açar.
+    arama popup'ı açar. Popup hem frame içinde hem de ana sayfada olabilir.
     """
     if bildir is None:
         bildir = lambda s: None
-    # Basit algılama: #arama-window-div varsa ve display:none değilse
-    acik = False
-    try:
-        acik = cerceve.evaluate(
-            "() => {"
-            " const d = document.getElementById('arama-window-div');"
-            " if (!d) return false;"
-            " if (d.style.display === 'none') return false;"
-            " if (d.classList.contains('hidden')) return false;"
-            " return true; }")
-    except Exception:
-        pass
+    sayfa = cerceve.page
+
+    def _popup_acik_mi(ctx):
+        try:
+            return ctx.evaluate(
+                "() => {"
+                " const d = document.getElementById('arama-window-div');"
+                " if (!d) return false;"
+                " const s = window.getComputedStyle(d);"
+                " if (s.display === 'none') return false;"
+                " if (s.visibility === 'hidden') return false;"
+                " if (d.classList.contains('hidden')) return false;"
+                " return true; }")
+        except Exception:
+            return False
+
+    # Önce frame'de bak, sonra ana sayfada
+    acik = _popup_acik_mi(cerceve) or _popup_acik_mi(sayfa)
     if not acik:
         bildir("BELGE ARAMA popup'i AÇIK DEĞİL (varsayılan dönem kullanılıyor).")
         return
     bildir("BELGE ARAMA popup'i algilandi, tarih giriliyor...")
     bas_metin = tr_tarih(bas_tarih).replace(".", "/")
     bit_metin = tr_tarih(bit_tarih).replace(".", "/")
-    # Tarih alanlarini doldur
-    for secici, metin in (("#baslangic", bas_metin), ("#bitis", bit_metin)):
-        try:
-            alan = cerceve.query_selector(secici)
-            if alan is not None:
-                alan.evaluate(
-                    "el => { el.value = arguments[0]; "
-                    "el.dispatchEvent(new Event('change')); }", metin)
-                bildir(f"  {secici} = {metin} dolduruldu")
-            else:
-                bildir(f"  {secici} BULUNAMADI")
-        except Exception as e:
-            bildir(f"  {secici} doldurma hatası: {e}")
+    # Tarih alanlarini doldur (frame + sayfa dene)
+    for ctx in (cerceve, sayfa):
+        for secici, metin in (("#baslangic", bas_metin), ("#bitis", bit_metin)):
+            try:
+                alan = ctx.query_selector(secici)
+                if alan is not None:
+                    alan.evaluate(
+                        "el => { el.value = arguments[0]; "
+                        "el.dispatchEvent(new Event('change')); }", metin)
+                    bildir(f"  {secici} = {metin} dolduruldu ({'frame' if ctx is cerceve else 'page'})")
+                    break
+            except Exception:
+                pass
     # 'Belge Ara' butonuna bas — popup kapanana kadar bekle
     for deneme in range(3):
         try:
-            ara_btn = cerceve.query_selector("#faturalari-ara-btn")
+            ara_btn = None
+            for ctx in (cerceve, sayfa):
+                ara_btn = ctx.query_selector("#faturalari-ara-btn")
+                if ara_btn is not None:
+                    break
             if ara_btn is not None:
                 ara_btn.click()
                 bildir(f"Belge Ara tiklandi (deneme {deneme+1}), sonuclar bekleniyor...")
                 # Sonuclarin yuklenmesini bekle (popup kapanana kadar)
                 for _ in range(20):  # max 20 saniye
                     time.sleep(1)
-                    hala_acik = False
-                    try:
-                        hala_acik = cerceve.evaluate(
-                            "() => {"
-                            " const d = document.getElementById("
-                            "'arama-window-div');"
-                            " if (!d) return false;"
-                            " if (d.style.display === 'none') return false;"
-                            " if (d.classList.contains('hidden')) return false;"
-                            " return true; }")
-                    except Exception:
-                        pass
+                    hala_acik = _popup_acik_mi(cerceve) or _popup_acik_mi(sayfa)
                     if not hala_acik:
                         bildir("BELGE ARAMA popup'i kapandi.")
                         return
@@ -1776,11 +1783,16 @@ def _satirlari_ayikla(html_metin):
 
 
 def _tarih_araliginda(metin, bas_tarih, bit_tarih):
-    try:
-        gun = datetime.strptime(metin, "%d/%m/%Y").date()
-    except (TypeError, ValueError):
+    if not metin:
         return False
-    return bas_tarih <= gun <= bit_tarih
+    # Luca HTML'inde tarih formatı değişebilir: dd/MM/yyyy, dd.MM.yyyy, yyyy-MM-dd
+    for fmt in ("%d/%m/%Y", "%d.%m.%Y", "%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            gun = datetime.strptime(metin.strip(), fmt).date()
+            return bas_tarih <= gun <= bit_tarih
+        except (TypeError, ValueError):
+            continue
+    return False
 
 
 @retry(
