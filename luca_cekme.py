@@ -2809,6 +2809,23 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     kayitlar = []
                     bildir(f"{kategori}: {len(secili)} belge indirilecek.")
 
+                    def _hedef_zip(no, c):
+                        ad = no if c <= 1 else f"{no}_{c}"
+                        return os.path.join(klasor, f"{on_ek}{ad}.zip")
+
+                    def _zipten_ozet(zip_yol):
+                        o = {}
+                        try:
+                            with zipfile.ZipFile(zip_yol) as zipp:
+                                for ic_ad in zipp.namelist():
+                                    icerik = zipp.read(ic_ad)
+                                    if ic_ad.lower().endswith(".xml"):
+                                        o = _ubl_ozet(icerik)
+                                _guvenli_cikar(zipp, klasor)
+                        except Exception:
+                            pass
+                        return o
+
                     # ZIP indirme: filtrelenmiş belgeler için ikinci geçiş
                     # Her sayfayı tekrar gez, o sayfadaki seçili belgeleri indir.
                     if kategori in ("efatura_alis", "efatura_satis",
@@ -2856,23 +2873,6 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 except Exception as e:
                                     bildir(f"{kategori}: {belge_no} ZIP indirme hatası: {e}")
                                 zip_yollari.append(zip_yol)
-
-                    def _hedef_zip(no, c):
-                        ad = no if c <= 1 else f"{no}_{c}"
-                        return os.path.join(klasor, f"{on_ek}{ad}.zip")
-
-                    def _zipten_ozet(zip_yol):
-                        o = {}
-                        try:
-                            with zipfile.ZipFile(zip_yol) as zipp:
-                                for ic_ad in zipp.namelist():
-                                    icerik = zipp.read(ic_ad)
-                                    if ic_ad.lower().endswith(".xml"):
-                                        o = _ubl_ozet(icerik)
-                                _guvenli_cikar(zipp, klasor)
-                        except Exception:
-                            pass
-                        return o
 
                     # Kayıt oluştur: filtrelenmiş `secili` listesinden.
                     bildir(f"{kategori}: {len(secili)} belge "
