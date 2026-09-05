@@ -2472,24 +2472,11 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 except Exception:
                                     pass
                             break
-                    # Tarih filtresi tutmadıysa tüm belgeleri al
+                    # Tarih filtresi tutmadıysa 0 belge döndür (fallback YOK).
+                    # Seçilen ay dışında fatura çekilmesin.
                     if not ikinci_dongu_belge and sayfa_satirlari:
                         bildir(f"{kategori}: tarih filtresi tutmadı; "
-                               "tüm belgeler alınıyor.")
-                        for sira, belge in sayfa_satirlari:
-                            durum_kisa = _turk_kucult(
-                                str(belge.get("onay_durumu") or ""))
-                            iptal_ibare = str(
-                                belge.get("iptal_itiraz") or
-                                belge.get("iptal_itiraz_durumu")
-                                or "").strip()
-                            if (iptal_ibare
-                                    or ("red" in durum_kisa)
-                                    or ("iptal" in durum_kisa)
-                                    or (durum_kisa
-                                        and "onay" not in durum_kisa)):
-                                continue
-                            ikinci_dongu_belge.append((sira, belge))
+                               "seçilen ay için belge yok (fallback kapalı).")
                     # ZIP yolları boş — HTML'den toplandı
                     zip_yollari = []
 
