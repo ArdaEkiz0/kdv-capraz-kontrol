@@ -2490,6 +2490,7 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
 
                     # e-Fatura ve e-Arşiv için ZIP indirip UBL XML'den
                     # matrah/kdv/toplam çek (HTML tablosunda bu sütunlar yok)
+                    # ZIP dosyaları muavin'in okuyabileceği yerde KALIR (silinmez).
                     if kategori in ("efatura_alis", "efatura_satis",
                                     "earsiv_alis", "earsiv_satis") and ikinci_dongu_belge:
                         bildir(f"{kategori}: {len(ikinci_dongu_belge)} belge için ZIP indiriliyor...")
@@ -2508,28 +2509,15 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                     belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
                             except Exception as e:
                                 bildir(f"{kategori}: {belge_no} ZIP indirme hatası: {e}")
-                            finally:
-                                if os.path.exists(zip_yol):
-                                    try:
-                                        os.remove(zip_yol)
-                                    except Exception:
-                                        pass
                             zip_yollari.append(zip_yol)
 
                     # Kayıt oluştur: HTML'deki fatura JSON'undan.
                     bildir(f"{kategori}: {len(ikinci_dongu_belge)} belge "
                            "kayıt oluşturuluyor...")
-                    matrah = kdv = toplam = None
                     for sira, belge in ikinci_dongu_belge:
                         belge_no = (belge.get("belge_numarasi")
                                     or f"belge{sira}").strip()
-                        # İlk belgede tüm alanları logla (debug)
-                        if sira == 0 and ikinci_dongu_belge:
-                            bildir(f"{kategori}: belge alanları: "
-                                   f"{list(belge.keys())}")
-                            bildir(f"{kategori}: matrah={matrah} "
-                                   f"kdv={kdv} toplam={toplam}")
-                        # fatura JSON'unda olası alan isimleri + HTML tablosu
+                        # fatura JSON'unda olası alan isimleri + HTML tablosu + UBL ZIP
                         matrah = (belge.get("matrah_html")
                                   or belge.get("matrah")
                                   or belge.get("mal_hizmet_tutari")
@@ -2544,6 +2532,12 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                   or belge.get("toplam")
                                   or belge.get("toplam_tutar")
                                   or belge.get("genel_toplam_tutari"))
+                        # İlk belgede tüm alanları logla (debug)
+                        if sira == 0 and ikinci_dongu_belge:
+                            bildir(f"{kategori}: belge alanları: "
+                                   f"{list(belge.keys())}")
+                            bildir(f"{kategori}: matrah={matrah} "
+                                   f"kdv={kdv} toplam={toplam}")
                         ozet = {
                             "belge_numarasi": belge_no,
                             "belge_tarihi": belge.get("belge_tarihi", ""),
