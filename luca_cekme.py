@@ -2847,6 +2847,12 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 bildir(f"{kategori}: sayfa 1'e dönüldü (frame yenilendi)")
                         except Exception as e:
                             bildir(f"{kategori}: sayfa 1'e dönüş hatası: {e}")
+                        # TANI: ZIP indirme öncesi ekran HTML'ini kaydet (selector çözümü için)
+                        try:
+                            _tani_kaydet(f"zip_oncesi_{kategori}", cerceve)
+                            bildir(f"{kategori}: ZIP öncesi ekran HTML'i kaydedildi (%TEMP%\\luca_tani)")
+                        except Exception:
+                            pass
                         # Seçili belgeleri sayfa_no'ya göre grupla
                         from collections import defaultdict
                         secili_sayfa = defaultdict(list)
@@ -2877,6 +2883,10 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                         belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
                                 except Exception as e:
                                     bildir(f"{kategori}: {belge_no} ZIP indirme hatası: {e}")
+                                    try:
+                                        _tani_kaydet(f"zip_hata_{kategori}", cerceve)
+                                    except Exception:
+                                        pass
                                 zip_yollari.append(zip_yol)
 
                     # Kayıt oluştur: filtrelenmiş `secili` listesinden.
