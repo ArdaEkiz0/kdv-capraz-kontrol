@@ -1124,6 +1124,7 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
     except Exception:
         pass
     if not acik:
+        bildir("BELGE ARAMA popup'i AÇIK DEĞİL (varsayılan dönem kullanılıyor).")
         return
     bildir("BELGE ARAMA popup'i algilandi, tarih giriliyor...")
     bas_metin = bas_tarih.strftime("%d/%m/%Y")
@@ -1136,16 +1137,18 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
                 alan.evaluate(
                     "el => { el.value = arguments[0]; "
                     "el.dispatchEvent(new Event('change')); }", metin)
-        except Exception:
-            pass
+                bildir(f"  {secici} = {metin} dolduruldu")
+            else:
+                bildir(f"  {secici} BULUNAMADI")
+        except Exception as e:
+            bildir(f"  {secici} doldurma hatası: {e}")
     # 'Belge Ara' butonuna bas — popup kapanana kadar bekle
     for deneme in range(3):
         try:
             ara_btn = cerceve.query_selector("#faturalari-ara-btn")
             if ara_btn is not None:
                 ara_btn.click()
-                bildir(f"Belge Ara tiklandi (deneme {deneme+1}), "
-                       "sonuclar bekleniyor...")
+                bildir(f"Belge Ara tiklandi (deneme {deneme+1}), sonuclar bekleniyor...")
                 # Sonuclarin yuklenmesini bekle (popup kapanana kadar)
                 for _ in range(20):  # max 20 saniye
                     time.sleep(1)
@@ -1171,8 +1174,10 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
                 except Exception:
                     pass
                 return
-        except Exception:
-            pass
+            else:
+                bildir("  #faturalari-ara-btn BULUNAMADI")
+        except Exception as e:
+            bildir(f"  Belge Ara tiklama hatası: {e}")
     # Hiçbir但ona.calısmadıysa hide_window() ile kapat
     try:
         cerceve.evaluate("hide_window()")
