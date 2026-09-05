@@ -1299,26 +1299,31 @@ def _belge_arama_popup_kapat(cerceve, bas_tarih, bit_tarih, bildir=None):
     bildir("BELGE ARAMA popup'i algilandi, tarih giriliyor...")
     bas_metin = tr_tarih(bas_tarih).replace(".", "/")
     bit_metin = tr_tarih(bit_tarih).replace(".", "/")
-    # Tarih alanlarini doldur (frame + sayfa dene) - date picker handler'ları tetikle
-    for ctx in (cerceve, sayfa):
-        for secici, metin in (("#baslangic", bas_metin), ("#bitis", bit_metin)):
+    # Tarih alanlarini doldur (frame + sayfa dene) - date picker handler'lari tetikle
+    for secici, metin in (("#baslangic", bas_metin), ("#bitis", bit_metin)):
+        dolduruldu = False
+        for ctx in (cerceve, sayfa):
             try:
                 alan = ctx.query_selector(secici)
-                if alan is not None:
-                    # Luca date picker: focus -> click -> value -> blur zinciri
-                    alan.evaluate("""(el, val) => {
-                        el.focus();
-                        if (typeof dateFocus === 'function') dateFocus(el);
-                        if (typeof dateClick === 'function') dateClick(el);
-                        el.value = val;
-                        el.dispatchEvent(new Event('input', {bubbles: true}));
-                        el.dispatchEvent(new Event('change', {bubbles: true}));
-                        if (typeof dateBlur === 'function') dateBlur(el, '', '', true, 2026);
-                    }""", metin)
-                    bildir(f"  {secici} = {metin} dolduruldu ({'frame' if ctx is cerceve else 'page'})")
-                    break
+                if alan is None or not alan.is_visible():
+                    continue
+                # Luca date picker: focus -> click -> value -> blur zinciri
+                alan.evaluate("""(el, val) => {
+                    el.focus();
+                    if (typeof dateFocus === 'function') dateFocus(el);
+                    if (typeof dateClick === 'function') dateClick(el);
+                    el.value = val;
+                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                    el.dispatchEvent(new Event('change', {bubbles: true}));
+                    if (typeof dateBlur === 'function') dateBlur(el, '', '', true, 2026);
+                }""", metin)
+                bildir(f"  {secici} = {metin} dolduruldu ({'frame' if ctx is cerceve else 'page'})")
+                dolduruldu = True
+                break
             except Exception as e:
-                bildir(f"  {secici} doldurma hatası: {e}")
+                bildir(f"  {secici} doldurma hatasi ({'frame' if ctx is cerceve else 'page'}): {e}")
+        if not dolduruldu:
+            bildir(f"  {secici} HİÇ BULUNAMADI")
     # 'Belge Ara' butonuna bas — popup kapanana kadar bekle
     for deneme in range(3):
         try:
@@ -2674,7 +2679,6 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     SAYFA_LIMITI = 500
                     tum_satirlar = []           # (sayfa_no, sira, belge)
                     gorulen_belge = set()
-                    zip_indirme_plani = []      # (sayfa_no, sira, belge_no, zip_yol)
                     for sayfa_sirasi in range(1, 60):
                         try:
                             html_icerik = cerceve.content()
@@ -2702,18 +2706,6 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 yeni += 1
                         if not sayfa_satirlari or yeni == 0:
                             break
-                        # Bu sayfadaki belgelerin ZIP'lerini ŞİMDİ indir (o sayfadayken)
-                        if kategori in ("efatura_alis", "efatura_satis",
-                                        "earsiv_alis", "earsiv_satis"):
-                            for sira, belge in sayfa_satirlari:
-                                anahtar = (str(belge.get("belge_numarasi") or "")
-                                           + "|" + str(belge.get("belge_tarihi") or "")
-                                           + "|" + str(belge.get("ettn") or ""))
-                                if anahtar in gorulen_belge:  # yeni eklenenler
-                                    belge_no = (belge.get("belge_numarasi")
-                                                or f"belge{sira}").strip()
-                                    zip_yol = os.path.join(klasor, f"{on_ek}{belge_no}.zip")
-                                    zip_indirme_plani.append((sayfa_sirasi, sira, belge_no, zip_yol))
                         # Sayfada tam limit kadar belge var mı? O zaman
                         # mutlaka devamı vardır.
                         tam_sayfa = len(sayfa_satirlari) >= SAYFA_LIMITI
@@ -2821,6 +2813,18 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     # Her sayfayı tekrar gez, o sayfadaki seçili belgeleri indir.
                     if kategori in ("efatura_alis", "efatura_satis",
                                     "earsiv_alis", "earsiv_satis") and secili:
+                        # ÖNCE: Sayfa 1'e dönmek için frame'i yeniden yükle
+                        # Pagination loop sonunda son sayfadayız, sayfa 1'e dönmek lazım
+                        try:
+                            tur = LUCA_GIB_TURLER.get(kategori)
+                            if tur:
+                                cerceve.evaluate(
+                                    "u => { window.location.href = u; }",
+                                    f"gib530.do?tur={tur}&c_musteri_id={uye_no}")
+                                cerceve.page.wait_for_timeout(2000)
+                                bildir(f"{kategori}: sayfa 1'e dönüldü (frame yenilendi)")
+                        except Exception as e:
+                            bildir(f"{kategori}: sayfa 1'e dönüş hatası: {e}")
                         # Seçili belgeleri sayfa_no'ya göre grupla
                         from collections import defaultdict
                         secili_sayfa = defaultdict(list)
@@ -2833,15 +2837,10 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                 # Baştan başla ve hedef sayfaya kadar ilerle
                                 # (Luca'da doğrudan sayfa atlama yok)
                                 bildir(f"{kategori}: sayfa {hedef_sayfa} için ZIP indiriliyor...")
-                                # İlk sayfaya dön
                                 for _ in range(hedef_sayfa - 1):
                                     if not _sonraki_sayfaya_git(cerceve):
                                         break
                                     cerceve.page.wait_for_timeout(1000)
-                            else:
-                                # Sayfa 1: zaten ilk sayfadayız (veya gitmek lazım)
-                                # Sayfa 1'e dönmek için baştan sayfa 1'e git
-                                pass  # İlk sayfadayız varsayımı
                             # Bu sayfadaki seçili belgeleri indir
                             for sira, belge, belge_no in secili_sayfa[hedef_sayfa]:
                                 zip_yol = os.path.join(klasor, f"{on_ek}{belge_no}.zip")
@@ -2960,6 +2959,13 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                           "durum": "tamam", "sayi": len(kayitlar),
                           "toplam": len(secili),
                           "mesaj": f"{birim}: {len(kayitlar)} belge tamam"})
+                    # Ekran istiflenmesini önle: kategori sonrası fazladan sekmeleri kapat
+                    try:
+                        for p in oturum.pages:
+                            if p != erp and p != sayfa:
+                                p.close()
+                    except Exception:
+                        pass
                 except Exception as hata:
                     # Tek kategori inmedi: digerlerini engelleme.
                     bildir(f"{kategori}: HATA — {str(hata)[:80]}")
@@ -2967,6 +2973,13 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                           "durum": "hata", "sayi": 0, "toplam": 0,
                           "mesaj": f"{birim}: {str(hata)[:80]}"})
                     _hata_ekrani_kaydet(sayfa, f"belge_{kategori}")
+                    # Ekran istiflenmesini önle: hata durumunda da fazladan sekmeleri kapat
+                    try:
+                        for p in oturum.pages:
+                            if p != erp and p != sayfa:
+                                p.close()
+                    except Exception:
+                        pass
         finally:
             tarayici.close()
     if not sonuc:
