@@ -2079,6 +2079,38 @@ def _download_bekle(erp, zaman):
 _RE_TARIH_ISARETI = re.compile(r"\b\d{1,2}[./]\d{1,2}[./]\d{4}\b")
 
 
+_MENU_FRAME_ISARETLERI = ("TopFrameAction",)
+
+
+def _rapor_govdesi_adaylari(sayfa):
+    """Bir sayfadan rapor olabilecek gövdeleri döndürür: ana sayfa + tüm
+    frame'ler, üst menü/firma listesi çerçevesi hariç.
+
+    Üst çerçeve (TopFrameAction) firma listesini ve 'dönem seç'
+    tarih metinlerini içerir; bunlar _RE_TARIH_ISARETI ile sahte 'rapor
+    dolu' sinyali üretir, rapor hiç açılmadan geçilirdi.
+    """
+    sonuc = []
+    try:
+        adres = sayfa.url or ""
+    except Exception:
+        adres = ""
+    if not any(m in adres for m in _MENU_FRAME_ISARETLERI):
+        sonuc.append((sayfa, f"sayfa:{adres[:50]}"))
+    try:
+        for f in sayfa.frames:
+            try:
+                fadres = f.url or ""
+            except Exception:
+                fadres = ""
+            if any(m in fadres for m in _MENU_FRAME_ISARETLERI):
+                continue
+            sonuc.append((f, f"frame:{fadres[:50]}"))
+    except Exception:
+        pass
+    return sonuc
+
+
 def _rapor_verisi_bekle(erp, hesap, bildir=None, saniye=45):
     """Rapor ekraninda veri satirlari gelene kadar bekler.
 
@@ -2115,12 +2147,7 @@ def _rapor_verisi_bekle(erp, hesap, bildir=None, saniye=45):
             sayfalar = []
         adaylar = []
         for sayfa in sayfalar:
-            adaylar.append((sayfa, f"sayfa:{sayfa.url[:50]}"))
-            try:
-                for f in sayfa.frames:
-                    adaylar.append((f, f"frame:{f.url[:50]}"))
-            except Exception:
-                pass
+            adaylar.extend(_rapor_govdesi_adaylari(sayfa))
         en_cok = 0
         en_cok_tarih = 0
         en_iyi = None
@@ -2268,12 +2295,7 @@ def _rapor_html_kaydet(erp, hesap, govde, bildir=None):
             sayfalar = []
         en_cok = 0
         for sayfa in sayfalar:
-            govler = [sayfa]
-            try:
-                govler.extend(sayfa.frames)
-            except Exception:
-                pass
-            for gov in govler:
+            for gov, _etiket in _rapor_govdesi_adaylari(sayfa):
                 try:
                     metin = gov.inner_text("body") or ""
                 except Exception:
@@ -2288,7 +2310,7 @@ def _rapor_html_kaydet(erp, hesap, govde, bildir=None):
     html_yol = os.path.join(klasor, f"RAPOR_HTML_{tik}.html")
     metin_yol = os.path.join(klasor, f"RAPOR_METIN_{tik}.txt")
     try:
-        html = hedef_govde.evaluate("el => el.outerHTML") or ""
+        html = hedef_govde.evaluate("() => document.documentElement.outerHTML") or ""
     except Exception:
         html = ""
     if html:
@@ -2335,7 +2357,7 @@ def _luca_diag_dump(erp, hesap, govde, bildir=None):
 
     # 0) Rapor gövdesinin HTML + metni (gerçek yapıyı görmek için).
     if govde is not None:
-        _yaz(rapor_html_yol, _guvenli_eval(govde, "el => el.outerHTML"))
+        _yaz(rapor_html_yol, _guvenli_eval(govde, "() => document.documentElement.outerHTML"))
         _yaz(rapor_metin_yol, _guvenli(govde, "inner_text", "body"))
 
     # 1) Tüm sayfa/frame'lerdeki görünür tıklanabilir öğeler + adresler.
@@ -2468,6 +2490,12 @@ def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
     # Rapor verisi bulunur bulunmaz çerçeve HTML'ini HEMEN diske yaz;
     # export araması uzun sürebilir, bu sayede yapı her koşulda elimizde olur.
     _rapor_html_kaydet(erp, hesap, govde, bildir)
+    # Uzun export aramasına girmeden önce BUTONLAR/ADRESLER/HTML dump'ını
+    # yaz; kullanıcı işlemi kesse bile gerçek indirme öğesi elimizde olur.
+    try:
+        _luca_diag_dump(erp, hesap, govde, None)
+    except Exception:
+        pass
     if not uyum and govde is not None:
         try:
             son_kod = str(int(hesap) + 1)

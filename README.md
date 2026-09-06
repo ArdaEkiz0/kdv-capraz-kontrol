@@ -177,6 +177,7 @@ Program her açılışta GitHub'daki son sürümü kontrol eder:
 
 | Sürüm | Öne çıkanlar |
 |-------|-------------|
+| **3.1.45** | Luca muavininde kök neden düzeltildi: üst menü çerçevesindeki dönem tarihleri artık sahte "rapor dolu" sinyali üretmiyor; rapor gövdesi taraması üst menüyü dışlıyor, HTML kaydı düzeltildi ve tam teşhis dump'ı (HTML/buton/adres) export aramasından önce yazılıyor |
 | **3.1.44** | Luca muavininde rapor çerçevesinin HTML'i, veri göründüğü an hemen diske yazılıyor (export aramalarından önce) |
 | **3.1.41** | Luca muavininde ikinci hesap (391) bayat rapor yüzünden çekilemiyordu; artık rapor gövdesinde hesap kodu doğrulanıyor, eski rapor pencereleri kapatılıyor, bekleme süreleri kısaltıldı |
 | **3.1.40** | Luca paneli açılışında `luca_bot` import hatası düzeltildi (paket hiç yayınlanmamıştı, şimdi doğrudan `luca_cekme` kullanılıyor) |
