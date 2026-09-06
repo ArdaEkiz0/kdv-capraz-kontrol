@@ -2327,6 +2327,198 @@ def _zip_toplu_indir(frame, sayfa, indirme_planlari, bildir=None,
     return basarisiz
 
 
+def _zip_oturum_bilgisi(cerceve, sayfa, kategori):
+    """Paralel ZIP indirme için frame'den BİR KEZ okunan oturum sabitleri.
+
+    `_zip_tikla_indir` her belgede bu değerleri frame'e sorduğu için sıralı
+    çekimde 686 ayrı evaluate turu yapar. Burada hepsi tek seferde toplanır,
+    sonra iş parçacıkları yalnızca saf HTTP istemcisi olur.
+    """
+    try:
+        menu_tur = cerceve.evaluate(
+            "() => (typeof menu_tur !== 'undefined') ? menu_tur : null")
+    except Exception:
+        menu_tur = None
+    if not menu_tur:
+        estr = {"earsiv_alis": "gib_ebelge_alis",
+                "earsiv_satis": "gib_ebelge_satis",
+                "efatura_alis": "gib_efatura_alis",
+                "efatura_satis": "gib_efatura_satis"}
+        menu_tur = estr.get(kategori, "gib_ebelge_alis")
+    try:
+        sirket_id = cerceve.evaluate("session('SIRKET_ID')")
+    except Exception:
+        sirket_id = ""
+    try:
+        donem_id = cerceve.evaluate("session('DONEM_ID')")
+    except Exception:
+        donem_id = ""
+    gkk = ""
+    gks = ""
+    try:
+        gkk = cerceve.evaluate(
+            "document.querySelector('#gib_kullanici_adi') ? "
+            "document.querySelector('#gib_kullanici_adi').value : ''")
+    except Exception:
+        pass
+    try:
+        gks = cerceve.evaluate(
+            "document.querySelector('#gib_sifre') ? "
+            "document.querySelector('#gib_sifre').value : ''")
+    except Exception:
+        pass
+    taban = (sayfa.url.rsplit("/", 1)[0]
+             if "/" in (sayfa.url or "") else "")
+    if "gib530" not in (taban or ""):
+        taban = taban + "/gib530"
+    url = f"{taban}/{menu_tur}.jq"
+    cerezler = ""
+    try:
+        liste = sayfa.context.cookies()
+        cerezler = "; ".join(f"{c.get('name')}={c.get('value')}"
+                             for c in liste if c.get("name"))
+    except Exception:
+        cerezler = ""
+    return {"url": url, "sirket_id": sirket_id, "donem_id": donem_id,
+            "gkk": gkk, "gks": gks, "cookie": cerezler}
+
+
+def _zip_tek_indir_hizli(ot, belge, zip_yol, klasor):
+    """Tek belgeyi oturum sabitleriyle doğrudan HTTP'den indirir (thread-safe).
+
+    `_zip_tikla_indir`'in POST sarmalını aynen tekrarlar; frame'e hiç
+    dokunmaz, yalnızca `ot` (oturum bilgisi) + `belge` dict'i kullanır.
+    Başarıda belge dict'ine UBL özetini işler ve zip yolunu döndürür.
+    """
+    import base64
+    import urllib.error
+    import urllib.request
+    ettn = belge.get("ettn")
+    if not ettn:
+        raise RuntimeError("Faturada ettin bulunamadı")
+    data = {
+        "islem": "download",
+        "etti": "",
+        "gibKullaniciKodu": "",
+        "gibSifre": "",
+        "bayiNo": belge.get("bayi_no") or belge.get("bayiNo") or "",
+        "onayDurumu": belge.get("onay_durumu") or "",
+        "ettn": ettn,
+        "belgeTuru": belge.get("belge_turu") or belge.get("belgeTuru") or "",
+        "belgeNumarasi": belge.get("belge_numarasi")
+                          or belge.get("belgeNumarasi") or "",
+        "entegrator": belge.get("entegrator") or "",
+        "url": belge.get("url") or "",
+        "dosya_adi": f"{belge.get('belge_numarasi') or ettn}.zip",
+        "_u": "ea530:download",
+    }
+    params = json.dumps({"sirket_id": ot["sirket_id"],
+                         "donem_id": ot["donem_id"], "params": data},
+                        ensure_ascii=False)
+    if ot["gkk"] or ot["gks"]:
+        params = params.replace('"gibKullaniciKodu": ""',
+                                f'"gibKullaniciKodu": {json.dumps(ot["gkk"])}')
+        params = params.replace('"gibSifre": ""',
+                                f'"gibSifre": {json.dumps(ot["gks"])}')
+    basliklar = {
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json, text/plain, */*",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+    if ot["cookie"]:
+        basliklar["Cookie"] = ot["cookie"]
+    istek = urllib.request.Request(ot["url"],
+                                   data=params.encode("utf-8"),
+                                   headers=basliklar)
+    cevap = {}
+    try:
+        with urllib.request.urlopen(istek, timeout=90) as yanit:
+            icerik = yanit.read()
+            cevap = {"durum": getattr(yanit, "status", 200)}
+    except urllib.error.HTTPError as e:
+        icerik = b""
+        cevap = {"durum": getattr(e, "code", 0)}
+        raise RuntimeError(f"HTTP {getattr(e, 'code', 0)}") from e
+    except urllib.error.URLError as e:
+        icerik = b""
+        raise RuntimeError(f"Bağlantı hatası: {e.reason}") from e
+    if icerik[:1] in (b"{", b"["):
+        try:
+            json_cevap = json.loads(icerik)
+            zipb64 = ((json_cevap.get("data") or {}).get("zip")
+                      or json_cevap.get("zip")
+                      or json_cevap.get("data"))
+            if zipb64 and isinstance(zipb64, str) and zipb64:
+                icerik = base64.b64decode(zipb64)
+        except Exception:
+            pass
+    if not icerik or len(icerik) < 50:
+        raise RuntimeError("İndirme yanıtı boş geldi "
+                           f"(HTTP {cevap.get('durum')})")
+    if icerik[:2] != b"PK":
+        try:
+            metin = icerik.decode("utf-8", "replace")
+            kisa = " ".join(metin.split())[:180]
+        except Exception:
+            kisa = ""
+        raise RuntimeError(f"İndirme yanıtı ZIP değil (HTTP "
+                           f"{cevap.get('durum')}): {kisa}")
+    with open(zip_yol, "wb") as f:
+        f.write(icerik)
+    ubl_ozet = _zipten_ozet(zip_yol, klasor)
+    if ubl_ozet:
+        belge["matrah"] = ubl_ozet.get("matrah")
+        belge["kdv_toplam"] = ubl_ozet.get("kdv_toplam")
+        belge["genel_toplam"] = ubl_ozet.get("genel_toplam")
+        belge["para"] = ubl_ozet.get("para", "TRY")
+        belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
+    return zip_yol
+
+
+def _zip_hizli_toplu_indir(cerceve, sayfa, zip_plan, kategori, klasor=None,
+                           bildir=None, esler=8):
+    """Seçili belgeleri PARALEL indirir (sıralı çekimin hızlandırılması).
+
+    `zip_plan`: [(belge, zip_yol), ...] çiftleri. Oturum sabitleri tek kez
+    toplanır; ThreadPoolExecutor'da `esler` adet iş parçacığı Her belgeyi
+    `_zip_tek_indir_hizli` ile HTTP'den çeker. Başarısız belgeler bir kez
+    yeniden denenir; yine olmayanlar `{zip_yol: hata_metni}` sözlüğüyle
+    döner (çağıran sıralı yedek yolu deneyebilir).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    if bildir is None:
+        bildir = lambda s: None
+    if not zip_plan:
+        return {}
+    ot = _zip_oturum_bilgisi(cerceve, sayfa, kategori)
+    bildir(f"{kategori}: {len(zip_plan)} belge paralel indiriliyor "
+           f"({esler} işçi)...")
+    sonuc = {}
+    with ThreadPoolExecutor(max_workers=esler) as havuz:
+        gelecekler = {
+            havuz.submit(_zip_tek_indir_hizli, ot, belge, zip_yol, klasor):
+            (belge, zip_yol)
+            for belge, zip_yol in zip_plan
+        }
+        tamam = 0
+        for g in as_completed(gelecekler):
+            belge, zip_yol = gelecekler[g]
+            try:
+                g.result()
+                tamam += 1
+            except Exception:
+                # Tek yeniden deneme
+                try:
+                    _zip_tek_indir_hizli(ot, belge, zip_yol, klasor)
+                    tamam += 1
+                except Exception as e:
+                    sonuc[zip_yol] = str(e)[:120]
+        bildir(f"{kategori}: paralel indirme bitti — "
+               f"{tamam}/{len(zip_plan)} tamam.")
+    return sonuc
+
+
 def _ubl_ozet(xml_bytes):
     """UBL fatura XML'inden tutarlari cikarir (lxml ile namespace-aware).
 
@@ -3107,27 +3299,49 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                                         break
                                     cerceve.page.wait_for_timeout(1000)
                             # Bu sayfadaki seçili belgeleri indir
-                            for sira, belge, belge_no in secili_sayfa[hedef_sayfa]:
-                                zip_yol = os.path.join(klasor, f"{on_ek}{belge_no}.zip")
+                            zip_plan = []
+                            for sira, belge, belge_no in \
+                                    secili_sayfa[hedef_sayfa]:
+                                zip_plan.append((
+                                    belge,
+                                    os.path.join(
+                                        klasor, f"{on_ek}{belge_no}.zip")))
+                            hatalar = _zip_hizli_toplu_indir(
+                                cerceve, cerceve.page, zip_plan, kategori,
+                                klasor=klasor, bildir=bildir, esler=8)
+                            # Paralel yolda düşenler: kanıtlanmış sıralı yedek
+                            for belge, zip_yol in zip_plan:
+                                zip_yollari.append(zip_yol)
+                                if zip_yol not in hatalar:
+                                    continue
+                                belge_no = os.path.splitext(
+                                    os.path.basename(zip_yol))[0]
                                 try:
-                                    _zip_tikla_indir(cerceve, cerceve.page, sira,
-                                                     zip_yol, belge=belge,
-                                                     kategori=kategori,
-                                                     bildir=bildir)
+                                    _zip_tikla_indir(
+                                        cerceve, cerceve.page,
+                                        secili_sayfa[hedef_sayfa][0][0],
+                                        zip_yol, belge=belge,
+                                        kategori=kategori, bildir=bildir)
                                     ubl_ozet = _zipten_ozet(zip_yol, klasor)
                                     if ubl_ozet:
-                                        belge["matrah"] = ubl_ozet.get("matrah")
-                                        belge["kdv_toplam"] = ubl_ozet.get("kdv_toplam")
-                                        belge["genel_toplam"] = ubl_ozet.get("genel_toplam")
-                                        belge["para"] = ubl_ozet.get("para", "TRY")
-                                        belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
+                                        belge["matrah"] = ubl_ozet.get(
+                                            "matrah")
+                                        belge["kdv_toplam"] = ubl_ozet.get(
+                                            "kdv_toplam")
+                                        belge["genel_toplam"] = ubl_ozet.get(
+                                            "genel_toplam")
+                                        belge["para"] = ubl_ozet.get(
+                                            "para", "TRY")
+                                        belge["oran_kalemleri"] = ubl_ozet.get(
+                                            "oran_kalemleri", [])
                                 except Exception as e:
-                                    bildir(f"{kategori}: {belge_no} ZIP indirme hatası: {e}")
+                                    bildir(f"{kategori}: {belge_no} ZIP "
+                                           f"indirme hatası: {e}")
                                     try:
-                                        _tani_kaydet(f"zip_hata_{kategori}", cerceve)
+                                        _tani_kaydet(
+                                            f"zip_hata_{kategori}", cerceve)
                                     except Exception:
                                         pass
-                                zip_yollari.append(zip_yol)
 
                     # Kayıt oluştur: filtrelenmiş `secili` listesinden.
                     bildir(f"{kategori}: {len(secili)} belge "
