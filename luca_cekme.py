@@ -2243,6 +2243,63 @@ def _rapor_turu_excel_sec(sayfa, bildir=None):
     return False
 
 
+def _rapor_html_kaydet(erp, hesap, govde, bildir=None):
+    """Rapor çerçevesinin HTML + metnini diske yazar (dışa aktarma sorunu
+    çözülürken gerçek buton yapısını görmek için).
+
+    `govde` verilmisse onun içeriği, verilmemisse tüm frame'lerin en
+    fazla tarih satırı içereninin içeriği kaydedilir. Klasör:
+    %APPDATA%\\KDVCaprazKontrol\\luca_diag
+    """
+    import tempfile
+    klasor = os.path.join(
+        os.environ.get("APPDATA") or tempfile.gettempdir(),
+        "KDVCaprazKontrol", "luca_diag")
+    try:
+        os.makedirs(klasor, exist_ok=True)
+    except Exception:
+        klasor = tempfile.gettempdir()
+    tik = time.strftime("%Y%m%d_%H%M%S") + "_" + str(hesap)
+    hedef_govde = govde
+    if hedef_govde is None:
+        try:
+            sayfalar = erp.context.pages
+        except Exception:
+            sayfalar = []
+        en_cok = 0
+        for sayfa in sayfalar:
+            govler = [sayfa]
+            try:
+                govler.extend(sayfa.frames)
+            except Exception:
+                pass
+            for gov in govler:
+                try:
+                    metin = gov.inner_text("body") or ""
+                except Exception:
+                    continue
+                adet = len(_RE_TARIH_ISARETI.findall(metin))
+                if adet > en_cok:
+                    en_cok = adet
+                    hedef_govde = gov
+    if hedef_govde is None:
+        return
+
+    html_yol = os.path.join(klasor, f"RAPOR_HTML_{tik}.html")
+    metin_yol = os.path.join(klasor, f"RAPOR_METIN_{tik}.txt")
+    try:
+        html = hedef_govde.evaluate("el => el.outerHTML") or ""
+    except Exception:
+        html = ""
+    if html:
+        _yaz(html_yol, html)
+    _yaz(metin_yol, _guvenli(hedef_govde, "inner_text", "body"))
+    if bildir is not None:
+        h_yol = os.path.basename(html_yol) if html else "(html yok)"
+        bildir(f"Rapor çerçevesi kaydedildi: {h_yol} "
+               f"+ {os.path.basename(metin_yol)} ({os.path.dirname(html_yol)})")
+
+
 def _luca_diag_dump(erp, hesap, govde, bildir=None):
     """Export bulunamadığında tüm ekran durumunu diske yazar; böylece
     gerçek buton etiketleri ve rapor yapısı incelenebilir.
@@ -2408,6 +2465,9 @@ def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
     # 2) Rapor ekranda acildi: veri satirlari gelene kadar bekle, sonra
     #    export düğmesini bulup raporu dosyaya al.
     govde, _, uyum = _rapor_verisi_bekle(erp, hesap, bildir, saniye=45)
+    # Rapor verisi bulunur bulunmaz çerçeve HTML'ini HEMEN diske yaz;
+    # export araması uzun sürebilir, bu sayede yapı her koşulda elimizde olur.
+    _rapor_html_kaydet(erp, hesap, govde, bildir)
     if not uyum and govde is not None:
         try:
             son_kod = str(int(hesap) + 1)

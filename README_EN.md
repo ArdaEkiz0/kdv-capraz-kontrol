@@ -173,7 +173,7 @@ The program checks GitHub for the latest version on every start:
 
 | Version | Highlights |
 |---------|------------|
-| **3.1.43** | Luca ledger: when export is not found, a diagnostic dump (buttons, URLs, report HTML) is written to disk BEFORE screenshots; the report-type selector change is logged with its field name/id |
+| **3.1.44** | Luca ledger: the report frame's HTML is now written to disk immediately when report data appears (before any export search) |
 | **3.1.41** | Luca ledger: the second account (391) could not be fetched because a stale 191 report was being treated as the new report. Report body is now validated against the requested account code, old report windows are closed between accounts, and waits were shortened |
 | **3.1.40** | Fixed `luca_bot` import error when opening the Luca panel (that package was never shipped; the panel now calls `luca_cekme` directly) |
 | **3.1.39** | Fixed empty Luca ledger export: now waits for report data to appear, exports the populated report, and retries once on empty output |
