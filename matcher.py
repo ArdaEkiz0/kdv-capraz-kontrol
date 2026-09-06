@@ -359,7 +359,10 @@ def capraz_kontrol(faturalar, cetvel_kayitlari, kurallar=None):
     def _kdv0_fatura(f):
         f_kdv = f.get("kdv")
         if f_kdv is None:
-            return True
+            # KDV okunamamış (None) "0 KDV" değildir; tutar çözülememiştir.
+            # Burada kdv0 kümesine sokmak faturayı VE eşleşen cetvel
+            # satırlarını sessizce siliyor, "0 sonuç satırı" üretiyordu.
+            return False
         if (f.get("fatura_tipi") or f.get("tip") or "").upper() == "IADE":
             f_kdv = abs(f_kdv)
         return abs(f_kdv) < TOLERANS

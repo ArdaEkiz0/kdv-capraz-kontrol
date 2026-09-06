@@ -765,7 +765,7 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
                     deger = (oge.input_value() or "").strip()
                     if deger and re.match(r"^\d{2}\.\d{2}\.\d{4}$", deger):
                         continue
-                    hedef = bas_metin if doldurulan == 0 else bit_metin
+                    hedef = bas_metin_v1 if doldurulan == 0 else bit_metin_v1
                     if _luca_metin_gir(oge, hedef) == hedef:
                         doldurulan += 1
                     if doldurulan >= 2:
@@ -778,7 +778,7 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
         bildir("UYARI: Tarih alanları otomatik doldurulamadı; sayfanın kendi "
                "varsayılan dönemi kullanılacak.")
     else:
-        bildir(f"Tarih aralığı girildi: {bas_metin} - {bit_metin}")
+        bildir(f"Tarih aralığı girildi: {bas_metin_v1} - {bit_metin_v1}")
     return doldurulan
 
 
@@ -1591,7 +1591,12 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 _sorgula_listele_butonu(cerceve, bildir)
             except Exception:
                 pass
-            return
+            try:
+                import luca_cekme as _l
+                deneme_html = cerceve.content()
+                return len(_l._satirlari_ayikla(deneme_html)) > 0
+            except Exception:
+                return False
         bildir("GİB'ten getir tıklanıyor (belgeler çekiliyor)...")
         # ÖNCE: Toolbar'daki "Belge Ara" butonunu tıkla (gonder('arama-window'))
         # bu BELGE ARAMA popup'ını açar; içine tarih girip arama yaparız.
@@ -1663,23 +1668,48 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
                 pass
             time.sleep(0.5)
         # Belgeler listeye gelene kadar bekle (akıllı).
-        # GİB sorguları 10-60 sn sürebilir; 60 denemeye kadar bekle.
+        # GİB sorguları 10-60 sn sürebilir; 90 saniyeye kadar bekle.
+        belge_var = False
         try:
             import luca_cekme as _l
-            for _i in range(60):
+            for _i in range(90):
                 deneme_html = cerceve.content()
                 belge_sayisi = len(_l._satirlari_ayikla(deneme_html))
                 if belge_sayisi > 0:
+                    belge_var = True
                     bildir(f"Listede {belge_sayisi} belge göründü.")
                     break
                 if _i % 5 == 4:
                     bildir(f"Hâlâ bekleniyor... ({_i+1}s)")
                 time.sleep(1)
-            else:
-                bildir("60 sn'de belge gelmedi; mevcut liste kullanılıyor.")
         except Exception:
             time.sleep(3)
-        bildir("GİB'ten getir tamamlandı; liste güncellendi.")
+        # Timeout sonrası liste hâlâ boşsa bir kez daha Sorgula/Listele'ye
+        # basıp kısa süre bekle (ilk sorgu uzun sürüp sessizce düşebiliyor).
+        if not belge_var:
+            bildir("UYARI: 90 sn sonunda belgeler listeye gelmedi; "
+                   "sorgu yenileniyor...")
+            try:
+                _sorgula_listele_butonu(cerceve, bildir)
+            except Exception:
+                pass
+            time.sleep(5)
+            try:
+                import luca_cekme as _l
+                deneme_html = cerceve.content()
+                belge_sayisi = len(_l._satirlari_ayikla(deneme_html))
+                if belge_sayisi > 0:
+                    belge_var = True
+                    bildir(f"Yeniden sorguda {belge_sayisi} belge göründü.")
+            except Exception:
+                pass
+            if not belge_var:
+                bildir("UYARI: Bu kategoride belge listesi boş kaldı. "
+                       "Kategori atlanıyor; satış faturaları çekilemedi, "
+                       "manuel olarak yeniden deneyin.")
+        bildir("GİB'ten getir tamamlandı; liste güncellendi."
+               if belge_var else
+               "GİB'ten getir tamamlandı ama liste BOŞ kaldı.")
 
         # Güvence: getir sonrası 'Sorgula'/'Listele' butonuna basarak
         # listenin tazelenmesini zorla. Luca bazı ekranlarda getir ile
@@ -1688,8 +1718,10 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
             _sorgula_listele_butonu(cerceve, bildir)
         except Exception:
             pass
+        return belge_var
     except Exception as hata:
         bildir(f"GİB'ten getir başarısız: {str(hata)[:50]}")
+        return False
 
 
 # 'Sorgula'/'Listele' butonunu bulup tıklama TEK evaluate içinde yapılır.
