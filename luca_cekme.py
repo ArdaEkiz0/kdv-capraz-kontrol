@@ -785,17 +785,23 @@ def _tarih_alanlarini_doldur(sayfa, bas_tarih, bit_tarih, bildir):
 def _indir_butonu_tikla(sayfa, desenler, zaman_asimi=8):
     """Desenlere uyan ilk görünür düğmeye tıklar; True/False döner."""
     derlemeler = [re.compile(d, re.IGNORECASE) for d in desenler]
+    seciciler = (
+        "input[type=button], input[type=submit], button, a, "
+        "input[onclick], div[onclick], span[onclick], td[onclick], "
+        "img[onclick], img[alt], img[title]")
     bitis = time.time() + zaman_asimi
     while time.time() < bitis:
         try:
-            ogeler = sayfa.query_selector_all(
-                "input[type=button], input[type=submit], button, a")
+            ogeler = sayfa.query_selector_all(seciciler)
             for oge in ogeler:
                 try:
                     if not oge.is_visible():
                         continue
-                    metin = ((oge.get_attribute("value") or "")
-                             + " " + (oge.inner_text() or "")).strip()
+                    metin = " ".join(filter(None, (
+                        oge.get_attribute("value"),
+                        oge.inner_text(),
+                        oge.get_attribute("alt"),
+                        oge.get_attribute("title")))).strip()
                     if any(d.search(metin) for d in derlemeler):
                         oge.click()
                         return True
@@ -805,6 +811,89 @@ def _indir_butonu_tikla(sayfa, desenler, zaman_asimi=8):
             pass
         time.sleep(1)
     return False
+
+
+def _export_butonu_tikla(erp, desenler, zaman_asimi=8):
+    """Context'teki TÜM sayfa/frame'lerde desene uyan ilk görünür düğmeye
+    tıklar. Rapor bir popup pencerede açılıp export düğmesi başka bir
+    frame/pencerede olabildiği için tek govde yerine hepsi taranır."""
+    derlemeler = [re.compile(d, re.IGNORECASE) for d in desenler]
+    seciciler = (
+        "input[type=button], input[type=submit], button, a, "
+        "input[onclick], div[onclick], span[onclick], td[onclick], "
+        "img[onclick], img[alt], img[title]")
+    bitis = time.time() + zaman_asimi
+    while time.time() < bitis:
+        try:
+            sayfalar = erp.context.pages
+        except Exception:
+            sayfalar = []
+        for sayfa in sayfalar:
+            govler = [sayfa]
+            try:
+                govler.extend(sayfa.frames)
+            except Exception:
+                pass
+            for gov in govler:
+                try:
+                    ogeler = gov.query_selector_all(seciciler)
+                except Exception:
+                    continue
+                for oge in ogeler:
+                    try:
+                        if not oge.is_visible():
+                            continue
+                        metin = " ".join(filter(None, (
+                            oge.get_attribute("value"),
+                            oge.inner_text(),
+                            oge.get_attribute("alt"),
+                            oge.get_attribute("title")))).strip()
+                        if any(d.search(metin) for d in derlemeler):
+                            oge.click()
+                            return True
+                    except Exception:
+                        continue
+        time.sleep(1)
+    return False
+
+
+def _export_butonlarini_raporla(erp, bildir, limit=15):
+    """Export düğmesi bulunamadığında ekrandaktaki görünür düğme/link
+    metinlerini loglar; böylece gerçek düğme metni görünür."""
+    adaylar = []
+    try:
+        sayfalar = erp.context.pages
+    except Exception:
+        sayfalar = []
+    for sayfa in sayfalar:
+        govler = [sayfa]
+        try:
+            govler.extend(sayfa.frames)
+        except Exception:
+            pass
+        for gov in govler:
+            try:
+                ogeler = gov.query_selector_all(
+                    "input[type=button], input[type=submit], button, a, "
+                    "img[alt], img[title]")
+            except Exception:
+                continue
+            for oge in ogeler:
+                try:
+                    if not oge.is_visible():
+                        continue
+                    metin = " ".join(filter(None, (
+                        oge.get_attribute("value"),
+                        oge.inner_text(),
+                        oge.get_attribute("alt"),
+                        oge.get_attribute("title")))).strip()
+                    if metin and metin not in adaylar:
+                        adaylar.append(metin)
+                except Exception:
+                    continue
+    if bildir is not None:
+        kesim = ", ".join(adaylar[:limit]) or "(görünür düğme yok)"
+        bildir(f"UYARI: Export düğmesi bulunamadı. Görünen düğmeler: {kesim}")
 
 
 def _rapor_seceneklerini_duzelt(cerceve, bildir=None):
@@ -2051,31 +2140,26 @@ def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
             bildir(f"UYARI: İndirme kaydedilemedi ({str(hata)[:60]}).")
 
     # 2) Rapor ekranda acildi: veri satirlari gelene kadar bekle, sonra
-    #    once veriyi tasiyan govde, olmazsa form uzerinden export al.
+    #    export'dan once yeni kisiye ozgu butonlar da acilmis olabilir.
     govde, _ = _rapor_verisi_bekle(erp, hesap, bildir, saniye=45)
-    for gov in (govde, cerceve):
-        if gov is None:
-            continue
-        try:
-            tiklandi = _indir_butonu_tikla(
-                gov,
-                (r"\bexcel\b", r"\bxls\b", r"aktar", r"döküm\s*al",
-                 r"kaydet"),
-                zaman_asimi=6)
-        except Exception:
-            tiklandi = False
-        if not tiklandi:
-            continue
+    try:
+        tiklandi = _export_butonu_tikla(
+            erp,
+            (r"\bexcel\b", r"\bxls\b", r"aktar", r"döküm\s*al",
+             r"kaydet"),
+            zaman_asimi=6)
+    except Exception:
+        tiklandi = False
+    if tiklandi:
         dl = _download_bekle(erp, 25)
-        if dl is None:
-            continue
-        try:
-            dl.save_as(hedef)
-            bildir(f"İndirildi (ekran dökümü): {os.path.basename(hedef)}")
-            return True
-        except Exception as hata:
-            bildir(f"UYARI: Döküm kaydedilemedi ({str(hata)[:60]}).")
-            continue
+        if dl is not None:
+            try:
+                dl.save_as(hedef)
+                bildir(f"İndirildi (ekran dökümü): {os.path.basename(hedef)}")
+                return True
+            except Exception as hata:
+                bildir(f"UYARI: Döküm kaydedilemedi ({str(hata)[:60]}).")
+    _export_butonlarini_raporla(erp, bildir)
     return False
 
 
