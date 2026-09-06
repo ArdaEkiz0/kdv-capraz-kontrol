@@ -2189,20 +2189,32 @@ def _rapor_turu_excel_sec(sayfa, bildir=None):
                         if (!/excel|xls|xlsx|ms\s*exele/i.test(t) && !/excel|xls|xlsx/.test(v)) continue;
                         const baglam = (((s.name||'')+' '+(s.id||'')).toLowerCase());
                         const fmtMi = /rapor|format|t[üu]r|d[oö]k[üu]m|tip|ortam|al.*(?:tür|tip)|liste/.test(baglam + ' ' + t.slice(0,60).toLowerCase());
-                        sec.push({s, v: o.value, t});
+                        sec.push({s, v: o.value, t, n: s.name||'', i: s.id||''});
                     }
                 }
                 if (sec.length === 0) return '';
                 const ilk = sec[0];
-                ilk.s.value = ilk.v;
-                ilk.s.dispatchEvent(new Event('change', {bubbles: true}));
-                return ilk.t;
+                const onceki = ilk.s.value;
+                const hata = (() => { try { ilk.s.dispatchEvent(new Event('change', {bubbles: true, cancelable: true})); return ''; } catch(e) { return String(e.message||e); } })();
+                const sonra = ilk.s.value;
+                return JSON.stringify({t: ilk.t, n: ilk.n, i: ilk.i, onceki, sonra, hata});
             })()
         """)
         if bulunan:
+            try:
+                import json as _json
+                bilgi = _json.loads(bulunan)
+                detay = f" ({bilgi.get('n')} / {bilgi.get('i')} " \
+                        f"{bilgi.get('onceki')}->{bilgi.get('sonra')})"
+                detay += (f" hata:{bilgi.get('hata')}"
+                          if bilgi.get('hata') else "")
+            except Exception:
+                detay = f" -> {bulunan[:60]}"
             if bildir is not None:
-                bildir(f"Rapor türü '{bulunan}' olarak seçildi.")
+                bildir(f"Rapor türü seçildi{detay}.")
             return True
+    except Exception:
+        pass
     except Exception:
         pass
     try:
@@ -2239,11 +2251,14 @@ def _luca_diag_dump(erp, hesap, govde, bildir=None):
     zaman damgalı dosyalar). Yol `bildir` ile loglanır.
 
     Yazılanlar:
-      - her sayfanın PNG ekran görüntüsü
+      - rapor gövdesinin metni + HEM raporun HEM tüm frame'lerin HTML'i
       - tüm sayfa/frame'lerdeki görünür tıklanabilir öğelerin etiketleri
-        (value/text/alt/title/src + name/id + onclick + outerHTML özeti)
-      - rapor içerik gövdesinin (varsa) ilk ~2000 karakteri
+        (value/text/alt/title/src + name/id + onclick + outerHTML)
+      - her sayfanın PNG ekran görüntüsü
       - sayfa/frame adres listesi
+
+    Metin dosyaları ÖNCE yazılır; sonra PNG alınır (PNG'de hata çıksa
+    bile metin incelenebilir).
     """
     import tempfile
     klasor = os.path.join(
@@ -2258,17 +2273,20 @@ def _luca_diag_dump(erp, hesap, govde, bildir=None):
         sayfalar = erp.context.pages
     except Exception:
         sayfalar = []
-    buton_yol = os.path.join(klasor, f"BUTONLAR_{tik}.txt")
-    icerik_yol = os.path.join(klasor, f"ICERIK_{tik}.txt")
-    adres_yol = os.path.join(klasor, f"ADRESLER_{tik}.txt")
+    rapor_html_yol = os.path.join(klasor, f"RAPOR_HTML_{tik}.html")
+    rapor_metin_yol = os.path.join(klasor, f"RAPOR_METIN_{tik}.txt")
 
+    # 0) Rapor gövdesinin HTML + metni (gerçek yapıyı görmek için).
+    if govde is not None:
+        _yaz(rapor_html_yol, _guvenli_eval(govde, "el => el.outerHTML"))
+        _yaz(rapor_metin_yol, _guvenli(govde, "inner_text", "body"))
+
+    # 1) Tüm sayfa/frame'lerdeki görünür tıklanabilir öğeler + adresler.
+    buton_yol = os.path.join(klasor, f"BUTONLAR_{tik}.txt")
+    adres_yol = os.path.join(klasor, f"ADRESLER_{tik}.txt")
     satirlar = []
     adresler = []
     for si, sayfa in enumerate(sayfalar):
-        try:
-            sayfa.screenshot(path=os.path.join(klasor, f"sayfa_{si}_{hesap}.png"))
-        except Exception:
-            pass
         govler = [sayfa]
         try:
             govler.extend(sayfa.frames)
@@ -2276,15 +2294,13 @@ def _luca_diag_dump(erp, hesap, govde, bildir=None):
             pass
         for gun, gov in enumerate(govler):
             try:
-                adres = gov.url
+                adres = gov.url[:200]
             except Exception:
                 adres = "?"
             adresler.append(f"sayfa[{si}] evrak[{gun}]: {adres}")
             try:
                 ogeler = gov.query_selector_all(
-                    "input[type=button], input[type=submit], button, a, "
-                    "input[onclick], div[onclick], span[onclick], "
-                    "td[onclick], img[alt], img[title], img[src]")
+                    "input, button, a, select, img, [onclick]")
             except Exception:
                 ogeler = []
             for oge in ogeler:
@@ -2292,61 +2308,68 @@ def _luca_diag_dump(erp, hesap, govde, bildir=None):
                     if not oge.is_visible():
                         continue
                     parcalar = []
-                    for ait in ("name", "id", "value", "alt", "title",
-                                "src", "href", "onclick"):
+                    for ait in ("name", "id", "type", "value", "alt",
+                                "title", "src", "href", "onclick"):
                         try:
                             d = (oge.get_attribute(ait) or "").strip()
                         except Exception:
                             d = ""
                         if d:
-                            parcalar.append(f"{ait}={d[:80]}")
-                    try:
-                        metin = (oge.inner_text() or "").strip()
-                    except Exception:
-                        metin = ""
+                            parcalar.append(f"{ait}={d[:100]}")
+                    metin = _guvenli(oge, "inner_text")
                     if metin:
-                        parcalar.append(f"text={metin[:80]}")
-                    try:
-                        html = (oge.evaluate(
-                            "el => el.outerHTML") or "")[:200].replace(
-                                chr(10), " ")
-                    except Exception:
-                        html = ""
+                        parcalar.append(f"text={metin[:100]}")
+                    html = _guvenli_eval(oge, "el => el.outerHTML")
                     if html:
-                        parcalar.append(f"html={html}")
+                        parcalar.append(f"html={html[:300]}")
                     satirlar.append(" | ".join(parcalar))
                 except Exception:
                     continue
+    _yaz(buton_yol, "\n".join(satirlar))
+    _yaz(adres_yol, "\n".join(adresler))
 
-    try:
-        with open(buton_yol, "w", encoding="utf-8") as f:
-            f.write("\n".join(satirlar))
-    except Exception:
-        buton_yol = f"(yazılamadı: {buton_yol})"
-    try:
-        with open(adres_yol, "w", encoding="utf-8") as f:
-            f.write("\n".join(adresler))
-    except Exception:
-        adres_yol = f"(yazılamadı: {adres_yol})"
-
-    icerik = ""
-    if govde is not None:
+    # 2) PNG (hataya duyarsız; metinler zaten yazıldı).
+    for si, sayfa in enumerate(sayfalar):
         try:
-            icerik = govde.inner_text("body") or ""
+            sayfa.screenshot(path=os.path.join(klasor, f"sayfa_{si}_{hesap}.png"))
         except Exception:
             pass
-        icerik = " ".join(icerik.split())[:2000]
-    try:
-        with open(icerik_yol, "w", encoding="utf-8") as f:
-            f.write(icerik)
-    except Exception:
-        icerik_yol = f"(yazılamadı: {icerik_yol})"
 
     if bildir is not None:
-        bildir("Teşhis verisi kaydedildi: " + os.path.dirname(buton_yol) if os.path.sep in buton_yol else str(buton_yol))
+        bildir("Teşhis verisi kaydedildi: " + os.path.dirname(rapor_html_yol))
         bildir(f"  - butonlar: {os.path.basename(buton_yol)}  "
-               f"içerik: {os.path.basename(icerik_yol)}")
+               f"rapor html: {os.path.basename(rapor_html_yol)}  "
+               f"rapor metin: {os.path.basename(rapor_metin_yol)}")
     return klasor
+
+
+def _guvenli(govde, yontem, *arg):
+    """Bir govde/oge uzerinde `yontem(*arg)` cagirir; hata olursa '' dondurur."""
+    try:
+        deger = getattr(govde, yontem)(*arg)
+        return deger if deger else ""
+    except Exception:
+        return ""
+
+
+def _guvenli_eval(govde, ifade, *arg):
+    """Bir govde/oge uzerinde evaluate(ifade) cagirir; hata olursa '' dondurur."""
+    try:
+        deger = govde.evaluate(ifade, *arg)
+        return deger if deger else ""
+    except Exception:
+        return ""
+
+
+def _yaz(yol, icerik):
+    """Dosyaya yazmayi dener; herhangi bir hata sessizce gecilir."""
+    if not icerik:
+        return
+    try:
+        with open(yol, "w", encoding="utf-8") as f:
+            f.write(icerik)
+    except Exception:
+        pass
 
 
 def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
