@@ -1,10 +1,9 @@
-<!DOCTYPE html>
-<html lang="tr">
+﻿<!DOCTYPE html><html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KDV Çapraz Kontrol - Akıllı Muhasebe Kontrolü</title>
-    <meta name="description" content="e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile otomatik karşılaştırın. Farkları, eksikleri ve hataları saniyeler içinde bulun.">
+    <title>KDV Cross-Check - Smart Accounting Control</title>
+    <meta name="description" content="Automatically compare your e-Invoices, MAHSUP slips and Excel invoices against a KDV control ledger. Find differences, missing entries and errors in seconds.">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%232563eb'/%3E%3Cstop offset='100%25' style='stop-color:%237c3aed'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='5' y='5' width='90' height='90' rx='20' fill='url(%23g)'/%3E%3Cpath d='M30 65 L45 45 L55 55 L70 35' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='70' cy='35' r='5' fill='white'/%3E%3Crect x='28' y='58' width='8' height='17' rx='2' fill='white' opacity='0.7'/%3E%3Crect x='46' y='48' width='8' height='27' rx='2' fill='white' opacity='0.85'/%3E%3Crect x='64' y='38' width='8' height='37' rx='2' fill='white'/%3E%3C/svg%3E">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -824,18 +823,18 @@
     <nav class="navbar">
         <div class="nav-content">
             <a href="#" class="nav-logo">
-                <div class="logo-icon"><img src="logo.png" alt="KDV Çapraz Kontrol logosu" style="width:100%;height:100%;border-radius:10px;"></div>
-                <span>KDV Çapraz Kontrol</span>
+                <div class="logo-icon"><img src="logo.png" alt="KDV Cross-Check logo" style="width:100%;height:100%;border-radius:10px;"></div>
+                <span>KDV Cross-Check</span>
             </a>
             <div class="nav-links">
-                <a href="#ozellikler">Özellikler</a>
-                <a href="#nasil-calisir">Nasıl Çalışır?</a>
-                <a href="#formatlar">Formatlar</a>
+                <a href="#features">Features</a>
+                <a href="#how-it-works">How It Works</a>
+                <a href="#formats">Formats</a>
                 <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" target="_blank">
                     <i class="fab fa-github"></i> GitHub
                 </a>
-                <a href="index-en.html" title="English">🇬🇧 EN</a>
-                <button id="theme-toggle" class="theme-btn" title="Tema Değiştir">
+                <a href="index.html" title="Türkçe">🇹🇷 TR</a>
+                <button id="theme-toggle" class="theme-btn" title="Toggle Theme">
                     <i class="fas fa-moon"></i>
                 </button>
             </div>
@@ -849,16 +848,16 @@
     <section class="hero">
         <div class="hero-content">
             <div class="hero-text">
-                <h1>KDV Kontrolünüzü <span>Otomatikleştiren</span> Program</h1>
-                <p>e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile saniyeler içinde karşılaştırın. Farkları, eksikleri ve hataları otomatik bulun.</p>
+                <h1>Your KDV Control, <span>Automated</span></h1>
+                <p>Compare your e-Invoices, MAHSUP slips and Excel invoices against a KDV control ledger in seconds. Automatically find differences, missing entries and errors.</p>
                 <div class="hero-buttons">
                     <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest" class="btn btn-primary" target="_blank">
                         <i class="fas fa-download"></i>
-                        Ücretsiz İndir <span class="version-badge" id="hero-version">v2.8.2</span>
+                        Free Download <span class="version-badge" id="hero-version">v2.8.2</span>
                     </a>
-                    <a href="#nasil-calisir" class="btn btn-secondary">
+                    <a href="#how-it-works" class="btn btn-secondary">
                         <i class="fas fa-play-circle"></i>
-                        Nasıl Çalışır?
+                        How It Works?
                     </a>
                 </div>
             </div>
@@ -881,22 +880,22 @@
                             </svg>
                         </div>
                         <div>
-                            <div class="hero-card-title">Kontrol Paneli</div>
-                            <div class="hero-card-subtitle">441 Fatura • 290 Cetvel</div>
+                            <div class="hero-card-title">Control Dashboard</div>
+                            <div class="hero-card-subtitle">441 Invoices • 290 Ledger</div>
                         </div>
                     </div>
                     <div class="hero-card-stats">
                         <div class="stat-item">
                             <div class="stat-value" style="color: #10b981;">244</div>
-                            <div class="stat-label">Eşleşen</div>
+                            <div class="stat-label">Matched</div>
                         </div>
                         <div class="stat-item">
                             <div class="stat-value" style="color: #f59e0b;">62</div>
-                            <div class="stat-label">İade/Tevkifat</div>
+                            <div class="stat-label">Credit/Withholding</div>
                         </div>
                         <div class="stat-item">
                             <div class="stat-value" style="color: #ef4444;">159</div>
-                            <div class="stat-label">Sorunlu</div>
+                            <div class="stat-label">Issues</div>
                         </div>
                     </div>
                     <div class="hero-card-items">
@@ -904,28 +903,28 @@
                             <div class="card-item-status status-ok"><i class="fas fa-check"></i></div>
                             <div class="card-item-info">
                                 <div class="card-item-title">FTR2026000001044</div>
-                                <div class="card-item-subtitle">Tam eşleşme • 6.000,00 ₺ KDV</div>
+                                <div class="card-item-subtitle">Perfect match • 6,000 TL KDV</div>
                             </div>
                         </div>
                         <div class="card-item">
                             <div class="card-item-status status-ok"><i class="fas fa-percent"></i></div>
                             <div class="card-item-info">
                                 <div class="card-item-title">FTR2026000001066</div>
-                                <div class="card-item-subtitle">Tevkifatlı %70 • Muavinle uyumlu</div>
+                                <div class="card-item-subtitle">Withholding 70% • matches ledger</div>
                             </div>
                         </div>
                         <div class="card-item">
                             <div class="card-item-status status-warning"><i class="fas fa-exclamation"></i></div>
                             <div class="card-item-info">
                                 <div class="card-item-title">FTR2026000001011</div>
-                                <div class="card-item-subtitle">Tutar Farkı • 18 ₺ ↔ 984,16 ₺</div>
+                                <div class="card-item-subtitle">Amount mismatch • 18 ↔ 984.16 TL</div>
                             </div>
                         </div>
                         <div class="card-item">
                             <div class="card-item-status status-error"><i class="fas fa-times"></i></div>
                             <div class="card-item-info">
                                 <div class="card-item-title">FTR2026000001033</div>
-                                <div class="card-item-subtitle">Cetvelde kaydı yok</div>
+                                <div class="card-item-subtitle">Not in ledger</div>
                             </div>
                         </div>
                     </div>
@@ -937,104 +936,104 @@
     <!-- Features Section -->
     <section class="features">
         <div class="section-header">
-            <span class="section-badge">✨ Özellikler</span>
-            <h2>Neden KDV Çapraz Kontrol?</h2>
-            <p>Muhasebe sürecinizi hızlandıran güçlü özellikler</p>
+            <span class="section-badge">✨ Features</span>
+            <h2>Why KDV Cross-Check?</h2>
+            <p>Powerful features that speed up your accounting process</p>
         </div>
         <div class="features-grid">
             <div class="feature-card">
                 <div class="feature-icon icon-blue">
                     <i class="fas fa-file-invoice"></i>
                 </div>
-                <h3>Çoklu Format Desteği</h3>
-                <p>e-Fatura XML, PDF, MAHSUP fişi, Excel ve taranmış belgeleri tek programda işleyin.</p>
+                <h3>Multiple Format Support</h3>
+                <p>Process e-Invoice XML, PDF, MAHSUP slips, Excel and scanned documents in a single program.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon icon-green">
                     <i class="fas fa-search-dollar"></i>
                 </div>
-                <h3>Akıllı Eşleştirme</h3>
-                <p>VKN, belge no ve tutar ile otomatik çapraz kontrol. Manuel iş yükünüzü azaltın.</p>
+                <h3>Smart Matching</h3>
+                <p>Automatic cross-check by VKN, invoice number and amount. Reduce manual work.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon icon-purple">
                     <i class="fas fa-chart-pie"></i>
                 </div>
-                <h3>Dashboard & Grafikler</h3>
-                <p>KDV dağılımı, aylık trendler ve KPI kartları ile görsel özetler alın.</p>
+                <h3>Dashboard &amp; Charts</h3>
+                <p>Visual summaries with KDV distribution, monthly trends and KPI cards.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon icon-orange">
                     <i class="fas fa-envelope-open-text"></i>
                 </div>
-                <h3>Mail Gönderimi</h3>
-                <p>Outlook veya SMTP ile tek tıkla muhasebecinize rapor gönderin.</p>
+                <h3>Email Sending</h3>
+                <p>Send reports to your accountant in one click via Outlook or SMTP.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon icon-pink">
                     <i class="fas fa-sync-alt"></i>
                 </div>
-                <h3>Otomatik Güncelleme</h3>
-                <p>GitHub'dan yeni sürümü otomatik kontrol eder, tek tıkla güncellenir.</p>
+                <h3>Auto-Update</h3>
+                <p>Automatically checks GitHub for new versions; updates with one click.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon icon-cyan">
                     <i class="fas fa-database"></i>
                 </div>
-                <h3>Veritabanı Geçmişi</h3>
-                <p>Kontrol geçmişinizi saklayın, önceki dönemlerle karşılaştırma yapın.</p>
+                <h3>History Database</h3>
+                <p>Store your control history and compare with previous periods.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon icon-orange">
                     <i class="fas fa-calculator"></i>
                 </div>
-                <h3>KDV Oran Kontrolü</h3>
-                <p>Faturadaki KDV oranı ile cetvel tutarının matematiksel uyumunu ayrıca doğrular; yanlış oranla kesilen faturaları yakalar.</p>
+                <h3>KDV Rate Check</h3>
+                <p>Additionally verifies the mathematical consistency between the invoice's KDV rate and the ledger amount; catches invoices cut at the wrong rate.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon icon-green">
                     <i class="fas fa-percent"></i>
                 </div>
-                <h3>Tevkifat &amp; İade Desteği</h3>
-                <p>KDV tevkifatlı kayıtları muavinle oran bazında karşılaştırır; iade faturalarını otomatik ayrıştırır.</p>
+                <h3>Withholding &amp; Credit Notes</h3>
+                <p>Compares withholding records against the ledger by rate; splits credit notes automatically.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon icon-purple">
                     <i class="fas fa-file-invoice-dollar"></i>
                 </div>
-                <h3>Beyanname Karşılaştırma</h3>
-                <p>2 Beyanname dönem toplamlarını kontrol sonuçlarıyla karşılaştırır; beyannameye girmeyen KDV'yi gösterir.</p>
+                <h3>Declaration Comparison</h3>
+                <p>Compares two declaration period totals with your control results; shows KDV that did not reach the declaration.</p>
             </div>
         </div>
     </section>
 
     <!-- How It Works -->
-    <section class="how-it-works" id="nasil-calisir">
+    <section class="how-it-works" id="how-it-works">
         <div class="section-header">
-            <span class="section-badge">🚀 Kullanım</span>
-            <h2>Nasıl Çalışır?</h2>
-            <p>4 basit adımda KDV kontrolünüzü tamamlayın</p>
+            <span class="section-badge">🚀 Usage</span>
+            <h2>How It Works</h2>
+            <p>Complete your KDV control in 4 simple steps</p>
         </div>
         <div class="steps">
             <div class="step">
                 <div class="step-number">1</div>
-                <h3>Faturaları Seçin</h3>
-                <p>Fatura dosyalarınızın olduğu klasörü seçin. XML, PDF veya Excel olabilir.</p>
+                <h3>Select Invoices</h3>
+                <p>Select the folder containing your invoices. Can be XML, PDF or Excel.</p>
             </div>
             <div class="step">
                 <div class="step-number">2</div>
-                <h3>Cetveli Seçin</h3>
-                <p>KDV kontrol cetvelinizi yükleyin. Birden fazla dosya desteklenir.</p>
+                <h3>Select the Ledger</h3>
+                <p>Load your KDV control ledger. Multiple files are supported.</p>
             </div>
             <div class="step">
                 <div class="step-number">3</div>
-                <h3>Kontrolü Başlatın</h3>
-                <p>"Kontrolü Başlat" butonuna tıklayın. Sonuçlar otomatik gelsin.</p>
+                <h3>Run the Check</h3>
+                <p>Click the "Start Check" button. Results arrive automatically.</p>
             </div>
             <div class="step">
                 <div class="step-number">4</div>
-                <h3>Rapor Alın</h3>
-                <p>Excel veya PDF rapor oluşturun. Mail ile gönderin.</p>
+                <h3>Get the Report</h3>
+                <p>Generate an Excel or PDF report. Send it by email.</p>
             </div>
         </div>
     </section>
@@ -1042,39 +1041,39 @@
     <!-- Supported Formats -->
     <section class="formats">
         <div class="section-header">
-            <span class="section-badge">📄 Formatlar</span>
-            <h2>Desteklenen Formatlar</h2>
-            <p>Tüm muhasebe belgelerinizi tek çatı altında işleyin</p>
+            <span class="section-badge">📄 Formats</span>
+            <h2>Supported Formats</h2>
+            <p>Process all your accounting documents under one roof</p>
         </div>
         <div class="formats-grid">
             <div class="format-card">
                 <div class="format-icon">📄</div>
-                <h4>e-Fatura</h4>
+                <h4>e-Invoice</h4>
                 <p>XML (UBL)</p>
             </div>
             <div class="format-card">
                 <div class="format-icon">📑</div>
-                <h4>E-Fatura</h4>
+                <h4>E-Invoice</h4>
                 <p>PDF</p>
             </div>
             <div class="format-card">
                 <div class="format-icon">🧾</div>
-                <h4>MAHSUP Fişi</h4>
+                <h4>MAHSUP Slip</h4>
                 <p>PDF</p>
             </div>
             <div class="format-card">
                 <div class="format-icon">📊</div>
-                <h4>Fatura Listesi</h4>
+                <h4>Invoice List</h4>
                 <p>Excel</p>
             </div>
             <div class="format-card">
                 <div class="format-icon">📋</div>
-                <h4>KDV Cetveli</h4>
+                <h4>KDV Ledger</h4>
                 <p>PDF/Excel</p>
             </div>
             <div class="format-card">
                 <div class="format-icon">📒</div>
-                <h4>Satış Muavini</h4>
+                <h4>Sales Ledger</h4>
                 <p>Excel</p>
             </div>
         </div>
@@ -1082,16 +1081,16 @@
 
     <!-- CTA Section -->
     <section class="cta">
-        <h2>Hemen Başlayın</h2>
-        <p>KDV kontrol sürecinizi otomatikleştirin. Ücretsiz indirin, hemen kullanmaya başlayın.</p>
+        <h2>Get Started Today</h2>
+        <p>Automate your KDV control process. Download for free and start using it now.</p>
         <div class="cta-buttons">
             <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest" class="btn btn-primary" target="_blank">
                 <i class="fas fa-download"></i>
-                Ücretsiz İndir <span class="version-badge" id="cta-version">v2.8.2</span>
+                Free Download <span class="version-badge" id="cta-version">v2.8.2</span>
             </a>
             <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" class="btn btn-secondary" target="_blank">
                 <i class="fas fa-code"></i>
-                Kaynak Kodu
+                Source Code
             </a>
         </div>
     </section>
@@ -1101,10 +1100,10 @@
         <div class="footer-content">
             <div class="footer-brand">
                 <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
-                    <div class="logo-icon"><img src="logo.png" alt="KDV Çapraz Kontrol logosu" style="width:100%;height:100%;border-radius:10px;"></div>
-                    <h3 style="margin: 0;">KDV Çapraz Kontrol</h3>
+                    <div class="logo-icon"><img src="logo.png" alt="KDV Cross-Check logo" style="width:100%;height:100%;border-radius:10px;"></div>
+                    <h3 style="margin: 0;">KDV Cross-Check</h3>
                 </div>
-                <p>Muhasebe sürecinizi kolaylaştıran akıllı çözüm.</p>
+                <p>A smart solution that simplifies your accounting process.</p>
                 <div class="footer-social">
                     <a href="https://github.com/ArdaEkiz0" target="_blank"><i class="fab fa-github"></i></a>
                     <a href="https://www.linkedin.com/in/arda-mehmet-ekiz-107640333/" target="_blank"><i class="fab fa-linkedin"></i></a>
@@ -1113,36 +1112,35 @@
                 </div>
             </div>
             <div class="footer-links">
-                <h4>Proje</h4>
+                <h4>Project</h4>
                 <ul>
-                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases" target="_blank">İndirme</a></li>
-                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" target="_blank">Kaynak Kod</a></li>
-                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/issues" target="_blank">Sorun Bildir</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases" target="_blank">Download</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" target="_blank">Source Code</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/issues" target="_blank">Report Issue</a></li>
                 </ul>
             </div>
             <div class="footer-links">
-                <h4>Dokümantasyon</h4>
+                <h4>Documentation</h4>
                 <ul>
-                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#readme" target="_blank">Kurulum Rehberi</a></li>
-                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#-kullan%C4%B1m" target="_blank">Kullanım Kılavuzu</a></li>
-                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#readme" target="_blank">SSS</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#readme" target="_blank">Install Guide</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#readme" target="_blank">Usage Guide</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#readme" target="_blank">FAQ</a></li>
                 </ul>
             </div>
             <div class="footer-links">
-                <h4>İletişim</h4>
+                <h4>Contact</h4>
                 <ul>
-                    <li><a href="mailto:ardaekiz72@gmail.com">E-posta</a></li>
+                    <li><a href="mailto:ardaekiz72@gmail.com">Email</a></li>
                     <li><a href="https://www.linkedin.com/in/arda-mehmet-ekiz-107640333/" target="_blank">LinkedIn</a></li>
                     <li><a href="https://www.instagram.com/ardaaekiz/" target="_blank">Instagram</a></li>
                 </ul>
             </div>
         </div>
         <div class="footer-bottom">
-            <p>&copy; 2026 Arda M. Ekiz. Tüm hakları saklıdır. MIT Lisansı ile korunmaktadır.</p>
+            <p>&copy; 2026 Arda M. Ekiz. All rights reserved. Licensed under MIT.</p>
         </div>
     </footer>
-
-    <script>
+<script>
         // Theme Toggle
         const themeToggle = document.getElementById('theme-toggle');
         const html = document.documentElement;

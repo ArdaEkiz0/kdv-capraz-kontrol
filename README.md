@@ -1,5 +1,7 @@
 <div align="center">
 
+**[🇹🇷 Türkçe](README.md) · [🇬🇧 English](README_EN.md)**
+
 
 
 # KDV Çapraz Kontrol
