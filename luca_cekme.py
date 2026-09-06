@@ -1012,62 +1012,38 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                     hedef_klasor,
                     f"luca_muavin_{hesap}_{donem_etiketi}.xlsx")
                 try:
-                    bildir(f"Hesap {hesap} muavini sorgulanıyor...")
-                    # Onceki rapordan kalmis bayat form yerine ekranı
-                    # her hesap icin tazele (alanlar temiz baslar).
-                    yeni = _muavin_frame(erp, uye_no, bildir)
-                    if yeni is not None:
-                        cerceve = yeni
-                    _tarih_alanlarini_doldur(cerceve, bas_tarih, bit_tarih,
+                    dogru = False
+                    for deneme in (1, 2):
+                        yeniden = " (tekrar deneme)" if deneme > 1 else ""
+                        bildir(f"Hesap {hesap} muavini sorgulanıyor{yeniden}...")
+                        # Onceki rapordan kalmis bayat form yerine ekranı
+                        # her deneme icin tazele (alanlar temiz baslar).
+                        yeni = _muavin_frame(erp, uye_no, bildir)
+                        if yeni is not None:
+                            cerceve = yeni
+                        _tarih_alanlarini_doldur(cerceve, bas_tarih, bit_tarih,
+                                                 bildir)
+                        # Bakiyesiz hesaplari gizleyen filtre acilir; yoksa
+                        # donem ici hareketi olmayan bitis hesabi (192/392)
+                        # dokumden elenir.
+                        _rapor_seceneklerini_duzelt(cerceve, bildir)
+                        _hesap_alanlarini_doldur(cerceve, hesap, bildir)
+                        indi = _muavin_indir(cerceve, erp, hesap, hedef,
                                              bildir)
-                    # Bakiyesiz hesaplari gizleyen filtre acilir; yoksa
-                    # donem ici hareketi olmayan bitis hesabi (192/392)
-                    # dokumden elenir.
-                    _rapor_seceneklerini_duzelt(cerceve, bildir)
-                    _hesap_alanlarini_doldur(cerceve, hesap, bildir)
-                    # Rapor Türü seçimi: varsa Excel'i işaretle
-                    excel_secildi = _indir_butonu_tikla(
-                        cerceve, (r"^excel$",), zaman_asimi=2)
-                    if excel_secildi:
-                        bildir("Rapor türü Excel olarak seçildi.")
-                    raporda_indi = False
-                    try:
-                        with erp.expect_download(timeout=25000) as indirme:
-                            _indir_butonu_tikla(
-                                cerceve,
-                                (r"^rapor$", r"^liste$", r"listele",
-                                 r"sorgula", r"getir"),
-                                zaman_asimi=6)
-                        dosya = indirme.value
-                        dosya.save_as(hedef)
-                        dosyalar.append(hedef)
-                        raporda_indi = True
-                        bildir(f"İndirildi: {os.path.basename(hedef)}")
-                        _muavin_dosya_denetle(hedef, hesap, bildir)
-                    except Exception:
-                        pass
-                    if not raporda_indi:
-                        # Rapor ekranda açıldı; ayrı Excel/döküm düğmesi ara
-                        try:
-                            with erp.expect_download(
-                                    timeout=20000) as indirme:
-                                if not _indir_butonu_tikla(
-                                        cerceve,
-                                        (r"excel", r"\bxls\b",
-                                         r"aktar", r"döküm\s*al")):
-                                    raise RuntimeError(
-                                        "Excel/döküm düğmesi bulunamadı")
-                            dosya = indirme.value
-                            dosya.save_as(hedef)
+                        if indi and _muavin_dosya_denetle(hedef, hesap, bildir):
                             dosyalar.append(hedef)
-                            raporda_indi = True
-                            bildir(f"İndirildi: {os.path.basename(hedef)}")
-                            _muavin_dosya_denetle(hedef, hesap, bildir)
-                        except Exception as hata:
-                            bildir(f"Hesap {hesap}: döküm alınamadı "
-                                   f"({str(hata)[:70]}).")
-                        if not raporda_indi:
-                            _hata_ekrani_kaydet(erp, f"rapor_{hesap}")
+                            dogru = True
+                            break
+                        if deneme == 1:
+                            if indi:
+                                bildir(f"UYARI: Hesap {hesap} ilk döküm "
+                                       "boş/beklenen aralıkta değil; "
+                                       "yeniden deneniyor.")
+                            _hata_ekrani_kaydet(erp, f"rapor_{hesap}_stub")
+                    if not dogru:
+                        bildir(f"UYARI: Hesap {hesap} muavin dökümü iki "
+                               "denemede de kullanılabilir gelmedi; bu "
+                               "hesap için cetvel satırı üretilemeyebilir.")
                 except LucaHata:
                     raise
                 except Exception as hata:
@@ -1892,10 +1868,12 @@ def _muavin_dosya_denetle(yol, hesap, bildir):
     """Indirilen muavin dosyasinda veri satiri ve dogru aralik var mi
     diye bakar.
 
+    Doner: dosya dolu ve beklenen hesap araligini iceriyorsa True.
     Ilk ~4 satir basliktir (MUAVIN DEFTER, firma, dönem, tarih); ilk
     hesap satirinin kodu istenen aralikta (hesap..hesap+1) olmalidir.
     Bitis kodu bir sonraki hesap oldugu icin 192 hesaplarinin da
-    gorunmesi normaldir.
+    gorunmesi normaldir; gorunmemesi tek basina sorun degildir (Luca
+    bakiyesiz hesaplari cikarabilir).
     """
     try:
         import openpyxl
@@ -1911,38 +1889,194 @@ def _muavin_dosya_denetle(yol, hesap, bildir):
         ana_hesaplar = set()
         if satir_sayisi > 4:
             for satir in ws.iter_rows(min_row=5, values_only=True):
-                ilk = str(satir[0] or "").strip() if satir else ""
-                m = re.match(r"^(\d{3})(\.|$)", ilk)
+                if not satir:
+                    continue
+                ilk_deger = satir[0]
+                # Tarih hucreleri datetime objesi olabilir; dizge haline
+                # getirmeden ayri kontrol edilir.
+                ilk = ""
+                if not isinstance(ilk_deger, (datetime, date)):
+                    ilk = str(ilk_deger or "").strip()
+                m = re.match(r"^(\d{3})(?:[.\-\s]|$)", ilk)
                 if m:
                     ana_hesaplar.add(m.group(1))
                     if not ilk_hesap:
                         ilk_hesap = ilk
-                # Tarihli hareket satiri (dd.mm.yyyy / dd/mm/yyyy)
-                if re.match(r"^\d{2}[./]\d{2}[./]\d{4}", ilk):
+                if isinstance(ilk_deger, (datetime, date)):
+                    hareket_var = True
+                elif re.match(r"^\d{2}[./]\d{2}[./]\d{4}", ilk):
                     hareket_var = True
         wb.close()
         if satir_sayisi <= 4:
             bildir(f"UYARI: Hesap {hesap} dökümü boş görünüyor "
                    f"({satir_sayisi} satır).")
-        elif son_kod not in ana_hesaplar and hesap in ana_hesaplar:
-            bildir(f"UYARI: Hesap {hesap} dökümünde bitiş hesabı "
-                   f"{son_kod} YOK (içindekiler: "
-                   f"{', '.join(sorted(ana_hesaplar))}). Rapor filtresi "
-                   "bakiyesiz hesapları eliyor olabilir; döküm aralığı "
-                   "eksik.")
-        elif ilk_hesap and not (hesap <= ilk_hesap[:3] <= son_kod):
-            bildir(f"UYARI: Hesap {hesap} dökümü beklenen aralıkta değil "
-                   f"(ilk satır: {ilk_hesap}).")
-        elif ilk_hesap and not hareket_var:
+            return False
+        if hesap not in ana_hesaplar:
+            bildir(f"UYARI: Hesap {hesap} dökümünde {hesap} hesabı yok "
+                   f"(içindekiler: {', '.join(sorted(ana_hesaplar))}). "
+                   "Döküm aralığı hatalı yazılmış olabilir.")
+            return False
+        if son_kod not in ana_hesaplar:
+            bildir(f"Not: Hesap {son_kod} dökümde yok "
+                   f"(içindekiler: {', '.join(sorted(ana_hesaplar))}). "
+                   "Bakiyesiz hesaplar Luca tarafından elenmiş olabilir; "
+                   "bu tek başına sorun değildir.")
+        if not hareket_var:
             bildir(f"UYARI: Hesap {hesap} dökümünde DÖNEM İÇİ hareket yok "
                    "(yalnız 'Nakli Yekün' açılış satırları var). Belgeler "
                    "Luca'ya düşmüş ama henüz muhasebe fişine işlenmemiş "
                    "olabilir; bu yüzden faturalarla eşleşme çıkmaz.")
-        elif ilk_hesap:
-            bildir(f"Hesap {hesap} dökümü doğrulandı ({satir_sayisi} satır, "
-                   f"ilk hesap: {ilk_hesap}).")
+            return False
+        if ilk_hesap and not (hesap <= ilk_hesap[:3] <= son_kod):
+            bildir(f"UYARI: Hesap {hesap} dökümü beklenen aralıkta değil "
+                   f"(ilk satır: {ilk_hesap}).")
+            return False
+        bildir(f"Hesap {hesap} dökümü doğrulandı ({satir_sayisi} satır, "
+               f"ilk hesap: {ilk_hesap}).")
+        return True
     except Exception:
-        pass
+        return False
+
+
+def _download_bekle(erp, zaman):
+    """Context genelinde (sayfa/popup fark etmez) bir indirmeyi bekler.
+
+    Luca raporlari ayri bir pencerede acilabildigi icin indirmeyi
+    baslatan sayfa her zaman ERP ana sayfasi olmaz; Page.expect_download
+    yalnizca ayni sayfadaki indirmeleri yakalar. Bu yardimci context
+    seviyesinde dinleyip ilk indirmeyi dondurur (yoksa None).
+    """
+    from threading import Event
+    sonuc = {}
+    geldi = Event()
+
+    def _yakala(indirme):
+        sonuc["dl"] = indirme
+        geldi.set()
+
+    context = erp.context
+    context.on("download", _yakala)
+    try:
+        geldi.wait(zaman)
+    finally:
+        try:
+            context.remove_listener("download", _yakala)
+        except Exception:
+            pass
+    return sonuc.get("dl")
+
+
+_RE_TARIH_ISARETI = re.compile(r"\b\d{1,2}[./]\d{1,2}[./]\d{4}\b")
+
+
+def _rapor_verisi_bekle(erp, hesap, bildir=None, saniye=45):
+    """Rapor ekraninda veri satirlari gelene kadar bekler.
+
+    Luca raporu musteri ekranina gore ya ayni frame'de, ya ayri frame'de
+    ya da ayri bir pencerede acar. Context'teki tum sayfa ve frame'lerin
+    body metni taranir; dd.mm.yyyy tarih isaretinin (hareket satiri) en
+    az 3 tane ortaya cikmasi raporun doldugunu gosterir. Sayim iki
+    ardışık taramada ayni kalmadan rapor oturmus sayilmaz.
+
+    Donus: (ilk dolu govde veya en iyi aday, kaynak etiketi).
+    """
+    bitis = time.time() + saniye
+    en_iyi, en_cok = None, 0
+    en_iyi_etiket = ""
+    onceki_en_cok = 0
+    stabil_say = 0
+    while time.time() < bitis:
+        try:
+            sayfalar = erp.context.pages
+        except Exception:
+            sayfalar = []
+        adaylar = []
+        for sayfa in sayfalar:
+            adaylar.append((sayfa, f"sayfa:{sayfa.url[:50]}"))
+            try:
+                for f in sayfa.frames:
+                    adaylar.append((f, f"frame:{f.url[:50]}"))
+            except Exception:
+                pass
+        for govde, etiket in adaylar:
+            try:
+                metin = govde.inner_text("body", timeout=2000) or ""
+            except Exception:
+                continue
+            adet = len(_RE_TARIH_ISARETI.findall(metin))
+            if adet > en_cok:
+                en_cok, en_iyi, en_iyi_etiket = adet, govde, etiket
+        if en_cok == onceki_en_cok:
+            stabil_say += 1
+        else:
+            stabil_say = 0
+        onceki_en_cok = en_cok
+        if en_cok >= 3 and stabil_say >= 2:
+            if bildir is not None:
+                bildir(f"Hesap {hesap}: rapor verisi ekranda göründü "
+                       f"({en_cok} tarihli satır; {en_iyi_etiket}).")
+            return en_iyi, en_iyi_etiket
+        time.sleep(1.5)
+    if bildir is not None:
+        bildir(f"UYARI: Hesap {hesap} raporu {saniye} sn içinde dolu "
+               f"gelmedi (en fazla {en_cok} tarihli satır "
+               f"({en_iyi_etiket or 'hiçbir ekran'})).")
+    return en_iyi, en_iyi_etiket
+
+
+def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
+    """Muavin raporunu dogrudan indirme veya ekran dökümü olarak alir.
+
+    Luca bazi musteri ekranlarinda rapora basinca dogrudan dosya indirir
+    (birinci yol); bazilarinda raporu ekran icinde/ayri pencerede actiktan
+    sonra ayri bir Excel/dokum dugmesi ile disari verir (ikinci yol).
+    Ikinci yolda rapor verisi ekranda gozukmeden export'a basmak BOS dosya
+    uretir; bu yuzden once veri beklenir, sonra dolu govdeden export alinir.
+
+    Dondurur: dosya indirildiyse (dolu/bos fark etmez) True.
+    """
+    # 1) Rapor dugmesinden dogrudan indirme (raporu ekranda acan
+    #    ekranlarda bu yol islemez, download gelmez).
+    _indir_butonu_tikla(
+        cerceve,
+        (r"^rapor$", r"^liste$", r"listele", r"sorgula", r"getir"),
+        zaman_asimi=6)
+    dl = _download_bekle(erp, 20)
+    if dl is not None:
+        try:
+            dl.save_as(hedef)
+            bildir(f"İndirildi: {os.path.basename(hedef)}")
+            return True
+        except Exception as hata:
+            bildir(f"UYARI: İndirme kaydedilemedi ({str(hata)[:60]}).")
+
+    # 2) Rapor ekranda acildi: veri satirlari gelene kadar bekle, sonra
+    #    once veriyi tasiyan govde, olmazsa form uzerinden export al.
+    govde, _ = _rapor_verisi_bekle(erp, hesap, bildir, saniye=45)
+    for gov in (govde, cerceve):
+        if gov is None:
+            continue
+        try:
+            tiklandi = _indir_butonu_tikla(
+                gov,
+                (r"\bexcel\b", r"\bxls\b", r"aktar", r"döküm\s*al",
+                 r"kaydet"),
+                zaman_asimi=6)
+        except Exception:
+            tiklandi = False
+        if not tiklandi:
+            continue
+        dl = _download_bekle(erp, 25)
+        if dl is None:
+            continue
+        try:
+            dl.save_as(hedef)
+            bildir(f"İndirildi (ekran dökümü): {os.path.basename(hedef)}")
+            return True
+        except Exception as hata:
+            bildir(f"UYARI: Döküm kaydedilemedi ({str(hata)[:60]}).")
+            continue
+    return False
 
 
 def _frame_saglikli_mi(cerceve):
