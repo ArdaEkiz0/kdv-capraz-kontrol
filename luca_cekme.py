@@ -10,6 +10,7 @@ Not: Luca uygulamasının oturum sonrası ekranları müşteri yapılandırması
 değişebilir; gezinme metin eşleştirmesiyle yapılır ve başarısızlıkta hata ayıkla-
 ma için ekran görüntüsü %%TEMP%% altına kaydedilir.
 """
+import base64
 import hashlib
 import html as html_cevir
 import io
@@ -1311,6 +1312,15 @@ def _erp_penceresi(oturum, sayfa, bildir):
     """
     popuplar = []
     oturum.on("page", lambda y: popuplar.append(y))
+    # Portal betikleri yüklenirken `gonder` henüz tanımsız olabilir ("gonder
+    # is not defined" flakiness'i). Hazır olana kadar kısa bekle.
+    for _ in range(30):
+        try:
+            if sayfa.evaluate("typeof gonder === 'function'"):
+                break
+        except Exception:
+            pass
+        time.sleep(1)
     sayfa.evaluate("gonder('formTarget')")
     bildir("Mali Müşavir Paketi penceresi açılıyor...")
     for _ in range(30):
@@ -2383,24 +2393,22 @@ def _zip_oturum_bilgisi(cerceve, sayfa, kategori):
             "gkk": gkk, "gks": gks, "cookie": cerezler}
 
 
-def _zip_tek_indir_hizli(ot, belge, zip_yol, klasor):
-    """Tek belgeyi oturum sabitleriyle doğrudan HTTP'den indirir (thread-safe).
+def _zip_body_uret(ot, belge):
+    """`_zip_tikla_indir` POST gövdesini oturum sabitleriyle üretir.
 
-    `_zip_tikla_indir`'in POST sarmalını aynen tekrarlar; frame'e hiç
-    dokunmaz, yalnızca `ot` (oturum bilgisi) + `belge` dict'i kullanır.
-    Başarıda belge dict'ine UBL özetini işler ve zip yolunu döndürür.
+    Semantik olarak `_zip_tikla_indir`'in JSON sarmalıyla birebir aynıdır:
+    {sirket_id, donem_id, params{islem:download, ettn, belgeTuru,
+    belgeNumarasi, bayiNo, onayDurumu, entegrator, url, dosya_adi, _u,
+    gibKullaniciKodu, gibSifre}}.
     """
-    import base64
-    import urllib.error
-    import urllib.request
     ettn = belge.get("ettn")
     if not ettn:
         raise RuntimeError("Faturada ettin bulunamadı")
     data = {
         "islem": "download",
         "etti": "",
-        "gibKullaniciKodu": "",
-        "gibSifre": "",
+        "gibKullaniciKodu": ot.get("gkk") or "",
+        "gibSifre": ot.get("gks") or "",
         "bayiNo": belge.get("bayi_no") or belge.get("bayiNo") or "",
         "onayDurumu": belge.get("onay_durumu") or "",
         "ettn": ettn,
@@ -2412,81 +2420,63 @@ def _zip_tek_indir_hizli(ot, belge, zip_yol, klasor):
         "dosya_adi": f"{belge.get('belge_numarasi') or ettn}.zip",
         "_u": "ea530:download",
     }
-    params = json.dumps({"sirket_id": ot["sirket_id"],
-                         "donem_id": ot["donem_id"], "params": data},
-                        ensure_ascii=False)
-    if ot["gkk"] or ot["gks"]:
-        params = params.replace('"gibKullaniciKodu": ""',
-                                f'"gibKullaniciKodu": {json.dumps(ot["gkk"])}')
-        params = params.replace('"gibSifre": ""',
-                                f'"gibSifre": {json.dumps(ot["gks"])}')
-    basliklar = {
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-        "Accept": "application/json, text/plain, */*",
-        "X-Requested-With": "XMLHttpRequest",
+    return {"sirket_id": ot["sirket_id"], "donem_id": ot["donem_id"],
+            "params": data}
+
+
+# Sayfanın kendi origin'inde 8 işçili fetch havuzu. Doğrudan urllib POST
+# (v3.1.36 öncesi) Luca sunucusu tarafından TLS parmak izi yüzünden
+# reddedilirken, tarayıcı içi fetch aynı oturum/çerez/TLS ile gerçek
+# eşzamanlılık verir. Yanıtlar base64 olarak Python'a döner.
+_JS_PARALEL_ZIP = r"""
+async (p) => {
+  const url = p.url;
+  const list = p.list;
+  const abToB64 = (ab) => {
+    const bytes = new Uint8Array(ab);
+    let bin = '';
+    const CH = 0x8000;
+    for (let i = 0; i < bytes.length; i += CH) {
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
     }
-    if ot["cookie"]:
-        basliklar["Cookie"] = ot["cookie"]
-    istek = urllib.request.Request(ot["url"],
-                                   data=params.encode("utf-8"),
-                                   headers=basliklar)
-    cevap = {}
-    try:
-        with urllib.request.urlopen(istek, timeout=90) as yanit:
-            icerik = yanit.read()
-            cevap = {"durum": getattr(yanit, "status", 200)}
-    except urllib.error.HTTPError as e:
-        icerik = b""
-        cevap = {"durum": getattr(e, "code", 0)}
-        raise RuntimeError(f"HTTP {getattr(e, 'code', 0)}") from e
-    except urllib.error.URLError as e:
-        icerik = b""
-        raise RuntimeError(f"Bağlantı hatası: {e.reason}") from e
-    if icerik[:1] in (b"{", b"["):
-        try:
-            json_cevap = json.loads(icerik)
-            zipb64 = ((json_cevap.get("data") or {}).get("zip")
-                      or json_cevap.get("zip")
-                      or json_cevap.get("data"))
-            if zipb64 and isinstance(zipb64, str) and zipb64:
-                icerik = base64.b64decode(zipb64)
-        except Exception:
-            pass
-    if not icerik or len(icerik) < 50:
-        raise RuntimeError("İndirme yanıtı boş geldi "
-                           f"(HTTP {cevap.get('durum')})")
-    if icerik[:2] != b"PK":
-        try:
-            metin = icerik.decode("utf-8", "replace")
-            kisa = " ".join(metin.split())[:180]
-        except Exception:
-            kisa = ""
-        raise RuntimeError(f"İndirme yanıtı ZIP değil (HTTP "
-                           f"{cevap.get('durum')}): {kisa}")
-    with open(zip_yol, "wb") as f:
-        f.write(icerik)
-    ubl_ozet = _zipten_ozet(zip_yol, klasor)
-    if ubl_ozet:
-        belge["matrah"] = ubl_ozet.get("matrah")
-        belge["kdv_toplam"] = ubl_ozet.get("kdv_toplam")
-        belge["genel_toplam"] = ubl_ozet.get("genel_toplam")
-        belge["para"] = ubl_ozet.get("para", "TRY")
-        belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
-    return zip_yol
+    return btoa(bin);
+  };
+  const q = list.slice();
+  const out = [];
+  const worker = async () => {
+    while (q.length) {
+      const it = q.shift();
+      try {
+        const r = await fetch(url, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(it.body)
+        });
+        const dd = await r.arrayBuffer();
+        out.push({idx: it.idx, durum: r.status, data: abToB64(dd)});
+      } catch (e) {
+        out.push({idx: it.idx, durum: -1, hata: String(e).slice(0, 200)});
+      }
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker(),
+                     worker(), worker(), worker(), worker()]);
+  return out;
+}
+"""
 
 
 def _zip_hizli_toplu_indir(cerceve, sayfa, zip_plan, kategori, klasor=None,
-                           bildir=None, esler=8):
-    """Seçili belgeleri PARALEL indirir (sıralı çekimin hızlandırılması).
+                           bildir=None, esler=8, dilim=100):
+    """Sayfa içi fetch ile belgeleri PARALEL indirir (hızlandırma).
 
     `zip_plan`: [(belge, zip_yol), ...] çiftleri. Oturum sabitleri tek kez
-    toplanır; ThreadPoolExecutor'da `esler` adet iş parçacığı Her belgeyi
-    `_zip_tek_indir_hizli` ile HTTP'den çeker. Başarısız belgeler bir kez
-    yeniden denenir; yine olmayanlar `{zip_yol: hata_metni}` sözlüğüyle
-    döner (çağıran sıralı yedek yolu deneyebilir).
+    toplanır; her `dilim`'lik grup sayfanın kendi origin'ine tek `evaluate`
+    ile gönderilir, 8 işçili JS fetch havuzu paralel çeker ve base64
+    döndürür. Başarısız olanlar `{zip_yol: hata_metni}` sözlüğüyle döner;
+    çağıran bunları kanıtlanmış sıralı `_zip_tikla_indir` yoluna düşürür.
+    Sayfa/jQuery kalmazsa tüm plan hata sayılır (güvenli ağ).
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     if bildir is None:
         bildir = lambda s: None
     if not zip_plan:
@@ -2495,27 +2485,58 @@ def _zip_hizli_toplu_indir(cerceve, sayfa, zip_plan, kategori, klasor=None,
     bildir(f"{kategori}: {len(zip_plan)} belge paralel indiriliyor "
            f"({esler} işçi)...")
     sonuc = {}
-    with ThreadPoolExecutor(max_workers=esler) as havuz:
-        gelecekler = {
-            havuz.submit(_zip_tek_indir_hizli, ot, belge, zip_yol, klasor):
-            (belge, zip_yol)
-            for belge, zip_yol in zip_plan
-        }
-        tamam = 0
-        for g in as_completed(gelecekler):
-            belge, zip_yol = gelecekler[g]
-            try:
-                g.result()
-                tamam += 1
-            except Exception:
-                # Tek yeniden deneme
+    tamam = 0
+    for bas in range(0, len(zip_plan), dilim):
+        parca = zip_plan[bas:bas + dilim]
+        istekler = [{"idx": i, "body": _zip_body_uret(ot, belge)}
+                    for i, (belge, _) in enumerate(parca)]
+        ham = None
+        try:
+            ham = cerceve.evaluate(
+                _JS_PARALEL_ZIP, {"url": ot["url"], "list": istekler})
+        except Exception:
+            ham = None
+        if not isinstance(ham, list):
+            for _, zip_yol in parca:
+                sonuc[zip_yol] = "paralel tur başarısız"
+            continue
+        by_idx = {int(r.get("idx")): r for r in ham
+                  if isinstance(r, dict) and r.get("idx") is not None}
+        for i, (belge, zip_yol) in enumerate(parca):
+            r = by_idx.get(i)
+            icerik = b""
+            if r and r.get("durum") and r.get("data"):
                 try:
-                    _zip_tek_indir_hizli(ot, belge, zip_yol, klasor)
-                    tamam += 1
-                except Exception as e:
-                    sonuc[zip_yol] = str(e)[:120]
-        bildir(f"{kategori}: paralel indirme bitti — "
-               f"{tamam}/{len(zip_plan)} tamam.")
+                    icerik = base64.b64decode(r["data"])
+                except Exception:
+                    icerik = b""
+            if icerik[:2] != b"PK" and r and r.get("data"):
+                try:
+                    gomulu = json.loads(
+                        base64.b64decode(r["data"]).decode("utf-8", "replace"))
+                    z = ((gomulu.get("data") or {}).get("zip")
+                         or gomulu.get("zip") or gomulu.get("data"))
+                    if z and isinstance(z, str) and z:
+                        icerik = base64.b64decode(z)
+                except Exception:
+                    pass
+            if icerik[:2] != b"PK":
+                gorev = (f" — {r.get('hata')}" if r and r.get("hata")
+                         else "")
+                sonuc[zip_yol] = f"paralel yanıt ZIP değil{gorev}"[:120]
+                continue
+            with open(zip_yol, "wb") as f:
+                f.write(icerik)
+            ubl_ozet = _zipten_ozet(zip_yol, klasor)
+            if ubl_ozet:
+                belge["matrah"] = ubl_ozet.get("matrah")
+                belge["kdv_toplam"] = ubl_ozet.get("kdv_toplam")
+                belge["genel_toplam"] = ubl_ozet.get("genel_toplam")
+                belge["para"] = ubl_ozet.get("para", "TRY")
+                belge["oran_kalemleri"] = ubl_ozet.get("oran_kalemleri", [])
+            tamam += 1
+    bildir(f"{kategori}: paralel indirme bitti — "
+           f"{tamam}/{len(zip_plan)} tamam.")
     return sonuc
 
 

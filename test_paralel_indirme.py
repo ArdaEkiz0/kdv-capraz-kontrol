@@ -1,25 +1,26 @@
-"""Regresyon testi: paralel ZIP indirme sarmalı (luca_cekme).
+"""Regresyon testi: sayfa-içi paralel ZIP indirme sarmalı (luca_cekme).
 
-`_zip_tek_indir_hizli` / `_zip_hizli_toplu_indir` sıralı `_zip_tikla_indir`
-çekimini hızlandırmak için eklenen paralel HTTP yoludur. Bu test, sahte
-frame/sayfa + sahte `urllib.urlopen` ile:
+Canlı deney öğretti: doğrudan urllib POST, Luca sunucusu tarafından TLS
+parmak izi yüzünden reddediliyor. Bu yüzden paralellik sayfanın kendi
+origin'inde 8 işçili fetch havuzu (`_zip_hizli_toplu_indir`) ile yapılır.
+Bu test sahte frame/sayfa ile şunları doğrular:
 
   1. oturum sabitlerinin (sirket_id, donem_id, gib kullanıcı/şifre, çerez)
      tek turda toplandığını,
-  2. POST gövdesinin orijinal `_zip_tikla_indir` sarmalıyla aynı biçimde
-     (JSON: {sirket_id, donem_id, params{...ettn...}}) kurulduğunu,
-  3. ZIP yanıtının doğru yazılıp UBL özetinin (matrah/KDV/toplam/para)
-     belge dict'ine işlendiğini,
-  4. çoklu belgenin ThreadPoolExecutor'da hatasız indiğini,
-  5. HTTP hatasının temiz RuntimeException'a dönüştüğünü
+  2. `_zip_body_uret` POST gövdesinin `_zip_tikla_indir` sarmalıyla aynı
+     anahtarları taşıdığını (islem/ettn/bayiNo/...),
+  3. sahte `evaluate`'ün döndürdüğü base64 ZIP'lerin doğru yazılıp UBL
+     özetinin (matrah/KDV/toplam/para) belge dict'ine işlendiğini,
+  4. çoklu belgenin tek evaluate turunda 6/6 hatasız indiğini,
+  5. değerli yanıt dönmeyen (ör. 503 ya da sayfa gitti) durumlarda belgenin
+     `{zip_yol: hata}` ile çağırıcıya (sıralı yedeğe) düştüğünü.
 
-doğrular. Canlı Luca oturumu gerektirmez.
+Canlı Luca oturumu gerektirmez.
 """
+import base64
 import io
 import os
 import sys
-import urllib.error
-import urllib.request
 import zipfile
 
 try:
@@ -73,21 +74,6 @@ def _zip_uret():
     return buf.getvalue()
 
 
-class _SanliYanit:
-    def __init__(self, veri):
-        self._v = veri
-        self.status = 200
-
-    def read(self):
-        return self._v
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
-
-
 # --- Sahte tarayıcı katmanı ---
 captured = {}
 
@@ -104,7 +90,24 @@ class FakeCerceve:
             return "kkk"
         if "gib_sifre" in js:
             return "sss"
-        return None
+        arg = args[0]
+        url, istekler = arg["url"], arg["list"]
+        captured["url"] = url
+        captured["istekler"] = istekler
+        yanitlar = []
+        for it in istekler:
+            gomulu = {"durum": 200}
+            if it.get("body", {}).get("params", {}).get("ettn") == "x-1":
+                gomulu["durum"] = 503
+                gomulu["data"] = ("HATA: servis yok".encode("utf-8")
+                                  if False else None)
+            yanitlar.append({
+                "idx": it["idx"],
+                "durum": gomulu["durum"],
+                "data": (base64.b64encode(_zip_uret()).decode("ascii")
+                         if gomulu["durum"] == 200 else ""),
+            })
+        return yanitlar
 
 
 class FakeSayfa:
@@ -115,18 +118,6 @@ class FakeSayfa:
         def cookies():
             return [{"name": "JSESSIONID", "value": "OTURUM123"},
                     {"name": "other", "value": "v"}]
-
-
-def _sahte_urlopen(istek, timeout=None):
-    captured["url"] = istek.full_url
-    captured["body"] = istek.data.decode("utf-8")
-    captured["headers"] = dict(istek.headers)
-    return _SanliYanit(_zip_uret())
-
-
-def _sayacli_urlopen(istek, timeout=None):
-    captured["sayac"] = captured.get("sayac", 0) + 1
-    return _sahte_urlopen(istek, timeout=timeout)
 
 
 def test_oturum_bilgisi():
@@ -144,7 +135,7 @@ def test_oturum_bilgisi():
     return ot
 
 
-def test_tek_indir(ot):
+def test_body(ot):
     belge = {
         "ettn": "d2815be8-383f-43c1-8abc",
         "belge_numarasi": "A022026260557307",
@@ -153,31 +144,25 @@ def test_tek_indir(ot):
         "bayi_no": "7",
         "url": "gib_efatura_alis.jq?ettn=x",
     }
-    zip_yol = os.path.join(YOL, "_test_paralel.zip")
-    try:
-        luca_cekme._zip_tek_indir_hizli(ot, belge, zip_yol, YOL)
-    finally:
-        pass
-    kontrol("ZIP dosyası yazıldı ve geçerli",
-            os.path.exists(zip_yol) and zipfile.is_zipfile(zip_yol))
-    kontrol("POST gövdesi JSON ve ettn içeriyor",
-            captured.get("body") and
-            "d2815be8-383f-43c1-8abc" in captured["body"] and
-            captured["body"].lstrip().startswith("{"))
-    kontrol("sirket_id sarmalda",
-            'sirket_id": "1234' in captured.get("body", ""))
-    kontrol("belge UBL özetiyle zenginleşti",
-            belge.get("matrah") == 1430.97 and
-            belge.get("kdv_toplam") == 143.10 and
-            belge.get("genel_toplam") == 1574.07 and
-            belge.get("para") == "TRY",
-            f"matrah={belge.get('matrah')}")
-    kontrol("oran kalemleri dolduruldu",
-            isinstance(belge.get("oran_kalemleri"), list)
-            and belge.get("oran_kalemleri"))
-    if os.path.exists(zip_yol):
-        os.remove(zip_yol)
-    return belge
+    body = luca_cekme._zip_body_uret(ot, belge)
+    params = body["params"]
+    kontrol("sirket/donem üstte",
+            body.get("sirket_id") == "1234" and
+            body.get("donem_id") == "5678")
+    kontrol("gövde anahtarları tam",
+            all(k in params for k in ("islem", "etti", "ettn", "bayiNo",
+                                      "onayDurumu", "belgeTuru",
+                                      "belgeNumarasi", "entegrator", "url",
+                                      "dosya_adi", "_u",
+                                      "gibKullaniciKodu", "gibSifre")))
+    kontrol("ettn/dosya adı",
+            params["ettn"] == "d2815be8-383f-43c1-8abc" and
+            params["dosya_adi"] == "A022026260557307.zip")
+    kontrol("gib kullanıcı/sifre dolu",
+            params["gibKullaniciKodu"] == "kkk" and
+            params["gibSifre"] == "sss")
+    kontrol("işlem türü download",
+            params["islem"] == "download" and params["_u"] == "ea530:download")
 
 
 def test_toplu_paralel(ot):
@@ -188,50 +173,67 @@ def test_toplu_paralel(ot):
             "belge_numarasi": f"B{i:08d}",
             "belge_turu": "FATURA",
         }, os.path.join(YOL, f"_test_p_{i}.zip")))
-    captured["sayac"] = 0
     hatalar = luca_cekme._zip_hizli_toplu_indir(
         FakeCerceve(), FakeSayfa(), plan, "efatura_alis", klasor=YOL,
-        esler=4)
+        esler=4, dilim=100)
     kontrol("6 belge de indirildi, hata yok",
             not hatalar, f"hatalar={hatalar}")
     inen = [p for _, p in plan if os.path.exists(p)]
     kontrol("hepsi zip olarak inmiş", len(inen) == 6)
-    kontrol("toplu paralel POST sayısı 6", captured.get("sayac", 0) == 6)
+    kontrol("tek evaluate turu + 6 istek",
+            len(captured.get("istekler") or []) == 6)
+    belgesal = plan[0][0]
+    kontrol("belge UBL özetiyle zenginleşti",
+            belgesal.get("matrah") == 1430.97 and
+            belgesal.get("kdv_toplam") == 143.10 and
+            belgesal.get("genel_toplam") == 1574.07 and
+            belgesal.get("para") == "TRY",
+            f"matrah={belgesal.get('matrah')}")
+    kontrol("oran kalemleri dolduruldu",
+            isinstance(belgesal.get("oran_kalemleri"), list)
+            and belgesal.get("oran_kalemleri"))
     for _, p in plan:
         if os.path.exists(p):
             os.remove(p)
 
 
-def test_hata_durumu(ot):
+def test_hata_yedegi():
     plan = [({"ettn": "x-1", "belge_numarasi": "H1"},
              os.path.join(YOL, "_test_h.zip"))]
+    hatalar = luca_cekme._zip_hizli_toplu_indir(
+        FakeCerceve(), FakeSayfa(), plan, "efatura_alis", klasor=YOL,
+        esler=4, dilim=100)
+    kontrol("hizalı durum sıralı yedeğe döner",
+            not os.path.exists(plan[0][1]) and
+            plan[0][1] in hatalar, f"hatalar={hatalar}")
+    if os.path.exists(plan[0][1]):
+        os.remove(plan[0][1])
 
-    def _hata_veren(istek, timeout=None):
-        raise urllib.error.HTTPError(istek.full_url, 503, "Servis yok",
-                                     {}, None)
 
-    eski = urllib.request.urlopen
-    urllib.request.urlopen = _hata_veren
-    try:
-        try:
-            luca_cekme._zip_tek_indir_hizli(ot, plan[0][0], plan[0][1], YOL)
-            kontrol("hata beklenirken indi", False)
-        except Exception as e:
-            kontrol("HTTP hatası temiz içerir",
-                    "HTTP 503" in str(e), str(e)[:80])
-    finally:
-        urllib.request.urlopen = eski
+class _CercevePatladi:
+    def evaluate(self, *a, **k):
+        raise Exception("frame kapandı")
+
+
+def test_cerceve_patladi():
+    plan = [({"ettn": "e-1", "belge_numarasi": "C1"},
+             os.path.join(YOL, "_test_c.zip"))]
+    hatalar = luca_cekme._zip_hizli_toplu_indir(
+        _CercevePatladi(), FakeSayfa(), plan, "efatura_alis", klasor=YOL,
+        esler=4, dilim=100)
+    kontrol("frame kapandıysa güvenli yedek",
+            plan[0][1] in hatalar and not os.path.exists(plan[0][1]))
     if os.path.exists(plan[0][1]):
         os.remove(plan[0][1])
 
 
 if __name__ == "__main__":
-    urllib.request.urlopen = _sayacli_urlopen
-    print("== paralel zip sarmalı (offline) ==")
+    print("== sayfa-içi paralel zip sarmalı (offline) ==")
     ot = test_oturum_bilgisi()
-    test_tek_indir(ot)
+    test_body(ot)
     test_toplu_paralel(ot)
-    test_hata_durumu(ot)
+    test_hata_yedegi()
+    test_cerceve_patladi()
     print()
     print("SONUÇ: TÜM TESTLER TAMAM" if BASARILI
           else "SONUÇ: BAŞARISIZ")
