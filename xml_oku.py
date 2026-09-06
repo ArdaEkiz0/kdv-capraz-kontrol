@@ -255,12 +255,30 @@ def _icerikleri_oku(ham_veri):
     notlar = []
     oran_kontrol = ""
     if tip in ("SATIS", "IADE") and len(oranlar) == 1 and matrah is not None and kdv is not None:
-        beklenen = (matrah * Decimal(oranlar[0]) / Decimal("100")).quantize(Decimal("0.01"))
-        if abs(beklenen - kdv) > Decimal("0.02"):
+        # KDV'nin vergi tabanı: 0015 kodlu KDV kalemlerinin kendi
+        # TaxableAmount'ları. Belge düzeyindeki TaxExclusiveAmount, OİV/TRT/
+        # ETV gibi ek vergileri içerdiği için farklı olabilir; üstelik KDV
+        # bazı sektörlerde matrahın üstüne eklenen bu vergiler dahil tabana
+        # uygulanır. Yanlış 'FARK' üretmemek için kontrol KDV kalemi tabanı
+        # üzerinden yapılır; tek sistemin yuvarlamasına tahammül için de
+        # 0,05 TL tolerans uygulanır (0,02–0,05 arası 'yuvarlama farkı' notu).
+        kdv_taban = Decimal("0")
+        for st in vergi_detay:
+            if st.get("kod") == "0015" and st.get("matrah") \
+                    and st.get("oran") == oranlar[0]:
+                kdv_taban += st["matrah"]
+        taban = kdv_taban if kdv_taban > 0 else matrah
+        beklenen = (taban * Decimal(oranlar[0])
+                    / Decimal("100")).quantize(Decimal("0.01"))
+        fark = abs(beklenen - kdv)
+        if fark <= Decimal("0.05"):
+            oran_kontrol = "OK"
+            if fark > Decimal("0.02"):
+                notlar.append(
+                    f"KDV yuvarlama farkı ({fark:.2f} TL)")
+        else:
             oran_kontrol = "FARK"
             notlar.append(f"Matrah×Oran ≠ KDV (beklenen {beklenen})")
-        else:
-            oran_kontrol = "OK"
     elif tip in ("SATIS", "IADE") and len(oranlar) > 1:
         oran_kontrol = "COK ORANLI"
     if matrah is None or kdv is None:

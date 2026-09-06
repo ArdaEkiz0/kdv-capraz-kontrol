@@ -2,6 +2,11 @@
 import os
 import sys
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 YOL = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, YOL)
 

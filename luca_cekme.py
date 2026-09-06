@@ -324,7 +324,62 @@ def _luca_oturum_ac(tarayici, accept_downloads=True, storage_state=None):
         kwargs["user_agent"] = user_agent
     if storage_state and os.path.exists(storage_state):
         kwargs["storage_state"] = storage_state
-    return tarayici.new_context(**kwargs)
+    oturum = tarayici.new_context(**kwargs)
+    _oturum_gizli_ayarla(oturum)
+    return oturum
+
+
+_LUCA_POPUP_AKTIF = {"acik": False}
+
+
+def _oturum_gizli_ayarla(oturum):
+    """Oturum (context) için gizlilik/performans iyileştirmeleri.
+
+    - Luca'nın zip_indir() akışı indirmeyi YENİ SEKMEDE form-POST ile açar
+      (gib530.js → Luca.downloadPost(url, params, '_blank')). Bu sekmeler
+      ekran başına 'Birikmiş sekmeler' yaratır. _LUCA_POPUP_AKTIF 'acik'
+      bayrağı ana sayfa + ERP penceresi kurulana kadar kapalı tutulur;
+      aktifleşince 'oturum'da açılan fazladan sekmeler (ZIP indirme
+      popup'ları) anında kapatılır.
+    - route: loş görsel/font ağ istekleri (çekimde sadece belge listesine
+      ihtiyaç var) engellenir → sayfa yükleme hızı + kararlılık. JS/CSS
+      engellenmez (Luca'nın tablo/etkileşim mantığı onlara bağlı).
+    """
+    try:
+        oturum.on("page", _luca_popup_bekcisi)
+    except Exception:
+        pass
+    try:
+        oturum.route(_LUCA_ATIL_ASSET_DESEN,
+                     lambda route: route.abort())
+    except Exception:
+        pass
+
+
+# Alt-klasör fotoğraflar/font/afis istekleri: belge çekiminde gereksiz.
+# Sayfa düzeni/etkileşim kodunu bozmamak için .js/.css/.html/.xml/aspx
+# engellenmez; veri (json/xlsx/zip) de engellenmez.
+_LUCA_ATIL_ASSET_DESEN = re.compile(
+    r"\.(?:png|jpe?g|gif|svg|webp|ico|bmp|avif|woff2?|ttf|otf|eot)"
+    r"(?:\?|$)")
+
+
+def _luca_popup_bekcisi(yeni_sayfa):
+    """Ana/ERP sayfası kurulana kadar pasif; sonra fazla sekmeyi kapatır."""
+    if not _LUCA_POPUP_AKTIF.get("acik"):
+        return
+    try:
+        if getattr(yeni_sayfa, "_luca_ana", False):
+            return
+        # Luca'da ZIP indirme sekmeleri url='about:blank' açar; bir de
+        # başlık/metin hemen boşsa (yüklenmemiş popup) kapatılabilir.
+        yeni_sayfa.close()
+    except Exception:
+        pass
+
+
+def _luca_popup_aktifle(acik=True):
+    _LUCA_POPUP_AKTIF["acik"] = bool(acik)
 
 
 def _oturum_kaydet(oturum, dosya_yol):
@@ -1888,9 +1943,18 @@ def _tutar_cevir(metin):
 
 
 def _tablo_basliklarini_bul(html_metin):
-    """HTML tablosundaki başlık satırını bulup sütun indekslerini döndürür.
+    """Belge tablosunun başlık satırındaki sütun indekslerini döndürür.
 
     Döndürdüğü dict: {"matrah": 5, "kdv": 6, "genel_toplam": 7, ...}
+
+    Başlık olarak öncelikle İLK 'fatura=' veri satırından hemen önce gelen
+    <tr> kabul edilir. Luca'nın e-Belge ekranı, sayfada çok sayıda başka
+    tablo barındırır (filtre çubuğu, "KDV/Tevkifat" sütunlu taslak fiş
+    tablosu, analiz/özet bölümü). Sayfanın tamamını tarayan eski davranış,
+    bu yabancı tabloların başlıklarını veri tablosunun sütunları sanıp
+    yanlış eşleşmeye yol açar (ör. VKN/TCKN sütunu 'KDV' olarak okunur).
+    Fatura satırı yoksa (örn. boş sonuç) genel taramaya düşülür; böyle
+    durumlarda okunacak veri satırı da olmadığından yanlış eşleşme zararsızdır.
     """
     kolon = {}
     baslik_desen = {
@@ -1901,21 +1965,25 @@ def _tablo_basliklarini_bul(html_metin):
         "belge_numarasi": re.compile(r"belge\s*no|fatura\s*no", re.IGNORECASE),
         "belge_tarihi": re.compile(r"tarih", re.IGNORECASE),
     }
-    for tr_eslesme in _FATURA_TR.finditer(html_metin):
-        tr_icerik = tr_eslesme.group(1)
-        td_liste = _FATURA_TD.findall(tr_icerik)
-        if len(td_liste) < 3:
-            continue
-        eslesme_sayisi = 0
+    tr_liste = list(_FATURA_TR.finditer(html_metin))
+    import html as _html_mod
+
+    def _doldur(td_liste):
         for j, td in enumerate(td_liste):
-            import html as _html_mod
             temiz = _html_mod.unescape(re.sub(r'<[^>]+>', '', td)).strip()
             for anahtar, desen in baslik_desen.items():
                 if desen.search(temiz) and anahtar not in kolon:
                     kolon[anahtar] = j
-                    eslesme_sayisi += 1
-        if eslesme_sayisi >= 2:
-            break
+
+    # 1) Veri tablosuna özgü başlık: ilk fatura satırının bir üstü.
+    for i, eslesme in enumerate(tr_liste):
+        if _FATURA_JSON_RE.search(eslesme.group(0)):
+            if i > 0:
+                _doldur(_FATURA_TD.findall(tr_liste[i - 1].group(1)))
+            return kolon
+    # 2) Fatura satırı yoksa (boş liste) geçmiş davranış: genel tarama.
+    for eslesme in tr_liste:
+        _doldur(_FATURA_TD.findall(eslesme.group(1)))
     return kolon
 
 
@@ -2746,10 +2814,20 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
         oturum = _luca_oturum_ac(tarayici)
         sayfa = oturum.new_page()
         try:
+            try:
+                sayfa._luca_ana = True
+            except Exception:
+                pass
             sayfa = giris_yap(sayfa, uye_no, kullanici, parola, bildir)
             sayfa.wait_for_timeout(1300)
             erp = _erp_penceresi(oturum, sayfa, bildir)
             _firma_donem_sec(erp, firma_adi, bas_tarih, bildir)
+            # Ana sayfa + ERP penceresi kuruldu; artık Luca'nın açacağı
+            # fazladan sekmeler (ZIP popup'ları) anında kapatılsın.
+            try:
+                _luca_popup_aktifle(True)
+            except Exception:
+                pass
 
             for kategori in hedefler:
                 tur = LUCA_GIB_TURLER.get(kategori)
@@ -2994,21 +3072,28 @@ def cek_luca_belgeleri(uye_no, kullanici, parola, bas_tarih, bit_tarih,
                     bildir(f"{kategori}: {len(secili)} belge "
                            "kayıt oluşturuluyor...")
                     for sayfa_no, sira, belge, belge_no in secili:
-                        # fatura JSON'unda olası alan isimleri + HTML tablosu + UBL ZIP
-                        matrah = (belge.get("matrah_html")
-                                  or belge.get("matrah")
-                                  or belge.get("mal_hizmet_tutari")
-                                  or belge.get("matrah_tutari"))
-                        kdv = (belge.get("kdv_html")
-                               or belge.get("kdv_toplam")
-                               or belge.get("kdv")
-                               or belge.get("kdv_tutari")
-                               or belge.get("toplam_kdv"))
-                        toplam = (belge.get("toplam_html")
-                                  or belge.get("genel_toplam")
-                                  or belge.get("toplam")
-                                  or belge.get("toplam_tutar")
-                                  or belge.get("genel_toplam_tutari"))
+                        # fatura JSON'undan/HTML tablosundan/UBL ZIP'ten alan
+                        # isimleri; UBL (ZIP) değerleri en yetkinidir, HTML
+                        # tablo ve JSON alan adları yalnızca yedektir.
+                        # (HTML başlık eşleşmesi yabancı sütunları
+                        # yakalayabiliyor: VKN gibi — UBL önceliği bunu bastırır.)
+                        matrah = _tutar_cevir(
+                            belge.get("matrah")
+                            or belge.get("matrah_html")
+                            or belge.get("mal_hizmet_tutari")
+                            or belge.get("matrah_tutari"))
+                        kdv = _tutar_cevir(
+                            belge.get("kdv_toplam")
+                            or belge.get("kdv_html")
+                            or belge.get("kdv")
+                            or belge.get("kdv_tutari")
+                            or belge.get("toplam_kdv"))
+                        toplam = _tutar_cevir(
+                            belge.get("genel_toplam")
+                            or belge.get("toplam_html")
+                            or belge.get("toplam")
+                            or belge.get("toplam_tutar")
+                            or belge.get("genel_toplam_tutari"))
                         # İlk belgede tüm alanları logla (debug)
                         if sira == 0 and secili:
                             bildir(f"{kategori}: belge alanları: "
