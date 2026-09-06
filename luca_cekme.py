@@ -788,7 +788,7 @@ def _indir_butonu_tikla(sayfa, desenler, zaman_asimi=8):
     seciciler = (
         "input[type=button], input[type=submit], button, a, "
         "input[onclick], div[onclick], span[onclick], td[onclick], "
-        "img[onclick], img[alt], img[title]")
+        "img[onclick], img[alt], img[title], img[src]")
     bitis = time.time() + zaman_asimi
     while time.time() < bitis:
         try:
@@ -821,7 +821,7 @@ def _export_butonu_tikla(erp, desenler, zaman_asimi=8):
     seciciler = (
         "input[type=button], input[type=submit], button, a, "
         "input[onclick], div[onclick], span[onclick], td[onclick], "
-        "img[onclick], img[alt], img[title]")
+        "img[onclick], img[alt], img[title], img[src]")
     bitis = time.time() + zaman_asimi
     while time.time() < bitis:
         try:
@@ -847,7 +847,8 @@ def _export_butonu_tikla(erp, desenler, zaman_asimi=8):
                             oge.get_attribute("value"),
                             oge.inner_text(),
                             oge.get_attribute("alt"),
-                            oge.get_attribute("title")))).strip()
+                            oge.get_attribute("title"),
+                            oge.get_attribute("src")))).strip()
                         if any(d.search(metin) for d in derlemeler):
                             oge.click()
                             return True
@@ -875,7 +876,7 @@ def _export_butonlarini_raporla(erp, bildir, limit=15):
             try:
                 ogeler = gov.query_selector_all(
                     "input[type=button], input[type=submit], button, a, "
-                    "img[alt], img[title]")
+                    "img[alt], img[title], img[src]")
             except Exception:
                 continue
             for oge in ogeler:
@@ -1100,6 +1101,9 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                 hedef = os.path.join(
                     hedef_klasor,
                     f"luca_muavin_{hesap}_{donem_etiketi}.xlsx")
+                # Onceki hesabin acik rapor penceresini kapat; yoksa
+                # bayat veri sonraki hesabin raporu gibi okunur.
+                _rapor_pencerelerini_kapat(erp, bildir)
                 try:
                     dogru = False
                     for deneme in (1, 2):
@@ -1129,6 +1133,7 @@ def cek_muavin(uye_no, kullanici, parola, bas_tarih, bit_tarih, hedef_klasor,
                                        "boş/beklenen aralıkta değil; "
                                        "yeniden deneniyor.")
                             _hata_ekrani_kaydet(erp, f"rapor_{hesap}_stub")
+                            _rapor_pencerelerini_kapat(erp, bildir)
                     if not dogru:
                         bildir(f"UYARI: Hesap {hesap} muavin dökümü iki "
                                "denemede de kullanılabilir gelmedi; bu "
@@ -2067,11 +2072,23 @@ def _rapor_verisi_bekle(erp, hesap, bildir=None, saniye=45):
     az 3 tane ortaya cikmasi raporun doldugunu gosterir. Sayim iki
     ardışık taramada ayni kalmadan rapor oturmus sayilmaz.
 
-    Donus: (ilk dolu govde veya en iyi aday, kaynak etiketi).
+    Ayrica govdenin SORULAN hesabA ait oldugu dogrulanir: 191 dökümü
+    ekraninda '191' ya da '192', 391 dökümünde '391' ya da '392' gecmelidir.
+    Bu sayede onceki hesabin acik kalan (bayat) raporu yeni hesabin
+    raporu gibi yanlis sayilmaz.
+
+    Donus: (ilk dolu govde veya en iyi aday, kaynak etiketi, hesap uyumu).
     """
+    try:
+        son_kod = str(int(hesap) + 1)
+    except ValueError:
+        son_kod = hesap
+    hesap_deseni = re.compile(
+        r"(?<!\d)(?:%s|%s)(?!\d)" % (re.escape(hesap), re.escape(son_kod)))
     bitis = time.time() + saniye
     en_iyi, en_cok = None, 0
     en_iyi_etiket = ""
+    en_iyi_uyum = False
     onceki_en_cok = 0
     stabil_say = 0
     while time.time() < bitis:
@@ -2087,30 +2104,47 @@ def _rapor_verisi_bekle(erp, hesap, bildir=None, saniye=45):
                     adaylar.append((f, f"frame:{f.url[:50]}"))
             except Exception:
                 pass
+        en_cok = 0
+        en_cok_tarih = 0
+        en_iyi = None
         for govde, etiket in adaylar:
             try:
                 metin = govde.inner_text("body", timeout=2000) or ""
             except Exception:
                 continue
             adet = len(_RE_TARIH_ISARETI.findall(metin))
-            if adet > en_cok:
-                en_cok, en_iyi, en_iyi_etiket = adet, govde, etiket
-        if en_cok == onceki_en_cok:
+            uyum = bool(hesap_deseni.search(metin))
+            puan = adet * 2 if uyum else adet
+            if puan > en_cok:
+                en_cok = puan
+                en_cok_tarih = adet
+                en_iyi, en_iyi_etiket = govde, etiket
+                en_iyi_uyum = bool(uyum)
+        if en_iyi is None:
+            stabil_say = 0
+        elif en_cok == onceki_en_cok:
             stabil_say += 1
         else:
             stabil_say = 0
         onceki_en_cok = en_cok
-        if en_cok >= 3 and stabil_say >= 2:
+        if en_cok_tarih >= 3 and en_iyi_uyum and stabil_say >= 2:
             if bildir is not None:
                 bildir(f"Hesap {hesap}: rapor verisi ekranda göründü "
-                       f"({en_cok} tarihli satır; {en_iyi_etiket}).")
-            return en_iyi, en_iyi_etiket
+                       f"({en_cok_tarih} tarihli satır; {en_iyi_etiket}).")
+            return en_iyi, en_iyi_etiket, en_iyi_uyum
         time.sleep(1.5)
     if bildir is not None:
+        kesit = ""
+        if en_iyi is not None:
+            try:
+                kesit = " ".join((en_iyi.inner_text("body") or "").split())[:160]
+            except Exception:
+                pass
         bildir(f"UYARI: Hesap {hesap} raporu {saniye} sn içinde dolu "
-               f"gelmedi (en fazla {en_cok} tarihli satır "
-               f"({en_iyi_etiket or 'hiçbir ekran'})).")
-    return en_iyi, en_iyi_etiket
+               f"gelmedi (en fazla {en_cok_tarih} tarihli satır; "
+               f"{en_iyi_etiket or 'hiçbir ekran'})."
+               + (f" İçerik: {kesit}" if kesit else ""))
+    return en_iyi, en_iyi_etiket, en_iyi_uyum
 
 
 def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
@@ -2125,12 +2159,14 @@ def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
     Dondurur: dosya indirildiyse (dolu/bos fark etmez) True.
     """
     # 1) Rapor dugmesinden dogrudan indirme (raporu ekranda acan
-    #    ekranlarda bu yol islemez, download gelmez).
+    #    ekranlarda bu yol islemez, download gelmez). Indirme baslarsa
+    #    kisa surede gelir; uzun beklemek on-ekran rapor musterilerini
+    #    yavaslatir.
     _indir_butonu_tikla(
         cerceve,
         (r"^rapor$", r"^liste$", r"listele", r"sorgula", r"getir"),
         zaman_asimi=6)
-    dl = _download_bekle(erp, 20)
+    dl = _download_bekle(erp, 7)
     if dl is not None:
         try:
             dl.save_as(hedef)
@@ -2141,17 +2177,28 @@ def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
 
     # 2) Rapor ekranda acildi: veri satirlari gelene kadar bekle, sonra
     #    export'dan once yeni kisiye ozgu butonlar da acilmis olabilir.
-    govde, _ = _rapor_verisi_bekle(erp, hesap, bildir, saniye=45)
+    govde, _, uyum = _rapor_verisi_bekle(erp, hesap, bildir, saniye=45)
+    if not uyum and govde is not None:
+        try:
+            son_kod = str(int(hesap) + 1)
+        except ValueError:
+            son_kod = hesap
+        bildir(f"UYARI: Hesap {hesap} ekranında {hesap}/{son_kod} hesap "
+               "kodu görünmüyor; rapor bayat/yanlış olabilir, export "
+               "alınmıyor.")
+    if not uyum:
+        _export_butonlarini_raporla(erp, bildir)
+        return False
     try:
         tiklandi = _export_butonu_tikla(
             erp,
             (r"\bexcel\b", r"\bxls\b", r"aktar", r"döküm\s*al",
              r"kaydet"),
-            zaman_asimi=6)
+            zaman_asimi=8)
     except Exception:
         tiklandi = False
     if tiklandi:
-        dl = _download_bekle(erp, 25)
+        dl = _download_bekle(erp, 20)
         if dl is not None:
             try:
                 dl.save_as(hedef)
@@ -2179,6 +2226,30 @@ def _sayfa_saglikli_mi(sayfa):
         return True
     except Exception:
         return False
+
+
+def _rapor_pencerelerini_kapat(erp, bildir=None):
+    """ERP ana penceresi disindaki rapor/popup pencerelerini kapatir.
+
+    Onceki hesabin raporu ayri bir pencerede acilip kapali kalmis olabilir.
+    Kapatilmasi, sonraki hesabin sorgusunda bayat verinin okunmasini onler
+    ve tarayici bellegini rahatlatir.
+    """
+    try:
+        sayfalar = erp.context.pages
+    except Exception:
+        sayfalar = []
+    kapatilan = 0
+    for sayfa in list(sayfalar):
+        if sayfa is erp:
+            continue
+        try:
+            sayfa.close()
+            kapatilan += 1
+        except Exception:
+            pass
+    if kapatilan and bildir is not None:
+        bildir(f"Eski rapor penceresi kapatıldı ({kapatilan}).")
 
 
 def _muavin_frame(erp, uye_no, bildir=None):
