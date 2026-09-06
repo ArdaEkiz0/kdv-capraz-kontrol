@@ -326,6 +326,7 @@ def _luca_oturum_ac(tarayici, accept_downloads=True, storage_state=None):
         kwargs["storage_state"] = storage_state
     oturum = tarayici.new_context(**kwargs)
     _oturum_gizli_ayarla(oturum)
+    _luca_trace_baslat(oturum)
     return oturum
 
 
@@ -391,15 +392,58 @@ def _oturum_kaydet(oturum, dosya_yol):
         return False
 
 
+_LUCA_TRACE_KLASOR = os.path.join(
+    os.environ.get("TEMP", "."), "opencode", "izler")
+# Trace-on-error: yalnızca orta yolda tek bir luca oturumu çalıştığı için
+# küresel bayraklar yeterli (birden fazla izlenen oturum yok).
+_LUCA_TRACE_AYAR = {"aktif": False, "yazildi": False}
+
+
+def _luca_trace_baslat(oturum):
+    """Oturum için Chromium trace'ini başlatır (hata sonrası inceleme).
+
+    Başarılı çekimde trace kontext kapanırken otomatik atılır; yalnızca
+    _hata_ekrani_kaydet _luca_trace_durdur ile hata anında diske yazılır.
+    `playwright show-trace <zip>` ile incelenir (ağ + DOM snapshot + ekran).
+    LUCA_TRACE=0 ortam değişkeniyle kapatanabilir.
+    """
+    try:
+        if os.environ.get("LUCA_TRACE", "1") == "0":
+            return
+        os.makedirs(_LUCA_TRACE_KLASOR, exist_ok=True)
+        oturum.tracing.start(screenshots=True, snapshots=True, sources=False)
+        _LUCA_TRACE_AYAR["aktif"] = True
+        _LUCA_TRACE_AYAR["yazildi"] = False
+    except Exception:
+        pass
+
+
+def _luca_trace_durdur(sayfa, etiket):
+    """Hata sonrası trace'i zip olarak diske yazar; yolunu döndürür."""
+    try:
+        if not _LUCA_TRACE_AYAR.get("aktif") or _LUCA_TRACE_AYAR.get("yazildi"):
+            return ""
+        _LUCA_TRACE_AYAR["yazildi"] = True
+        yol = os.path.join(
+            _LUCA_TRACE_KLASOR,
+            f"luca_{etiket}_trace_{time.strftime('%Y%m%d_%H%M%S')}.zip")
+        sayfa.context.tracing.stop(path=yol)
+        return yol if os.path.exists(yol) else ""
+    except Exception:
+        return ""
+
+
 def _hata_ekrani_kaydet(sayfa, etiket):
     try:
         klasor = os.path.join(os.environ.get("TEMP", "."), "opencode")
         os.makedirs(klasor, exist_ok=True)
         yol = os.path.join(klasor, f"luca_{etiket}.png")
         sayfa.screenshot(path=yol, full_page=True)
+        iz_yol = _luca_trace_durdur(sayfa, etiket)
+        iz_notu = f"\n\n[Iz] {iz_yol}" if iz_yol else ""
         with open(os.path.join(klasor, f"luca_{etiket}_url.txt"), "w",
                   encoding="utf-8") as akis:
-            akis.write(f"{sayfa.url}\n\n{sayfa.inner_text('body')[:2000]}")
+            akis.write(f"{sayfa.url}\n\n{sayfa.inner_text('body')[:2000]}{iz_notu}")
         return yol
     except Exception:
         return ""
