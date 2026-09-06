@@ -177,6 +177,7 @@ Program her açılışta GitHub'daki son sürümü kontrol eder:
 
 | Sürüm | Öne çıkanlar |
 |-------|-------------|
+| **3.1.40** | Luca paneli açılışında `luca_bot` import hatası düzeltildi (paket hiç yayınlanmamıştı, şimdi doğrudan `luca_cekme` kullanılıyor) |
 | **3.1.39** | Luca muavin dökümü boş gelme sorunu düzeltildi: rapor verisi ekrana gelene kadar beklenir, export dolu veriden alınır, boş dosyada otomatik yeniden deneme |
 | **3.1.38** | Sonuç listesinin boş gelmesi düzeltildi; GİB çekimi için daha uzun zaman aşımı + boş kategori uyarısı |
 | **3.1.37** | Luca'dan paralel e-belge çekimi başarısız olursa sıralı güvenli yedeğe düşme |

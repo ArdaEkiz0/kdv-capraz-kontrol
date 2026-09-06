@@ -173,6 +173,7 @@ The program checks GitHub for the latest version on every start:
 
 | Version | Highlights |
 |---------|------------|
+| **3.1.40** | Fixed `luca_bot` import error when opening the Luca panel (that package was never shipped; the panel now calls `luca_cekme` directly) |
 | **3.1.39** | Fixed empty Luca ledger export: now waits for report data to appear, exports the populated report, and retries once on empty output |
 | **3.1.38** | Fixed empty results list; longer GİB fetch timeout + clear warning for empty categories |
 | **3.1.37** | Falls back to sequential safe download when parallel e-invoice fetch from Luca fails |
