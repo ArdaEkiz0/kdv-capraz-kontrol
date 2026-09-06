@@ -1682,48 +1682,65 @@ def _gibten_getir(cerceve, bas_tarih, bit_tarih, bildir=None):
         bildir(f"GİB'ten getir başarısız: {str(hata)[:50]}")
 
 
+# 'Sorgula'/'Listele' butonunu bulup tıklama TEK evaluate içinde yapılır.
+# 500+faturalı dev sayfalarda her element için ayrı inner_text() protokol
+# turu yapılırsa (eski sürüm) DOM taraması dakikalarca sürer; ayrıca
+# 'Belge Ara' (gonder('arama-window')) ve 'İptal/İtiraz Sorgula'
+# (gonder('indir')) gibi popup/zip açan butonlar da 'sorgula'/'ara'
+# anahtar kelimesini taşıdığından yanlışlıkla tıklanıp akışı kilitleyebilir.
+_SORGULA_TIKLA_JS = r"""
+() => {
+    const oncelik = ['sorgula', 'listele', 'liste', 'tazele',
+                     'yenile', 'getir', 'ara'];
+    const kotuOnclick = ['gonder(', 'window.open', 'location.href',
+                         'submit(', 'gib530.jq', 'indir-window',
+                         'arama-window', 'zip-window', 'iptal-itiraz'];
+    const eles = document.querySelectorAll(
+        'button, input[type=button], input[type=submit], a');
+    let eniyi = null, eniyi_sira = 99;
+    for (const e of eles) {
+        try {
+            const onclick = (e.getAttribute('onclick') || '');
+            if (kotuOnclick.some(b => onclick.includes(b))) continue;
+            const st = window.getComputedStyle(e);
+            if (st.display === 'none' || st.visibility === 'hidden') continue;
+            const metin = ((e.value || '') + ' ' + (e.innerText || '')
+                          ).toLowerCase();
+            for (let r = 0; r < oncelik.length; r++) {
+                if (metin.includes(oncelik[r])) {
+                    if (r < eniyi_sira) { eniyi = e; eniyi_sira = r; }
+                    break;
+                }
+            }
+        } catch (err) { continue; }
+    }
+    if (eniyi) { eniyi.click(); return true; }
+    return false;
+}
+"""
+
+
 def _sorgula_listele_butonu(cerceve, bildir=None):
     """'Sorgula' / 'Listele' / 'Getir' gibi listeyi yenileyen butona basar.
 
     GİB'ten getir sonrası listenin dolması için gerekli; bulunamazsa
-    sessizce geçer.
+    sessizce geçer. Tarama + tıklama tarayıcı içinde TEK evaluate ile
+    yapılır (500+faturalı sayfalarda protokol turu yarışı yok) ve
+    gonder(...)/popup açan butonlar açıkça ELENİR; böylece yanlış butona
+    basılıp akışın kilitlenmesi önlenir.
     """
     if bildir is None:
         bildir = lambda s: None
-    adaylar = []
-    for secici in ("button", "input", "a", "span", "div"):
+    try:
+        tiklandi = bool(cerceve.evaluate(_SORGULA_TIKLA_JS))
+    except Exception:
+        tiklandi = False
+    if tiklandi:
         try:
-            ogeler = cerceve.query_selector_all(secici)
-        except Exception:
-            continue
-        for oge in ogeler:
-            try:
-                metin = ((oge.get_attribute("value") or "")
-                         + " " + (oge.inner_text() or "")
-                         + " " + (oge.get_attribute("onclick") or "")).lower()
-                if any(k in metin for k in ("sorgula", "listele", "liste",
-                                            "getir", "ara", "tazele")):
-                    adaylar.append(oge)
-            except Exception:
-                continue
-    for oge in adaylar:
-        try:
-            oge.scroll_into_view_if_needed()
+            cerceve.page.wait_for_timeout(1000)
         except Exception:
             pass
-        try:
-            oge.click()
-            if cerceve.page is not None:
-                cerceve.page.wait_for_timeout(1300)
-            return
-        except Exception:
-            try:
-                oge.evaluate("e => e.click()")
-                if cerceve.page is not None:
-                    cerceve.page.wait_for_timeout(1300)
-                return
-            except Exception:
-                continue
+        return
     bildir("Sorgula/Listele butonu bulunamadı; mevcut liste kullanılıyor.")
 
 
