@@ -1981,6 +1981,22 @@ def _muavin_dosya_denetle(yol, hesap, bildir):
         ilk_hesap = None
         hareket_var = False
         ana_hesaplar = set()
+        # Indirilen dosyanin gercek icerigini hem UI'ya hem ilk8.txt'ye
+        # yaz; boylece basliklar ve hesap kodu biçimi incelenebilir.
+        ilk_satirlar = []
+        for i, satir in enumerate(
+                ws.iter_rows(min_row=1, max_row=8, values_only=True), 1):
+            metin_satir = str(list(satir) if satir else [])
+            ilk_satirlar.append(f"Satır {i}: {metin_satir}")
+        if ilk_satirlar and bildir is not None:
+            birikim = " | ".join(ilk_satirlar[:3])
+            bildir(f"Dosya içeriği (ilk satırlar): {birikim[:300]}")
+        try:
+            yardimci_ilk = yol.rsplit(".", 1)[0] + ".ilk8.txt"
+            with open(yardimci_ilk, "w", encoding="utf-8") as f:
+                f.write("\n".join(ilk_satirlar))
+        except Exception:
+            pass
         if satir_sayisi > 4:
             for satir in ws.iter_rows(min_row=5, values_only=True):
                 if not satir:
@@ -2072,10 +2088,11 @@ def _rapor_verisi_bekle(erp, hesap, bildir=None, saniye=45):
     az 3 tane ortaya cikmasi raporun doldugunu gosterir. Sayim iki
     ardışık taramada ayni kalmadan rapor oturmus sayilmaz.
 
-    Ayrica govdenin SORULAN hesabA ait oldugu dogrulanir: 191 dökümü
-    ekraninda '191' ya da '192', 391 dökümünde '391' ya da '392' gecmelidir.
-    Bu sayede onceki hesabin acik kalan (bayat) raporu yeni hesabin
-    raporu gibi yanlis sayilmaz.
+    Ayrica govdede sorulan hesap kodu (191/192 vs 391/392) aranir ve
+    eger goruluyorsa o govde oncelikli puanlanir (bayat onceki-hesap raporu
+    elenmeye calisilir); ancak kod gorulmese de dolu rapor kabul edilir —
+    kod gorunmeyebilir (rapor suttle maaliyeti), bu durumda donen uyum
+    bilgisi False olur ve cagiran export'u yine de dener.
 
     Donus: (ilk dolu govde veya en iyi aday, kaynak etiketi, hesap uyumu).
     """
@@ -2127,10 +2144,12 @@ def _rapor_verisi_bekle(erp, hesap, bildir=None, saniye=45):
         else:
             stabil_say = 0
         onceki_en_cok = en_cok
-        if en_cok_tarih >= 3 and en_iyi_uyum and stabil_say >= 2:
+        if en_cok_tarih >= 3 and stabil_say >= 2:
             if bildir is not None:
+                kod_notu = "" if en_iyi_uyum else f" (not: {hesap}/{son_kod} kod gövdede görünmedi)"
                 bildir(f"Hesap {hesap}: rapor verisi ekranda göründü "
-                       f"({en_cok_tarih} tarihli satır; {en_iyi_etiket}).")
+                       f"({en_cok_tarih} tarihli satır; {en_iyi_etiket})."
+                       f"{kod_notu}")
             return en_iyi, en_iyi_etiket, en_iyi_uyum
         time.sleep(1.5)
     if bildir is not None:
@@ -2147,6 +2166,189 @@ def _rapor_verisi_bekle(erp, hesap, bildir=None, saniye=45):
     return en_iyi, en_iyi_etiket, en_iyi_uyum
 
 
+def _rapor_turu_excel_sec(sayfa, bildir=None):
+    """Muavin formunda 'Rapor Türü: Word/PDF/Excel' benzeri secici varsa
+    Excel'i secer.
+
+    Luca rapor ekranlarinda disa aktarma ayri bir dugme degil, rapor
+    paramatrelerinin icinde bir secenektir: 'Word, PDF ve Excel'. Excel
+    secilip 'Rapor' dugmesine basildiginda dosya dogrudan iner. Bu yuzden
+    formdaki secici (select/radio) Excel degerine alinir; bulunamazsa
+    sessizce gecilir.
+
+    Doner: bir secim yapildiysa True.
+    """
+    try:
+        bulunan = sayfa.evaluate(r"""
+            (() => {
+                const sec = [];
+                for (const s of document.querySelectorAll('select')) {
+                    for (const o of s.options) {
+                        const t = (o.textContent || '').trim();
+                        const v = (o.value || '').trim();
+                        if (!/excel|xls|xlsx|ms\s*exele/i.test(t) && !/excel|xls|xlsx/.test(v)) continue;
+                        const baglam = (((s.name||'')+' '+(s.id||'')).toLowerCase());
+                        const fmtMi = /rapor|format|t[üu]r|d[oö]k[üu]m|tip|ortam|al.*(?:tür|tip)|liste/.test(baglam + ' ' + t.slice(0,60).toLowerCase());
+                        sec.push({s, v: o.value, t});
+                    }
+                }
+                if (sec.length === 0) return '';
+                const ilk = sec[0];
+                ilk.s.value = ilk.v;
+                ilk.s.dispatchEvent(new Event('change', {bubbles: true}));
+                return ilk.t;
+            })()
+        """)
+        if bulunan:
+            if bildir is not None:
+                bildir(f"Rapor türü '{bulunan}' olarak seçildi.")
+            return True
+    except Exception:
+        pass
+    try:
+        radio = sayfa.evaluate("""
+            (() => {
+                const elems = document.querySelectorAll('input[type=radio], input[type=checkbox]');
+                for (const r of elems) {
+                    const lbl = (r.labels && r.labels[0] ? r.labels[0].textContent.trim() : '')
+                                + ' ' + (r.value || '') + ' ' + ((r.id||'') + (r.name||''));
+                    if (!/excel|xls|xlsx/i.test(lbl)) continue;
+                    if (r.type === 'radio') {
+                        try { r.click(); return lbl.trim(); } catch(e) { return ''; }
+                    }
+                    if (!r.checked) { r.click(); return lbl.trim(); }
+                    return lbl.trim();
+                }
+                return '';
+            })()
+        """)
+        if radio:
+            if bildir is not None:
+                bildir(f"Rapor çıktı tipi '{radio[:40]}' seçildi.")
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _luca_diag_dump(erp, hesap, govde, bildir=None):
+    """Export bulunamadığında tüm ekran durumunu diske yazar; böylece
+    gerçek buton etiketleri ve rapor yapısı incelenebilir.
+
+    Klasör: %APPDATA%\\KDVCaprazKontrol\\luca_diag  (her hesap için
+    zaman damgalı dosyalar). Yol `bildir` ile loglanır.
+
+    Yazılanlar:
+      - her sayfanın PNG ekran görüntüsü
+      - tüm sayfa/frame'lerdeki görünür tıklanabilir öğelerin etiketleri
+        (value/text/alt/title/src + name/id + onclick + outerHTML özeti)
+      - rapor içerik gövdesinin (varsa) ilk ~2000 karakteri
+      - sayfa/frame adres listesi
+    """
+    import tempfile
+    klasor = os.path.join(
+        os.environ.get("APPDATA") or tempfile.gettempdir(),
+        "KDVCaprazKontrol", "luca_diag")
+    try:
+        os.makedirs(klasor, exist_ok=True)
+    except Exception:
+        klasor = tempfile.gettempdir()
+    tik = time.strftime("%Y%m%d_%H%M%S") + "_" + str(hesap)
+    try:
+        sayfalar = erp.context.pages
+    except Exception:
+        sayfalar = []
+    buton_yol = os.path.join(klasor, f"BUTONLAR_{tik}.txt")
+    icerik_yol = os.path.join(klasor, f"ICERIK_{tik}.txt")
+    adres_yol = os.path.join(klasor, f"ADRESLER_{tik}.txt")
+
+    satirlar = []
+    adresler = []
+    for si, sayfa in enumerate(sayfalar):
+        try:
+            sayfa.screenshot(path=os.path.join(klasor, f"sayfa_{si}_{hesap}.png"))
+        except Exception:
+            pass
+        govler = [sayfa]
+        try:
+            govler.extend(sayfa.frames)
+        except Exception:
+            pass
+        for gun, gov in enumerate(govler):
+            try:
+                adres = gov.url
+            except Exception:
+                adres = "?"
+            adresler.append(f"sayfa[{si}] evrak[{gun}]: {adres}")
+            try:
+                ogeler = gov.query_selector_all(
+                    "input[type=button], input[type=submit], button, a, "
+                    "input[onclick], div[onclick], span[onclick], "
+                    "td[onclick], img[alt], img[title], img[src]")
+            except Exception:
+                ogeler = []
+            for oge in ogeler:
+                try:
+                    if not oge.is_visible():
+                        continue
+                    parcalar = []
+                    for ait in ("name", "id", "value", "alt", "title",
+                                "src", "href", "onclick"):
+                        try:
+                            d = (oge.get_attribute(ait) or "").strip()
+                        except Exception:
+                            d = ""
+                        if d:
+                            parcalar.append(f"{ait}={d[:80]}")
+                    try:
+                        metin = (oge.inner_text() or "").strip()
+                    except Exception:
+                        metin = ""
+                    if metin:
+                        parcalar.append(f"text={metin[:80]}")
+                    try:
+                        html = (oge.evaluate(
+                            "el => el.outerHTML") or "")[:200].replace(
+                                chr(10), " ")
+                    except Exception:
+                        html = ""
+                    if html:
+                        parcalar.append(f"html={html}")
+                    satirlar.append(" | ".join(parcalar))
+                except Exception:
+                    continue
+
+    try:
+        with open(buton_yol, "w", encoding="utf-8") as f:
+            f.write("\n".join(satirlar))
+    except Exception:
+        buton_yol = f"(yazılamadı: {buton_yol})"
+    try:
+        with open(adres_yol, "w", encoding="utf-8") as f:
+            f.write("\n".join(adresler))
+    except Exception:
+        adres_yol = f"(yazılamadı: {adres_yol})"
+
+    icerik = ""
+    if govde is not None:
+        try:
+            icerik = govde.inner_text("body") or ""
+        except Exception:
+            pass
+        icerik = " ".join(icerik.split())[:2000]
+    try:
+        with open(icerik_yol, "w", encoding="utf-8") as f:
+            f.write(icerik)
+    except Exception:
+        icerik_yol = f"(yazılamadı: {icerik_yol})"
+
+    if bildir is not None:
+        bildir("Teşhis verisi kaydedildi: " + os.path.dirname(buton_yol) if os.path.sep in buton_yol else str(buton_yol))
+        bildir(f"  - butonlar: {os.path.basename(buton_yol)}  "
+               f"içerik: {os.path.basename(icerik_yol)}")
+    return klasor
+
+
 def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
     """Muavin raporunu dogrudan indirme veya ekran dökümü olarak alir.
 
@@ -2158,6 +2360,11 @@ def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
 
     Dondurur: dosya indirildiyse (dolu/bos fark etmez) True.
     """
+    # Formda 'Rapor Türü: Word/PDF/Excel' benzeri secici varsa Excel'e
+    # al; Excel seciliyken Luca Rapor butonu dosyayi DOGRUDAN indirir
+    # (ekran raporu + ayri export dugmesi aranmaz).
+    _rapor_turu_excel_sec(cerceve, bildir)
+
     # 1) Rapor dugmesinden dogrudan indirme (raporu ekranda acan
     #    ekranlarda bu yol islemez, download gelmez). Indirme baslarsa
     #    kisa surede gelir; uzun beklemek on-ekran rapor musterilerini
@@ -2176,24 +2383,21 @@ def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
             bildir(f"UYARI: İndirme kaydedilemedi ({str(hata)[:60]}).")
 
     # 2) Rapor ekranda acildi: veri satirlari gelene kadar bekle, sonra
-    #    export'dan once yeni kisiye ozgu butonlar da acilmis olabilir.
+    #    export düğmesini bulup raporu dosyaya al.
     govde, _, uyum = _rapor_verisi_bekle(erp, hesap, bildir, saniye=45)
     if not uyum and govde is not None:
         try:
             son_kod = str(int(hesap) + 1)
         except ValueError:
             son_kod = hesap
-        bildir(f"UYARI: Hesap {hesap} ekranında {hesap}/{son_kod} hesap "
-               "kodu görünmüyor; rapor bayat/yanlış olabilir, export "
-               "alınmıyor.")
-    if not uyum:
-        _export_butonlarini_raporla(erp, bildir)
-        return False
+        bildir(f"Not: {hesap}/{son_kod} kod rapor gövdesinde görünmedi; "
+               "export yine de deneniyor.")
     try:
         tiklandi = _export_butonu_tikla(
             erp,
-            (r"\bexcel\b", r"\bxls\b", r"aktar", r"döküm\s*al",
-             r"kaydet"),
+            (r"\bexcel\b", r"\bxls\b", r"\bxlsx\b", r"aktar",
+             r"döküm\s*al", r"kaydet", r"(?:dışa|disa)\s*al",
+             r"export", r"çıktı"),
             zaman_asimi=8)
     except Exception:
         tiklandi = False
@@ -2206,7 +2410,7 @@ def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
                 return True
             except Exception as hata:
                 bildir(f"UYARI: Döküm kaydedilemedi ({str(hata)[:60]}).")
-    _export_butonlarini_raporla(erp, bildir)
+    _luca_diag_dump(erp, hesap, govde, bildir)
     return False
 
 
