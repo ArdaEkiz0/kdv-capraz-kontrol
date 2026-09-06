@@ -19,6 +19,12 @@ Farkları, eksikleri ve hataları saniyeler içinde bulun.
 
 ---
 
+## 📸 Ekran Görüntüsü
+
+![KDV Çapraz Kontrol ekran görüntüsü](screenshot.png)
+
+---
+
 ## ✨ Özellikler
 
 | Özellik | Açıklama |
@@ -28,12 +34,12 @@ Farkları, eksikleri ve hataları saniyeler içinde bulun.
 | 💼 **Luca / Türmob Desteği** | Luca "MUAVİN DEFTER" ve fiş dökümü çıktıları doğrudan cetvel olarak okunur; entegratör bilgileri girildiyse 191/391 muavini Luca'dan otomatik çekilir |
 | 👥 **Mükellef Paneli** | Mükellefler arası geçiş; GİB'den e-Arşiv alış faturaları otomatik indirilir ve kontrol başlar. Muavin dosyaları dönem bazında hatırlanır ve sonraki çekimlerde otomatik atanır. Şifreler yalnız bilgisayarda (DPAPI ile şifreli) saklanır |
 | ⚡ **GİB Hızlı Doğrulama** | e-Arşiv REST API ile kullanıcı kodu/şifre çekim öncesinde saniyeler içinde doğrulanır; boş dönemlerde tarayıcı hiç açılmaz |
-| 🔍 **Akıllı Eşleştirme** | VKN + belge no + tutar ile çapraz kontrol; iade faturaları otomatik ayristirma |
+| 🔍 **Akıllı Eşleştirme** | VKN + belge no + tutar ile çapraz kontrol; iade faturaları otomatik ayrıştırma |
 | 🧮 **KDV Oran Kontrolü** | Faturadaki KDV oranı ↔ cetvel tutarlılığını ayrıca doğrular (%1 / %5 / %10 / %20) |
 | ✂️ **Tevkifat Desteği** | KDV tevkifatlı kayıtları muavin ile oran bazında karşılaştırır |
 | 📊 **Dashboard** | KPI kartları, KDV dağılım grafiği ve aylık trend analizi |
 | 🏪 **Satıcı Özeti** | Satıcı bazında toplam matrah/KDV kırılımı |
-| 🧾 **Beyanname Karşılaştırma** | Kontrol sonuçlarını 2 Beyanname dönem toplamlarıyla karşılaştırır |
+| 🧾 **Beyanname Karşılaştırma** | Kontrol sonuçlarını iki beyanname dönem toplamlarıyla karşılaştırır |
 | 📑 **Ba/Bs Formu** | Muhtasar Ba-Bs formu üretimi |
 | 💾 **Veritabanı Geçmişi** | Her kontrol otomatik saklanır; eski kontrollerle karşılaştırın |
 | 🔎 **Gelişmiş Filtre** | Tarih aralığı, VKN, tutar aralığı ve duruma göre filtreleme |
@@ -162,6 +168,20 @@ Program her açılışta GitHub'daki son sürümü kontrol eder:
 1. Yeni sürüm varsa üst şeritte **Güncelleme** butonu görünür
 2. Butona tıklayın → sürüm notlarını okuyun → **İndir & Kur**
 3. Program kendini günceller ve yeniden başlar — masaüstü kısayolu da otomatik korunur
+
+---
+
+## 📜 Sürüm Geçmişi
+
+| Sürüm | Öne çıkanlar |
+|-------|-------------|
+| **3.1.39** | Luca muavin dökümü boş gelme sorunu düzeltildi: rapor verisi ekrana gelene kadar beklenir, export dolu veriden alınır, boş dosyada otomatik yeniden deneme |
+| **3.1.38** | Sonuç listesinin boş gelmesi düzeltildi; GİB çekimi için daha uzun zaman aşımı + boş kategori uyarısı |
+| **3.1.37** | Luca'dan paralel e-belge çekimi başarısız olursa sıralı güvenli yedeğe düşme |
+| **3.1.36** | Luca'dan paralel ZIP indirme (8 işçi) — eski sürümdeki sunucu reddini çözer |
+| **3.1.35** | 500+ fatura sayfalarında hangi takılma sorunu düzeltildi |
+
+Geçmiş sürümlerin tam listesi için: [Releases](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases)
 
 ---
 
