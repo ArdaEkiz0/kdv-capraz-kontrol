@@ -1804,42 +1804,23 @@ def main():
     try:
         kok = tk.Tk()
 
+        # ICO ile pencere + taskbar iconu
         ico_yolu = os.path.join(PROJE_YOLU, "logo.ico")
-        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
-
-        # ICO ile pencere iconu
         if os.path.exists(ico_yolu):
             try:
-                kok.iconbitmap(ico_yolu)
-            except Exception:
-                pass
+                abs_ico = os.path.abspath(ico_yolu)
+                kok.iconbitmap(abs_ico)
+            except Exception as e:
+                print(f"iconbitmap hatasi: {e}")
 
-        # PNG ile taskbar iconu (referans yasam dongusu icin kok uzerinde sakla)
+        # PNG ile taskbar iconu (ek guvence)
+        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
         if os.path.exists(png_yolu):
             try:
                 from PIL import Image, ImageTk
                 img = Image.open(png_yolu).resize((256, 256), Image.LANCZOS)
                 kok._ikon_photo = ImageTk.PhotoImage(img)
                 kok.iconphoto(True, kok._ikon_photo)
-            except Exception:
-                pass
-
-        # Windows taskbar icin WM_SETICON ile zorla
-        if os.path.exists(ico_yolu):
-            try:
-                import ctypes
-                import ctypes.wintypes
-                WM_SETICON = 0x0080
-                ICON_BIG = 1
-                ICON_SMALL = 0
-                hicon = ctypes.windll.user32.LoadImageW(
-                    0, os.path.abspath(ico_yolu), 1, 0, 0, 0x0010)
-                if hicon:
-                    hwnd = ctypes.windll.user32.GetParent(kok.winfo_id())
-                    if not hwnd:
-                        hwnd = kok.winfo_id()
-                    ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
-                    ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon)
             except Exception:
                 pass
 

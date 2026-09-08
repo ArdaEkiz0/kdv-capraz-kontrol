@@ -90,13 +90,7 @@ REM --- Eski hata logunu temizle ---
 if exist "hata.log" del "hata.log" >nul 2>nul
 
 echo Uygulama baslatiliyor (ilk acilis 1-2 dakika surebilir)...
-REM Konsol penceresi acmadan baslat (pythonw)
-set "PYTHONW=%LOCALAPPDATA%\Programs\Python\Python312\pythonw.exe"
-if exist "%PYTHONW%" (
-    start "" "%PYTHONW%" main.py
-) else (
-    start "" %PY% %PY_ARG% main.py
-)
+start "" %PY% %PY_ARG% main.py
 
 REM --- Bekle ve hata kontrolu ---
 set /a BEKLEME=0
