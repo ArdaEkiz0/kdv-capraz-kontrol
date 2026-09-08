@@ -164,7 +164,6 @@ class KdvKontrolApp:
         kok.geometry("1280x780")
         kok.minsize(1000, 600)
         kok.configure(bg=RENK_BG)
-        self._ikon_yukle(kok)
 
     def _ikon_yukle(self, kok):
         """Windows taskbar ve pencere icin icon yukler."""
@@ -1762,7 +1761,7 @@ class KdvKontrolApp:
 
 def main():
     try:
-        # Windows taskbar icin DPI aware + icon on-yukleme
+        # Windows taskbar icin DPI aware
         try:
             import ctypes
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -1771,20 +1770,22 @@ def main():
 
         kok = tk.Tk()
 
-        # Iconu Tk olusturulduktan hemen sonra, mainloop'tan once yukle
+        # ICO ile pencere iconu (taskbar icin en guvenilir)
         ico_yolu = os.path.join(PROJE_YOLU, "logo.ico")
-        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
         if os.path.exists(ico_yolu):
             try:
                 kok.iconbitmap(ico_yolu)
             except Exception:
                 pass
+
+        # PNG ile taskbar iconu (referans yasam dongusu icin kok uzerinde sakla)
+        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
         if os.path.exists(png_yolu):
             try:
                 from PIL import Image, ImageTk
                 img = Image.open(png_yolu).resize((256, 256), Image.LANCZOS)
-                _ikon = ImageTk.PhotoImage(img)
-                kok.iconphoto(True, _ikon)
+                kok._ikon_photo = ImageTk.PhotoImage(img)
+                kok.iconphoto(True, kok._ikon_photo)
             except Exception:
                 pass
 
