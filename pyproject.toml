@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "kdv-capraz-kontrol"
+version = "3.2.0"
+description = "e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile otomatik karşılaştırın."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+authors = [
+    {name = "Arda M. Ekiz", email = "ardaekiz72@gmail.com"},
+]
+topics = [
+    "accounting", "earsiv", "efatura", "excel", "invoice",
+    "kdv", "muhasebe", "ocr", "pdf", "python", "tax",
+    "tkinter", "turkiye", "vat", "vergi", "xml",
+]
+dependencies = [
+    "pymupdf>=1.24.0",
+    "openpyxl>=3.1.0",
+    "pytesseract>=0.3.10",
+    "Pillow>=10.0.0",
+    "xlrd>=2.0.0",
+    "matplotlib>=3.8.0",
+    "fpdf2>=2.7.0",
+    "pypdf>=3.17.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+kdv-kontrol = "cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ArdaEkiz0/kdv-capraz-kontrol"
+Repository = "https://github.com/ArdaEkiz0/kdv-capraz-kontrol"
+Issues = "https://github.com/ArdaEkiz0/kdv-capraz-kontrol/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:CustomizationID>TR1.2</cbc:CustomizationID>
+  <cbc:ProfileID>TEMELFATURA</cbc:ProfileID>
+  <cbc:ID>GFE202400000002</cbc:ID>
+  <cbc:IssueDate>2024-02-10</cbc:IssueDate>
+  <cbc:InvoiceTypeCode>SATIS</cbc:InvoiceTypeCode>
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cac:PartyIdentification><cbc:ID schemeID="VKN">98765432109</cbc:ID></cac:PartyIdentification>
+      <cac:PartyName><cbc:Name>ÖRNEK SANAYİ VE TİCARET LTD. ŞTİ.</cbc:Name></cac:PartyName>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cac:PartyIdentification><cbc:ID schemeID="VKN">99900011122</cbc:ID></cac:PartyIdentification>
+      <cac:PartyName><cbc:Name>MÜŞTERİ TİCARET A.Ş.</cbc:Name></cac:PartyName>
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="TRY">500.00</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="TRY">2500.00</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="TRY">500.00</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>K</cbc:ID>
+        <cbc:Percent>20</cbc:Percent>
+        <cac:TaxScheme><cbc:Name>KDV</cbc:Name></cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="TRY">2500.00</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="TRY">2500.00</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="TRY">3000.00</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="TRY">3000.00</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+</Invoice>

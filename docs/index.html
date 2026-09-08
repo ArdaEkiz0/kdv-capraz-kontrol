@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KDV Çapraz Kontrol - Akıllı Muhasebe Kontrolü</title>
+    <meta name="description" content="e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile otomatik karşılaştırın. Farkları, eksikleri ve hataları saniyeler içinde bulun.">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%232563eb'/%3E%3Cstop offset='100%25' style='stop-color:%237c3aed'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='5' y='5' width='90' height='90' rx='20' fill='url(%23g)'/%3E%3Cpath d='M30 65 L45 45 L55 55 L70 35' stroke='white' stroke-width='6' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='70' cy='35' r='5' fill='white'/%3E%3Crect x='28' y='58' width='8' height='17' rx='2' fill='white' opacity='0.7'/%3E%3Crect x='46' y='48' width='8' height='27' rx='2' fill='white' opacity='0.85'/%3E%3Crect x='64' y='38' width='8' height='37' rx='2' fill='white'/%3E%3C/svg%3E">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary: #10b981;
+            --accent: #f59e0b;
+            --dark: #1e293b;
+            --gray: #64748b;
+            --light: #f8fafc;
+            --white: #ffffff;
+            --gradient: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8fafc;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border: #e2e8f0;
+            --card-bg: #f8fafc;
+            --navbar-bg: rgba(255,255,255,0.98);
+        }
+
+        [data-theme="dark"] {
+            --primary: #60a5fa;
+            --primary-dark: #3b82f6;
+            --secondary: #34d399;
+            --accent: #fbbf24;
+            --dark: #f1f5f9;
+            --gray: #94a3b8;
+            --light: #0f172a;
+            --white: #1e293b;
+            --gradient: linear-gradient(135deg, #1e40af 0%, #6d28d9 100%);
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border: #334155;
+            --card-bg: #1e293b;
+            --navbar-bg: rgba(30,41,59,0.98);
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            color: var(--text-primary);
+            background: var(--bg-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+            transition: background 0.3s ease, color 0.3s ease;
+        }
+
+        /* Navbar */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(255,255,255,0.98);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+
+        [data-theme="dark"] .navbar {
+            background: var(--navbar-bg);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .nav-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.25rem;
+            color: var(--text-primary);
+        }
+
+        .logo-icon {
+            width: 42px;
+            height: 42px;
+            position: relative;
+        }
+
+        .logo-icon svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            color: var(--text-secondary);
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        .theme-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            border: 2px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+
+        .theme-btn:hover {
+            background: var(--primary);
+            color: var(--bg-primary);
+            border-color: var(--primary);
+            transform: rotate(15deg);
+        }
+
+        .mobile-menu-btn {
+            display: none;
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            border: 2px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 1.1rem;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Hero Section */
+        .hero {
+            background: var(--gradient);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            opacity: 0.3;
+        }
+
+        .hero-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero-text h1 {
+            font-size: 3.5rem;
+            font-weight: 800;
+            color: var(--white);
+            line-height: 1.2;
+            margin-bottom: 1.5rem;
+        }
+
+        .hero-text h1 span {
+            background: linear-gradient(90deg, #fbbf24 0%, #f59e0b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-text p {
+            font-size: 1.25rem;
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 2rem;
+            max-width: 500px;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 1rem 2rem;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-primary {
+            background: var(--white);
+            color: var(--primary-dark);
+        }
+
+        [data-theme="dark"] .btn-primary {
+            background: var(--primary);
+            color: var(--bg-primary);
+        }
+
+        [data-theme="dark"] .version-badge {
+            background: rgba(0,0,0,0.15);
+            border-color: rgba(0,0,0,0.2);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+
+        .version-badge {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.2rem 0.6rem;
+            border-radius: 50px;
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.4);
+            color: #ffffff;
+            margin-left: 0.25rem;
+            vertical-align: middle;
+        }
+
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: var(--white);
+            border: 2px solid rgba(255,255,255,0.3);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+            transform: translateY(-3px);
+        }
+
+        .hero-visual {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .hero-card {
+            background: var(--white);
+            border-radius: 24px;
+            padding: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+            width: 100%;
+            max-width: 500px;
+            border: 1px solid var(--border);
+        }
+
+        [data-theme="dark"] .hero-card {
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+        }
+
+        .hero-card-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .hero-card-icon {
+            width: 50px;
+            height: 50px;
+            background: var(--gradient);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--white);
+            font-size: 1.5rem;
+        }
+
+        .hero-card-title {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .hero-card-subtitle {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .hero-card-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-item {
+            text-align: center;
+            padding: 1rem;
+            background: var(--card-bg);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.25rem;
+        }
+
+        .hero-card-items {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .card-item {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1rem;
+            background: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .card-item-status {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            color: var(--white);
+        }
+
+        .status-ok { background: #10b981; }
+        .status-warning { background: #f59e0b; }
+        .status-error { background: #ef4444; }
+
+        .card-item-info {
+            flex: 1;
+        }
+
+        .card-item-title {
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .card-item-subtitle {
+            font-size: 0.75rem;
+            color: var(--gray);
+        }
+
+        /* Features Section */
+        .features {
+            padding: 6rem 2rem;
+            background: var(--bg-primary);
+        }
+
+        .section-header {
+            text-align: center;
+            max-width: 700px;
+            margin: 0 auto 4rem;
+        }
+
+        .section-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #ede9fe 0%, #e0e7ff 100%);
+            color: #2563eb;
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        [data-theme="dark"] .section-badge {
+            background: linear-gradient(135deg, #312e81 0%, #1e3a5f 100%);
+            color: #60a5fa;
+        }
+
+        .section-header h2 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-bottom: 1rem;
+        }
+
+        .section-header p {
+            font-size: 1.125rem;
+            color: var(--text-secondary);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .feature-card {
+            padding: 2rem;
+            border-radius: 20px;
+            background: var(--card-bg);
+            transition: all 0.3s ease;
+            border: 1px solid var(--border);
+        }
+
+        .feature-card:hover {
+            background: var(--bg-secondary);
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.08);
+        }
+
+        [data-theme="dark"] .feature-card:hover {
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+
+        .feature-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .icon-blue { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #2563eb; }
+        .icon-green { background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); color: #10b981; }
+        .icon-purple { background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%); color: #7c3aed; }
+        .icon-orange { background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%); color: #ea580c; }
+        .icon-pink { background: linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%); color: #db2777; }
+        .icon-cyan { background: linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%); color: #0891b2; }
+
+        [data-theme="dark"] .icon-blue { background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%); color: #60a5fa; }
+        [data-theme="dark"] .icon-green { background: linear-gradient(135deg, #064e3b 0%, #065f46 100%); color: #34d399; }
+        [data-theme="dark"] .icon-purple { background: linear-gradient(135deg, #312e81 0%, #4c1d95 100%); color: #a78bfa; }
+        [data-theme="dark"] .icon-orange { background: linear-gradient(135deg, #7c2d12 0%, #9a3412 100%); color: #fb923c; }
+        [data-theme="dark"] .icon-pink { background: linear-gradient(135deg, #831843 0%, #9d174d 100%); color: #f472b6; }
+        [data-theme="dark"] .icon-cyan { background: linear-gradient(135deg, #164e63 0%, #155e75 100%); color: #22d3ee; }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--dark);
+            margin-bottom: 0.75rem;
+        }
+
+        .feature-card p {
+            color: var(--gray);
+            font-size: 0.95rem;
+        }
+
+        /* How It Works */
+        .how-it-works {
+            padding: 6rem 2rem;
+            background: var(--bg-secondary);
+        }
+
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .step {
+            text-align: center;
+            padding: 2rem;
+            position: relative;
+        }
+
+        .step-number {
+            width: 80px;
+            height: 80px;
+            background: var(--gradient);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--white);
+            margin: 0 auto 1.5rem;
+            box-shadow: 0 10px 30px rgba(37, 99, 235, 0.3);
+        }
+
+        .step h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+        }
+
+        .step p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* Supported Formats */
+        .formats {
+            padding: 6rem 2rem;
+            background: var(--bg-primary);
+        }
+
+        .formats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .format-card {
+            text-align: center;
+            padding: 2rem 1rem;
+            background: var(--card-bg);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            transition: all 0.3s ease;
+        }
+
+        .format-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        }
+
+        [data-theme="dark"] .format-card:hover {
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        .format-icon {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+        }
+
+        .format-card h4 {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.25rem;
+        }
+
+        .format-card p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        /* CTA Section */
+        .cta {
+            padding: 6rem 2rem;
+            background: var(--gradient);
+            text-align: center;
+        }
+
+        .cta h2 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--white);
+            margin-bottom: 1rem;
+        }
+
+        .cta p {
+            font-size: 1.125rem;
+            color: rgba(255,255,255,0.9);
+            margin-bottom: 2rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .cta-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        /* Footer */
+        .footer {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            padding: 4rem 2rem 2rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .footer-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 3rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .footer-brand h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        .footer-brand p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .footer-links h4 {
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        .footer-links ul {
+            list-style: none;
+        }
+
+        .footer-links li {
+            margin-bottom: 0.5rem;
+        }
+
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.3s ease;
+            font-size: 0.9rem;
+        }
+
+        .footer-links a:hover {
+            color: var(--primary);
+        }
+
+        .footer-social {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .footer-social a {
+            width: 40px;
+            height: 40px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+        }
+
+        .footer-social a:hover {
+            background: var(--primary);
+            color: var(--white);
+            border-color: var(--primary);
+            transform: translateY(-3px);
+        }
+
+        .footer-bottom {
+            text-align: center;
+            padding-top: 2rem;
+            margin-top: 2rem;
+            border-top: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                background: var(--bg-primary);
+                flex-direction: column;
+                padding: 1rem 2rem;
+                border-bottom: 1px solid var(--border);
+                gap: 1rem;
+            }
+
+            .nav-links.active {
+                display: flex;
+            }
+
+            .mobile-menu-btn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .hero-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+                gap: 2rem;
+                padding-top: 6rem;
+            }
+
+            .hero-text h1 {
+                font-size: 2.5rem;
+            }
+
+            .hero-text p {
+                margin: 0 auto 2rem;
+            }
+
+            .hero-buttons {
+                justify-content: center;
+            }
+
+            .section-header h2 {
+                font-size: 2rem;
+            }
+
+            .cta h2 {
+                font-size: 2rem;
+            }
+        }
+
+        /* Animations */
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .hero-card {
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .feature-card {
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeInUp 0.6s ease forwards;
+        }
+
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .feature-card:nth-child(1) { animation-delay: 0.1s; }
+        .feature-card:nth-child(2) { animation-delay: 0.2s; }
+        .feature-card:nth-child(3) { animation-delay: 0.3s; }
+        .feature-card:nth-child(4) { animation-delay: 0.4s; }
+        .feature-card:nth-child(5) { animation-delay: 0.5s; }
+        .feature-card:nth-child(6) { animation-delay: 0.6s; }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-content">
+            <a href="#" class="nav-logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" style="stop-color:#2563eb"/>
+                                <stop offset="100%" style="stop-color:#7c3aed"/>
+                            </linearGradient>
+                        </defs>
+                        <rect x="5" y="5" width="90" height="90" rx="20" fill="url(#logoGrad)"/>
+                        <path d="M30 65 L45 45 L55 55 L70 35" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                        <circle cx="70" cy="35" r="5" fill="white"/>
+                        <path d="M25 75 L75 75" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+                        <rect x="28" y="58" width="8" height="17" rx="2" fill="white" opacity="0.7"/>
+                        <rect x="46" y="48" width="8" height="27" rx="2" fill="white" opacity="0.85"/>
+                        <rect x="64" y="38" width="8" height="37" rx="2" fill="white"/>
+                    </svg>
+                </div>
+                <span>KDV Çapraz Kontrol</span>
+            </a>
+            <div class="nav-links">
+                <a href="#ozellikler">Özellikler</a>
+                <a href="#nasil-calisir">Nasıl Çalışır?</a>
+                <a href="#formatlar">Formatlar</a>
+                <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" target="_blank">
+                    <i class="fab fa-github"></i> GitHub
+                </a>
+                <button id="theme-toggle" class="theme-btn" title="Tema Değiştir">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </div>
+            <button class="mobile-menu-btn" id="mobile-menu-btn">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-text">
+                <h1>KDV Kontrolünüzü <span>Otomatikleştiren</span> Program</h1>
+                <p>e-Fatura, MAHSUP fişi ve Excel faturalarınızı KDV kontrol cetveli ile saniyeler içinde karşılaştırın. Farkları, eksikleri ve hataları otomatik bulun.</p>
+                <div class="hero-buttons">
+                    <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest/download/kdv-kontrol.zip" class="btn btn-primary" download>
+                        <i class="fas fa-download"></i>
+                        Ücretsiz İndir <span class="version-badge" id="hero-version"></span>
+                    </a>
+                    <a href="#nasil-calisir" class="btn btn-secondary">
+                        <i class="fas fa-play-circle"></i>
+                        Nasıl Çalışır?
+                    </a>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="hero-card">
+                    <div class="hero-card-header">
+                        <div class="hero-card-icon">
+                            <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" width="32" height="32">
+                                <defs>
+                                    <linearGradient id="heroCardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                        <stop offset="0%" style="stop-color:#2563eb"/>
+                                        <stop offset="100%" style="stop-color:#7c3aed"/>
+                                    </linearGradient>
+                                </defs>
+                                <path d="M30 65 L45 45 L55 55 L70 35" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                                <circle cx="70" cy="35" r="5" fill="white"/>
+                                <rect x="28" y="58" width="8" height="17" rx="2" fill="white" opacity="0.7"/>
+                                <rect x="46" y="48" width="8" height="27" rx="2" fill="white" opacity="0.85"/>
+                                <rect x="64" y="38" width="8" height="37" rx="2" fill="white"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="hero-card-title">Kontrol Paneli</div>
+                            <div class="hero-card-subtitle">171 Fatura • 154 Cetvel</div>
+                        </div>
+                    </div>
+                    <div class="hero-card-stats">
+                        <div class="stat-item">
+                            <div class="stat-value">156</div>
+                            <div class="stat-label">Eşleşen</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" style="color: #f59e0b;">3</div>
+                            <div class="stat-label">Fark Var</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-value" style="color: #ef4444;">2</div>
+                            <div class="stat-label">Eksik</div>
+                        </div>
+                    </div>
+                    <div class="hero-card-items">
+                        <div class="card-item">
+                            <div class="card-item-status status-ok"><i class="fas fa-check"></i></div>
+                            <div class="card-item-info">
+                                <div class="card-item-title">GFE202400000001</div>
+                                <div class="card-item-subtitle">ABC Ticaret • 1.200 ₺</div>
+                            </div>
+                        </div>
+                        <div class="card-item">
+                            <div class="card-item-status status-warning"><i class="fas fa-exclamation"></i></div>
+                            <div class="card-item-info">
+                                <div class="card-item-title">GFE202400000003</div>
+                                <div class="card-item-subtitle">Tutar Farkı • 50 ₺</div>
+                            </div>
+                        </div>
+                        <div class="card-item">
+                            <div class="card-item-status status-error"><i class="fas fa-times"></i></div>
+                            <div class="card-item-info">
+                                <div class="card-item-title">GFE202400000004</div>
+                                <div class="card-item-subtitle">Cetvelde Kaydı Yok</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features">
+        <div class="section-header">
+            <span class="section-badge">✨ Özellikler</span>
+            <h2>Neden KDV Çapraz Kontrol?</h2>
+            <p>Muhasebe sürecinizi hızlandıran güçlü özellikler</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon icon-blue">
+                    <i class="fas fa-file-invoice"></i>
+                </div>
+                <h3>Çoklu Format Desteği</h3>
+                <p>e-Fatura XML, PDF, MAHSUP fişi, Excel ve taranmış belgeleri tek programda işleyin.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-green">
+                    <i class="fas fa-search-dollar"></i>
+                </div>
+                <h3>Akıllı Eşleştirme</h3>
+                <p>VKN, belge no ve tutar ile otomatik çapraz kontrol. Manuel iş yükünüzü azaltın.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-purple">
+                    <i class="fas fa-chart-pie"></i>
+                </div>
+                <h3>Dashboard & Grafikler</h3>
+                <p>KDV dağılımı, aylık trendler ve KPI kartları ile görsel özetler alın.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-orange">
+                    <i class="fas fa-envelope-open-text"></i>
+                </div>
+                <h3>Mail Gönderimi</h3>
+                <p>Outlook veya SMTP ile tek tıkla muhasebecinize rapor gönderin.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-pink">
+                    <i class="fas fa-sync-alt"></i>
+                </div>
+                <h3>Otomatik Güncelleme</h3>
+                <p>GitHub'dan yeni sürümü otomatik kontrol eder, tek tıkla güncellenir.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon icon-cyan">
+                    <i class="fas fa-database"></i>
+                </div>
+                <h3>Veritabanı Geçmişi</h3>
+                <p>Kontrol geçmişinizi saklayın, önceki dönemlerle karşılaştırma yapın.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="how-it-works" id="nasil-calisir">
+        <div class="section-header">
+            <span class="section-badge">🚀 Kullanım</span>
+            <h2>Nasıl Çalışır?</h2>
+            <p>4 basit adımda KDV kontrolünüzü tamamlayın</p>
+        </div>
+        <div class="steps">
+            <div class="step">
+                <div class="step-number">1</div>
+                <h3>Faturaları Seçin</h3>
+                <p>Fatura dosyalarınızın olduğu klasörü seçin. XML, PDF veya Excel olabilir.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <h3>Cetveli Seçin</h3>
+                <p>KDV kontrol cetvelinizi yükleyin. Birden fazla dosya desteklenir.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <h3>Kontrolü Başlatın</h3>
+                <p>"Kontrolü Başlat" butonuna tıklayın. Sonuçlar otomatik gelsin.</p>
+            </div>
+            <div class="step">
+                <div class="step-number">4</div>
+                <h3>Rapor Alın</h3>
+                <p>Excel veya PDF rapor oluşturun. Mail ile gönderin.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Supported Formats -->
+    <section class="formats">
+        <div class="section-header">
+            <span class="section-badge">📄 Formatlar</span>
+            <h2>Desteklenen Formatlar</h2>
+            <p>Tüm muhasebe belgelerinizi tek çatı altında işleyin</p>
+        </div>
+        <div class="formats-grid">
+            <div class="format-card">
+                <div class="format-icon">📄</div>
+                <h4>e-Fatura</h4>
+                <p>XML (UBL)</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">📑</div>
+                <h4>E-Fatura</h4>
+                <p>PDF</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">🧾</div>
+                <h4>MAHSUP Fişi</h4>
+                <p>PDF</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">📊</div>
+                <h4>Fatura Listesi</h4>
+                <p>Excel</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">📋</div>
+                <h4>KDV Cetveli</h4>
+                <p>PDF/Excel</p>
+            </div>
+            <div class="format-card">
+                <div class="format-icon">📒</div>
+                <h4>Satış Muavini</h4>
+                <p>Excel</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <h2>Hemen Başlayın</h2>
+        <p>KDV kontrol sürecinizi otomatikleştirin. Ücretsiz indirin, hemen kullanmaya başlayın.</p>
+        <div class="cta-buttons">
+            <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest/download/kdv-kontrol.zip" class="btn btn-primary" download>
+                <i class="fas fa-download"></i>
+                Ücretsiz İndir <span class="version-badge" id="cta-version"></span>
+            </a>
+            <a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" class="btn btn-secondary" target="_blank">
+                <i class="fas fa-code"></i>
+                Kaynak Kodu
+            </a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                            <defs>
+                                <linearGradient id="footerLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" style="stop-color:#2563eb"/>
+                                    <stop offset="100%" style="stop-color:#7c3aed"/>
+                                </linearGradient>
+                            </defs>
+                            <rect x="5" y="5" width="90" height="90" rx="20" fill="url(#footerLogoGrad)"/>
+                            <path d="M30 65 L45 45 L55 55 L70 35" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+                            <circle cx="70" cy="35" r="5" fill="white"/>
+                            <path d="M25 75 L75 75" stroke="white" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+                            <rect x="28" y="58" width="8" height="17" rx="2" fill="white" opacity="0.7"/>
+                            <rect x="46" y="48" width="8" height="27" rx="2" fill="white" opacity="0.85"/>
+                            <rect x="64" y="38" width="8" height="37" rx="2" fill="white"/>
+                        </svg>
+                    </div>
+                    <h3 style="margin: 0;">KDV Çapraz Kontrol</h3>
+                </div>
+                <p>Muhasebe sürecinizi kolaylaştıran akıllı çözüm.</p>
+                <div class="footer-social">
+                    <a href="https://github.com/ArdaEkiz0" target="_blank"><i class="fab fa-github"></i></a>
+                    <a href="https://www.linkedin.com/in/arda-mehmet-ekiz-107640333/" target="_blank"><i class="fab fa-linkedin"></i></a>
+                    <a href="https://www.instagram.com/ardaaekiz/" target="_blank"><i class="fab fa-instagram"></i></a>
+                    <a href="mailto:ardaekiz72@gmail.com"><i class="fas fa-envelope"></i></a>
+                </div>
+            </div>
+            <div class="footer-links">
+                <h4>Proje</h4>
+                <ul>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases" target="_blank">İndirme</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol" target="_blank">Kaynak Kod</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol/issues" target="_blank">Sorun Bildir</a></li>
+                </ul>
+            </div>
+            <div class="footer-links">
+                <h4>Dokümantasyon</h4>
+                <ul>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#readme" target="_blank">Kurulum Rehberi</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#-nasıl-kullanılır" target="_blank">Kullanım Kılavuzu</a></li>
+                    <li><a href="https://github.com/ArdaEkiz0/kdv-capraz-kontrol#-sık-sorulan-sorular" target="_blank">SSS</a></li>
+                </ul>
+            </div>
+            <div class="footer-links">
+                <h4>İletişim</h4>
+                <ul>
+                    <li><a href="mailto:ardaekiz72@gmail.com">E-posta</a></li>
+                    <li><a href="https://www.linkedin.com/in/arda-mehmet-ekiz-107640333/" target="_blank">LinkedIn</a></li>
+                    <li><a href="https://www.instagram.com/ardaaekiz/" target="_blank">Instagram</a></li>
+                </ul>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2026 Arda M. Ekiz. Tüm hakları saklıdır. MIT Lisansı ile korunmaktadır.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Theme Toggle
+        const themeToggle = document.getElementById('theme-toggle');
+        const html = document.documentElement;
+        
+        // Check for saved theme preference or default to light
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        html.setAttribute('data-theme', savedTheme);
+        updateThemeIcon(savedTheme);
+
+        // Fetch latest version from GitHub
+        function loadVersion() {
+            fetch('https://api.github.com/repos/ArdaEkiz0/kdv-capraz-kontrol/releases/latest')
+                .then(res => res.json())
+                .then(data => {
+                    if (data && data.tag_name) {
+                        const v = data.tag_name.replace(/^v/, '');
+                        const hero = document.getElementById('hero-version');
+                        const cta = document.getElementById('cta-version');
+                        if (hero) hero.textContent = 'v' + v;
+                        if (cta) cta.textContent = 'v' + v;
+                    }
+                })
+                .catch(() => {});
+        }
+        loadVersion();
+
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = html.getAttribute('data-theme');
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            html.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeIcon(newTheme);
+        });
+
+        function updateThemeIcon(theme) {
+            const icon = themeToggle.querySelector('i');
+            icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+        }
+
+        // Mobile Menu Toggle
+        const mobileMenuBtn = document.getElementById('mobile-menu-btn');
+        const navLinks = document.querySelector('.nav-links');
+
+        mobileMenuBtn.addEventListener('click', () => {
+            navLinks.classList.toggle('active');
+        });
+
+        // Close mobile menu when clicking a link
+        document.querySelectorAll('.nav-links a').forEach(link => {
+            link.addEventListener('click', () => {
+                navLinks.classList.remove('active');
+            });
+        });
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Intersection Observer for animations
+        const observerOptions = {
+            threshold: 0.1,
+            rootMargin: '0px 0px -50px 0px'
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.opacity = '1';
+                    entry.target.style.transform = 'translateY(0)';
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.feature-card, .step, .format-card').forEach(el => {
+            observer.observe(el);
+        });
+
+        // Navbar scroll effect
+        window.addEventListener('scroll', () => {
+            const navbar = document.querySelector('.navbar');
+            if (window.scrollY > 50) {
+                navbar.style.boxShadow = '0 4px 20px rgba(0,0,0,0.1)';
+            } else {
+                navbar.style.boxShadow = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
