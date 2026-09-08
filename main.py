@@ -419,11 +419,10 @@ class KdvKontrolApp:
             pass
 
         # ttk stil bazlı widget'lar (stil sistemi tarafından otomatik güncellenir)
-        # Sadece Treeview zebra renklerini güncelle
+        # Treeview zebra renklerini güncelle
         if hasattr(self, "tablo"):
             self.tablo.tag_configure("cift_satir", background=r["satir_alt"])
             self.tablo.tag_configure("tek_satir", background=r["satir_bg"])
-            # Durum renklerini de koru (zebra ile çakışmasın)
             for durum, renk in DURUM_RENKLER.items():
                 self.tablo.tag_configure(durum, background=renk)
 
@@ -438,6 +437,12 @@ class KdvKontrolApp:
                 self._ozet_guncelle()
             else:
                 self._ozet_bos_yaz()
+
+        # Tum ttk widget'larini zorla guncelle
+        try:
+            self.kok.update_idletasks()
+        except Exception:
+            pass
 
     def _arayuz_kur(self):
         self._stil_kur()
@@ -1799,8 +1804,10 @@ def main():
     try:
         kok = tk.Tk()
 
-        # ICO ile pencere iconu (taskbar icin en guvenilir)
         ico_yolu = os.path.join(PROJE_YOLU, "logo.ico")
+        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
+
+        # ICO ile pencere iconu
         if os.path.exists(ico_yolu):
             try:
                 kok.iconbitmap(ico_yolu)
@@ -1808,13 +1815,31 @@ def main():
                 pass
 
         # PNG ile taskbar iconu (referans yasam dongusu icin kok uzerinde sakla)
-        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
         if os.path.exists(png_yolu):
             try:
                 from PIL import Image, ImageTk
                 img = Image.open(png_yolu).resize((256, 256), Image.LANCZOS)
                 kok._ikon_photo = ImageTk.PhotoImage(img)
                 kok.iconphoto(True, kok._ikon_photo)
+            except Exception:
+                pass
+
+        # Windows taskbar icin WM_SETICON ile zorla
+        if os.path.exists(ico_yolu):
+            try:
+                import ctypes
+                import ctypes.wintypes
+                WM_SETICON = 0x0080
+                ICON_BIG = 1
+                ICON_SMALL = 0
+                hicon = ctypes.windll.user32.LoadImageW(
+                    0, os.path.abspath(ico_yolu), 1, 0, 0, 0x0010)
+                if hicon:
+                    hwnd = ctypes.windll.user32.GetParent(kok.winfo_id())
+                    if not hwnd:
+                        hwnd = kok.winfo_id()
+                    ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
+                    ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon)
             except Exception:
                 pass
 
