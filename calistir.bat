@@ -9,12 +9,12 @@ echo          KDV CAPRAZ KONTROL - BASLATICI
 echo ============================================================
 echo.
 
-REM --- Python bulucu: py launcher veya python ---
+REM --- Python bulucu: once python (3.12), sonra py launcher ---
 set "PY="
 set "PY_ARG="
-py -3 --version >nul 2>nul
+python --version >nul 2>nul
 if errorlevel 1 (
-    python --version >nul 2>nul
+    py -3 --version >nul 2>nul
     if errorlevel 1 (
         set "PY="
         set "PY_ARG="
@@ -49,12 +49,12 @@ if errorlevel 1 (
         echo Python kurulumu basarili!
         echo.
     ) else (
-        set "PY=python"
-        set "PY_ARG="
+        set "PY=py"
+        set "PY_ARG=-3"
     )
 ) else (
-    set "PY=py"
-    set "PY_ARG=-3"
+    set "PY=python"
+    set "PY_ARG="
 )
 
 %PY% %PY_ARG% --version
