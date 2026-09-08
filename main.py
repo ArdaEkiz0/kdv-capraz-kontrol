@@ -367,27 +367,42 @@ class KdvKontrolApp:
         """Koyu/aydınlık mod arasında geçiş yapar."""
         self.koyu_mod = not self.koyu_mod
         self._stil_kur()
-        self._arayuz_renklerini_guncelle()
+        self._tum_widget_renklerini_guncelle()
         # Toggle butonu metnini güncelle
         if hasattr(self, "koyu_mod_butonu"):
             metin = "☀️ Aydınlık" if self.koyu_mod else "🌙 Koyu"
             self.koyu_mod_butonu.configure(text=metin)
 
-    def _arayuz_renklerini_guncelle(self):
-        """Tüm arayüz widget'larının renklerini günceller."""
+    def _tum_widget_renklerini_guncelle(self):
+        """Tüm arayüz widget'larının renklerini koyu/aydınlık moda göre günceller."""
         r = self._renkleri_hesapla()
+
+        # Ana pencere
         try:
             self.kok.configure(bg=r["bg"])
         except Exception:
             pass
-        # Üst şerit her zaman mavi kalır (değişmez)
-        # Log alanı
+
+        # ttk stil bazlı widget'lar (stil sistemi tarafından otomatik güncellenir)
+        # Sadece Treeview zebra renklerini güncelle
+        if hasattr(self, "tablo"):
+            self.tablo.tag_configure("cift_satir", background=r["satir_alt"])
+            self.tablo.tag_configure("tek_satir", background=r["satir_bg"])
+            # Durum renklerini de koru (zebra ile çakışmasın)
+            for durum, renk in DURUM_RENKLER.items():
+                self.tablo.tag_configure(durum, background=renk)
+
+        # Log alanı (tk.Text - manuel güncelle)
         if hasattr(self, "log"):
             self.log.configure(bg=r["kart"], fg=r["metin"], insertbackground=RENK_PRIMER)
+
         # Özet alanı
         if hasattr(self, "ozet_alani"):
             self.ozet_alani.configure(bg=r["bg"])
-            self._ozet_bos_yaz() if not self.ozet else self._ozet_guncelle()
+            if self.ozet:
+                self._ozet_guncelle()
+            else:
+                self._ozet_bos_yaz()
 
     def _arayuz_kur(self):
         self._stil_kur()

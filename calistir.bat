@@ -90,7 +90,14 @@ REM --- Eski hata logunu temizle ---
 if exist "hata.log" del "hata.log" >nul 2>nul
 
 echo Uygulama baslatiliyor (ilk acilis 1-2 dakika surebilir)...
-start "" %PY% %PY_ARG% main.py
+REM pythonw.exe konsol penceresi acmadan calistirir
+where pythonw >nul 2>nul
+if errorlevel 1 (
+    REM pythonw yoksa python ile calistir ama pencereyi hemen kapat
+    start /B "" %PY% %PY_ARG% main.py
+) else (
+    start "" pythonw %PY_ARG% main.py
+)
 
 REM --- Bekle ve hata kontrolu ---
 set /a BEKLEME=0
