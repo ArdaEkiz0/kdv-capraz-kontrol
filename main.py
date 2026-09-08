@@ -164,18 +164,36 @@ class KdvKontrolApp:
         kok.geometry("1280x780")
         kok.minsize(1000, 600)
         kok.configure(bg=RENK_BG)
+        self._ikon_yukle(kok)
+
+    def _ikon_yukle(self, kok):
+        """Windows taskbar ve pencere icin icon yukler."""
         ico_yolu = os.path.join(PROJE_YOLU, "logo.ico")
+        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
+
+        # 1) ICO dosyasi ile pencere + taskbar iconu (Windows icin en guvenilir yontem)
         if os.path.exists(ico_yolu):
             try:
                 kok.iconbitmap(ico_yolu)
             except Exception:
                 pass
-        try:
-            png_yolu = os.path.join(PROJE_YOLU, "logo.png")
-            if os.path.exists(png_yolu):
+
+        # 2) PNG ile taskbar iconunu zorla (iconphoto)
+        if os.path.exists(png_yolu):
+            try:
                 from PIL import Image, ImageTk
-                self._ikon_gorsel = ImageTk.PhotoImage(Image.open(png_yolu))
+                img = Image.open(png_yolu)
+                # Taskbar icin buyuk boyut gerekli
+                img_256 = img.resize((256, 256), Image.LANCZOS)
+                self._ikon_gorsel = ImageTk.PhotoImage(img_256)
                 kok.iconphoto(True, self._ikon_gorsel)
+            except Exception:
+                pass
+
+        # 3) Windows 10/11 icin ek guvence: DPI aware ayari
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
 
@@ -1729,7 +1747,32 @@ class KdvKontrolApp:
 
 def main():
     try:
+        # Windows taskbar icin DPI aware + icon on-yukleme
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            pass
+
         kok = tk.Tk()
+
+        # Iconu Tk olusturulduktan hemen sonra, mainloop'tan once yukle
+        ico_yolu = os.path.join(PROJE_YOLU, "logo.ico")
+        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
+        if os.path.exists(ico_yolu):
+            try:
+                kok.iconbitmap(ico_yolu)
+            except Exception:
+                pass
+        if os.path.exists(png_yolu):
+            try:
+                from PIL import Image, ImageTk
+                img = Image.open(png_yolu).resize((256, 256), Image.LANCZOS)
+                _ikon = ImageTk.PhotoImage(img)
+                kok.iconphoto(True, _ikon)
+            except Exception:
+                pass
+
         KdvKontrolApp(kok)
         kok.mainloop()
     except Exception:
