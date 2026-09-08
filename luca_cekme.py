@@ -45,6 +45,12 @@ try:
 except Exception:  # pragma: no cover
     babel_format_date = None
 
+try:
+    from duzeltmeler import metni_duzelt, gurultu_mu
+except Exception:  # pragma: no cover
+    metni_duzelt = lambda x: x  # fallback: olduğu gibi bırak
+    gurultu_mu = lambda x: False
+
 
 def tr_tarih(tarih):
     """Tarihi TR locale (gg.aa.yyyy) formatinda dondurur; babel yoksa fallback."""
