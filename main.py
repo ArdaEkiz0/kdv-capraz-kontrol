@@ -65,6 +65,20 @@ RENK_BUTON_KAYDIR = "#eff2f7"
 RENK_SATIR_BG = "#ffffff"
 RENK_SATIR_ALT = "#f8fafc"
 RENK_SECILI = "#dbeafe"
+
+# Koyu mod renk paleti
+DARK_RENK_BG = "#0f172a"
+DARK_RENK_KART = "#1e293b"
+DARK_RENK_BORDER = "#334155"
+DARK_RENK_METIN = "#e2e8f0"
+DARK_RENK_METIN_IKINCIL = "#94a3b8"
+DARK_RENK_BASLIK_ALANI = "#1e293b"
+DARK_RENK_PRIMER_ACIK = "#1e3a5f"
+DARK_RENK_SATIR_BG = "#1e293b"
+DARK_RENK_SATIR_ALT = "#0f172a"
+DARK_RENK_SECILI = "#1e3a5f"
+DARK_RENK_HATA_BG = "#450a0a"
+DARK_RENK_BUTON_KAYDIR = "#334155"
 # Özet kartı renkleri: (zemin, yazı)
 RENK_CHIP_YESIL = ("#D1FAE5", "#065F46")
 RENK_CHIP_KIRMIZI = ("#FEE2E2", "#991B1B")
@@ -96,6 +110,51 @@ BASLIKLAR = {
     "durum": "Durum", "belge_no": "Belge No", "vkn": "VKN", "tarih": "Tarih",
     "tip": "Tip", "matrah": "Matrah", "kdv": "KDV", "kaynak": "Kaynak", "detay": "Detay",
 }
+
+
+class SpinnerWidget(tk.Canvas):
+    """Dönen yükleme spinner'ı widget'ı."""
+
+    def __init__(self, parent, boyut=30, renk="#2563eb", **kwargs):
+        super().__init__(parent, width=boyut, height=boyut,
+                         highlightthickness=0, **kwargs)
+        self.renk = renk
+        self.boyut = boyut
+        self._acim = 0
+        self._aktif = False
+        self._merkez = boyut // 2
+        self._yaricap = boyut // 2 - 3
+
+    def baslat(self, metin=""):
+        """Spinner'ı başlatır."""
+        self._aktif = True
+        self.pack(side="left", padx=(8, 0))
+        self._ciz()
+
+    def durdur(self):
+        """Spinner'ı durdurur ve gizler."""
+        self._aktif = False
+        self.pack_forget()
+        self.delete("all")
+
+    def _ciz(self):
+        if not self._aktif:
+            return
+        self.delete("all")
+        # 8 segmentli çember
+        for i in range(8):
+            aci = self._acim + i * 45
+            import math
+            x1 = self._merkez + self._yaricap * math.cos(math.radians(aci))
+            y1 = self._merkez + self._yaricap * math.sin(math.radians(aci))
+            x2 = self._merkez + self._yaricap * math.cos(math.radians(aci + 30))
+            y2 = self._merkez + self._yaricap * math.sin(math.radians(aci + 30))
+            # Opaklık azalır
+            opaklik = max(30, 255 - i * 30)
+            self.create_line(x1, y1, x2, y2, width=3, fill=self.renk,
+                             capstyle="round")
+        self._acim = (self._acim - 45) % 360
+        self.after(100, self._ciz)
 
 
 class KdvKontrolApp:
@@ -136,6 +195,7 @@ class KdvKontrolApp:
         self._iptal = threading.Event()
         self._islem_devam = False
         self.kontrol_sonu_gorevleri = []
+        self.koyu_mod = False  # Koyu mod durumu
         try:
             self.db = db_al()
         except Exception as hata:
@@ -194,8 +254,28 @@ class KdvKontrolApp:
         except Exception:
             pass
 
+    def _renkleri_hesapla(self):
+        """Mevcut moda göre renkleri hesaplar."""
+        if self.koyu_mod:
+            return {
+                "bg": DARK_RENK_BG, "kart": DARK_RENK_KART, "border": DARK_RENK_BORDER,
+                "metin": DARK_RENK_METIN, "metin_ikincil": DARK_RENK_METIN_IKINCIL,
+                "baslik_alani": DARK_RENK_BASLIK_ALANI, "primer_acik": DARK_RENK_PRIMER_ACIK,
+                "satir_bg": DARK_RENK_SATIR_BG, "satir_alt": DARK_RENK_SATIR_ALT,
+                "secili": DARK_RENK_SECILI, "buton_kaydir": DARK_RENK_BUTON_KAYDIR,
+                "scrollbar_bg": "#475569", "scrollbar_arrow": "#94a3b8",
+            }
+        return {
+            "bg": RENK_BG, "kart": RENK_KART, "border": RENK_BORDER,
+            "metin": RENK_METIN, "metin_ikincil": RENK_METIN_IKINCIL,
+            "baslik_alani": RENK_BASLIK_ALANI, "primer_acik": RENK_PRIMER_ACIK,
+            "satir_bg": RENK_SATIR_BG, "satir_alt": RENK_SATIR_ALT,
+            "secili": RENK_SECILI, "buton_kaydir": RENK_BUTON_KAYDIR,
+            "scrollbar_bg": "#e2e8f0", "scrollbar_arrow": RENK_METIN_IKINCIL,
+        }
+
     def _stil_kur(self):
-        """Modern mavi/mor tema uygular (mevcut widget yapısını değiştirmez)."""
+        """Modern mavi/mor tema uygular (koyu/aydınlık mod destekli)."""
         try:
             stil = ttk.Style(self.kok)
             if "clam" in stil.theme_names():
@@ -203,13 +283,15 @@ class KdvKontrolApp:
         except Exception:
             return
 
-        try:
-            stil.configure("TFrame", background=RENK_BG)
-            stil.configure("Kart.TFrame", background=RENK_KART, relief="flat")
+        r = self._renkleri_hesapla()
 
-            stil.configure("TLabel", background=RENK_BG, foreground=RENK_METIN, font=FONT_METIN)
-            stil.configure("Kart.TLabel", background=RENK_KART, foreground=RENK_METIN, font=FONT_METIN)
-            stil.configure("Ikincil.TLabel", background=RENK_BG, foreground=RENK_METIN_IKINCIL, font=FONT_KUCUK)
+        try:
+            stil.configure("TFrame", background=r["bg"])
+            stil.configure("Kart.TFrame", background=r["kart"], relief="flat")
+
+            stil.configure("TLabel", background=r["bg"], foreground=r["metin"], font=FONT_METIN)
+            stil.configure("Kart.TLabel", background=r["kart"], foreground=r["metin"], font=FONT_METIN)
+            stil.configure("Ikincil.TLabel", background=r["bg"], foreground=r["metin_ikincil"], font=FONT_KUCUK)
 
             stil.configure("TButton", background=RENK_PRIMER, foreground=RENK_BUTON_METIN,
                            font=("Segoe UI", 10), padding=(10, 6), borderwidth=0, focuscolor="none")
@@ -217,23 +299,23 @@ class KdvKontrolApp:
                      background=[("active", RENK_PRIMER_KOYU), ("pressed", RENK_PRIMER_KOYU)],
                      relief=[("pressed", "sunken")])
 
-            stil.configure("Baslik.TLabel", background=RENK_BASLIK_ALANI, foreground=RENK_PRIMER,
+            stil.configure("Baslik.TLabel", background=r["baslik_alani"], foreground=RENK_PRIMER,
                            font=FONT_BASLIK, padding=10)
 
-            stil.configure("TRadiobutton", background=RENK_BG, foreground=RENK_METIN, font=FONT_METIN)
-            stil.configure("TCombobox", fieldbackground=RENK_KART, background=RENK_KART,
-                           foreground=RENK_METIN, arrowcolor=RENK_PRIMER)
-            stil.configure("Treeview", background=RENK_SATIR_BG, fieldbackground=RENK_SATIR_BG,
-                           foreground=RENK_METIN, rowheight=28, font=FONT_METIN, borderwidth=0)
-            stil.configure("Treeview.Heading", background=RENK_BASLIK_ALANI, foreground=RENK_METIN,
+            stil.configure("TRadiobutton", background=r["bg"], foreground=r["metin"], font=FONT_METIN)
+            stil.configure("TCombobox", fieldbackground=r["kart"], background=r["kart"],
+                           foreground=r["metin"], arrowcolor=RENK_PRIMER)
+            stil.configure("Treeview", background=r["satir_bg"], fieldbackground=r["satir_bg"],
+                           foreground=r["metin"], rowheight=28, font=FONT_METIN, borderwidth=0)
+            stil.configure("Treeview.Heading", background=r["baslik_alani"], foreground=r["metin"],
                            font=("Segoe UI", 10, "bold"), padding=(8, 7), relief="flat")
             stil.map("Treeview",
-                     background=[("selected", RENK_SECILI)],
+                     background=[("selected", r["secili"])],
                      foreground=[("selected", RENK_PRIMER_KOYU)])
             stil.map("Treeview.Heading",
-                     background=[("active", "#e2e8f0")])
+                     background=[("active", r["primer_acik"])])
 
-            stil.configure("Altlik.TFrame", background=RENK_KART, relief="flat", borderwidth=1)
+            stil.configure("Altlik.TFrame", background=r["kart"], relief="flat", borderwidth=1)
 
             stil.configure("Primary.TButton", background=RENK_PRIMER, foreground=RENK_BUTON_METIN,
                            font=("Segoe UI", 11, "bold"), padding=(22, 10), borderwidth=0,
@@ -242,25 +324,52 @@ class KdvKontrolApp:
                      background=[("active", RENK_PRIMER_KOYU), ("pressed", RENK_PRIMER_KOYU)],
                      relief=[("pressed", "sunken")])
 
-            stil.configure("Arac.TButton", background=RENK_KART, foreground=RENK_METIN,
+            stil.configure("Arac.TButton", background=r["kart"], foreground=r["metin"],
                            font=("Segoe UI", 9), padding=(7, 4), borderwidth=1,
-                           bordercolor=RENK_BORDER, focuscolor="none")
+                           bordercolor=r["border"], focuscolor="none")
             stil.map("Arac.TButton",
-                     background=[("active", RENK_PRIMER_ACIK), ("pressed", RENK_PRIMER_ACIK)],
+                     background=[("active", r["primer_acik"]), ("pressed", r["primer_acik"])],
                      bordercolor=[("active", RENK_PRIMER)])
 
-            stil.configure("KartIkincil.TLabel", background=RENK_KART,
-                           foreground=RENK_METIN_IKINCIL, font=FONT_KUCUK)
-            stil.configure("KartBaslik.TLabel", background=RENK_KART, foreground=RENK_METIN,
+            stil.configure("KartIkincil.TLabel", background=r["kart"],
+                           foreground=r["metin_ikincil"], font=FONT_KUCUK)
+            stil.configure("KartBaslik.TLabel", background=r["kart"], foreground=r["metin"],
                            font=("Segoe UI", 11, "bold"))
-            stil.configure("Kart.TRadiobutton", background=RENK_KART, foreground=RENK_METIN,
+            stil.configure("Kart.TRadiobutton", background=r["kart"], foreground=r["metin"],
                            font=FONT_METIN)
 
             for yon in ("Vertical", "Horizontal"):
-                stil.configure(f"{yon}.TScrollbar", background="#e2e8f0", troughcolor=RENK_BG,
-                               bordercolor=RENK_KART, arrowcolor=RENK_METIN_IKINCIL)
+                stil.configure(f"{yon}.TScrollbar", background=r["scrollbar_bg"],
+                               troughcolor=r["bg"], bordercolor=r["kart"],
+                               arrowcolor=r["scrollbar_arrow"])
         except Exception:
             pass
+
+    def _koyu_mod_toggle(self):
+        """Koyu/aydınlık mod arasında geçiş yapar."""
+        self.koyu_mod = not self.koyu_mod
+        self._stil_kur()
+        self._arayuz_renklerini_guncelle()
+        # Toggle butonu metnini güncelle
+        if hasattr(self, "koyu_mod_butonu"):
+            metin = "☀️ Aydınlık" if self.koyu_mod else "🌙 Koyu"
+            self.koyu_mod_butonu.configure(text=metin)
+
+    def _arayuz_renklerini_guncelle(self):
+        """Tüm arayüz widget'larının renklerini günceller."""
+        r = self._renkleri_hesapla()
+        try:
+            self.kok.configure(bg=r["bg"])
+        except Exception:
+            pass
+        # Üst şerit her zaman mavi kalır (değişmez)
+        # Log alanı
+        if hasattr(self, "log"):
+            self.log.configure(bg=r["kart"], fg=r["metin"], insertbackground=RENK_PRIMER)
+        # Özet alanı
+        if hasattr(self, "ozet_alani"):
+            self.ozet_alani.configure(bg=r["bg"])
+            self._ozet_bos_yaz() if not self.ozet else self._ozet_guncelle()
 
     def _arayuz_kur(self):
         self._stil_kur()
@@ -291,11 +400,20 @@ class KdvKontrolApp:
                           bg=RENK_PRIMER_KOYU, fg="#ffffff", relief="flat", bd=0,
                           activebackground="#3b82f6", activeforeground="#ffffff",
                           padx=10, pady=3, cursor="hand2")
+
+            def hover_gir(e):
+                b.configure(bg="#3b82f6")
+            def hover_cik(e):
+                b.configure(bg=RENK_PRIMER_KOYU)
+
+            b.bind("<Enter>", hover_gir)
+            b.bind("<Leave>", hover_cik)
             b.pack(side="right", padx=(6, 0))
             return b
 
         serit_butonu("Hakkında", self.hakkinda_pencere_ac)
         self.guncelleme_butonu = serit_butonu("🔄 Güncelleme", self.guncelleme_kontrol_ac)
+        self.koyu_mod_butonu = serit_butonu("🌙 Koyu", self._koyu_mod_toggle)
 
         # ---- Alt bölgeler önce ayrılır (günlük + özet kartları) ----
         log_karti = ttk.Frame(self.kok, style="Kart.TFrame", padding=(10, 6))
@@ -326,6 +444,8 @@ class KdvKontrolApp:
                    command=self.fatura_klasoru_sec).pack(side="left", padx=(0, 6))
         ttk.Button(islem_satir, text="📋 Kontrol Cetveli Seç", style="Arac.TButton",
                    command=self.cetvel_sec).pack(side="left", padx=(0, 6))
+        # Spinner (işlem sırasında gösterilir)
+        self.spinner = SpinnerWidget(islem_satir, boyut=24, renk=RENK_PRIMER)
         ttk.Button(islem_satir, text="⚡  KONTROLÜ BAŞLAT", style="Primary.TButton",
                    command=self.kontrol_baslat).pack(side="right")
         self.dosya_etiketi = ttk.Label(islem, text="Fatura: (seçilmedi)  |  Cetvel: (seçilmedi)",
@@ -348,8 +468,12 @@ class KdvKontrolApp:
             if i:
                 ttk.Separator(araclar, orient="vertical").pack(side="left", fill="y", padx=5, pady=2)
             for metin, komut in grup:
-                ttk.Button(araclar, text=metin, style="Arac.TButton", command=komut
-                           ).pack(side="left", padx=(0, 6))
+                btn = ttk.Button(araclar, text=metin, style="Arac.TButton", command=komut)
+                btn.pack(side="left", padx=(0, 6))
+                try:
+                    btn.configure(cursor="hand2")
+                except Exception:
+                    pass
 
         # ---- Sonuç kartı: filtreler + tablo ----
         tablo_karti = ttk.Frame(self.kok, style="Kart.TFrame", padding=(10, 8))
@@ -394,6 +518,11 @@ class KdvKontrolApp:
         kaydirma_x.grid(row=1, column=0, sticky="ew")
         tablo_alan.rowconfigure(0, weight=1)
         tablo_alan.columnconfigure(0, weight=1)
+
+        # Alternatif satır renkleri (zebra deseni)
+        r = self._renkleri_hesapla()
+        self.tablo.tag_configure("cift_satir", background=r["satir_alt"])
+        self.tablo.tag_configure("tek_satir", background=r["satir_bg"])
 
         self.guncelleme_bilgisi = None
         self.kok.after(1000, self._aylik_rutin_oner)
@@ -834,6 +963,7 @@ class KdvKontrolApp:
         self._islem_devam = True
         self._butonlari_aktif_fiyatla(False)
         self.kok.configure(cursor="watch")
+        self.spinner.baslat()
         self._log_yaz("Kontrol başlatılıyor... (Arka planda çalışıyor)")
 
         t = threading.Thread(target=self._kontrol_arka_planda, daemon=True)
@@ -965,6 +1095,7 @@ class KdvKontrolApp:
     def _kontrol_bitiyoruz(self):
         self._islem_devam = False
         self.kok.configure(cursor="")
+        self.spinner.durdur()
         self._butonlari_aktif_fiyatla(True)
 
     def _donem_listesini_doldur(self):
@@ -1149,19 +1280,20 @@ class KdvKontrolApp:
             self._ozet_karti(baslik, deger, arka, yazi)
 
     def _ozet_karti(self, baslik, deger, arka, yazi):
-        kutu = tk.Frame(self.ozet_alani, bg=arka)
-        kutu.pack(side="left", padx=(0, 8), pady=2)
+        kutu = tk.Frame(self.ozet_alani, bg=arka, padx=1, pady=1)
+        kutu.pack(side="left", padx=(0, 6), pady=3)
         ic = tk.Frame(kutu, bg=arka)
-        ic.pack(padx=12, pady=5)
-        tk.Label(ic, text=str(deger), font=("Segoe UI", 13, "bold"),
+        ic.pack(padx=14, pady=6)
+        tk.Label(ic, text=str(deger), font=("Segoe UI", 14, "bold"),
                  bg=arka, fg=yazi).pack()
         tk.Label(ic, text=baslik, font=("Segoe UI", 8),
                  bg=arka, fg=yazi).pack()
 
     def _ozet_bos_yaz(self):
+        r = self._renkleri_hesapla()
         tk.Label(self.ozet_alani,
                  text="Henüz kontrol yapılmadı — fatura ve cetvel dosyalarını seçtikten sonra 'Kontrolü Başlat'a basın.",
-                 font=FONT_KUCUK, bg=RENK_BG, fg=RENK_METIN_IKINCIL).pack(side="left")
+                 font=FONT_KUCUK, bg=r["bg"], fg=r["metin_ikincil"]).pack(side="left")
 
     def _filtre_uygula(self):
         secim = self.filtre_degisken.get()
@@ -1178,9 +1310,10 @@ class KdvKontrolApp:
         if self.aktif_filtre:
             satirlar = filtre_uygula(satirlar, self.aktif_filtre)
 
-        for satir in satirlar:
+        for idx, satir in enumerate(satirlar):
             tag = satir["durum"]
-            self.tablo.insert("", "end", tags=(tag,), values=(
+            zebra = "cift_satir" if idx % 2 == 0 else "tek_satir"
+            self.tablo.insert("", "end", tags=(tag, zebra), values=(
                 satir["durum"],
                 satir["belge_no"] or "",
                 satir["vkn"] or "",
