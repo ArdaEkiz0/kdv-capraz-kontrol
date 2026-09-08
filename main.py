@@ -165,6 +165,49 @@ class KdvKontrolApp:
         kok.minsize(1000, 600)
         kok.configure(bg=RENK_BG)
 
+        self.fatura_dosyalari = []
+        self.cetvel_dosyalari = []
+        self.sonuc_satirlari = []
+        self.ozet = None
+        self.faturalar = []
+        self.cetvel_kayitlari = []
+        self.fis_hesap_kayitlari = []
+        self.muavin_hesap_kayitlari = []
+        self.kurallar = kurallari_oku()
+        self.elle_eklenen_cetvel = []
+        self.filtre = "Tumu"
+        self.aktif_filtre = None
+        self.gecmis_bilgi = None
+        self._iptal = threading.Event()
+        self._islem_devam = False
+        self.kontrol_sonu_gorevleri = []
+        self.koyu_mod = False
+        try:
+            self.db = db_al()
+        except Exception as hata:
+            self.db = None
+            print(f"DB bağlanamadı: {hata}")
+        try:
+            from db import gunluk_yedek
+            self._db_yedek_durumu = gunluk_yedek()
+        except Exception as hata:
+            self._db_yedek_durumu = False
+            print(f"Günlük yedek alınamadı: {hata}")
+
+        try:
+            self.ayarlar = ayarlar_al()
+            boyut = self.ayarlar.al("pencere_boyut", "1280x780")
+            kok.geometry(boyut)
+            self.son_faturalar = self.ayarlar.al("son_faturalar", [])
+            self.son_cetveller = self.ayarlar.al("son_cetveller", [])
+        except Exception as hata:
+            self.ayarlar = None
+            print(f"Ayarlar yüklenemedi: {hata}")
+
+        self._son_dosyalari_geri_yukle()
+        self._arayuz_kur()
+        self._kisayol_sagla()
+
     def _ikon_yukle(self, kok):
         """Windows taskbar ve pencere icin icon yukler."""
         ico_yolu = os.path.join(PROJE_YOLU, "logo.ico")
