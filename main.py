@@ -189,13 +189,6 @@ class KdvKontrolApp:
             except Exception:
                 pass
 
-        # 3) Windows 10/11 icin ek guvence: DPI aware ayari
-        try:
-            import ctypes
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            pass
-
         self.fatura_dosyalari = []
         self.cetvel_dosyalari = []
         self.sonuc_satirlari = []
@@ -1761,13 +1754,6 @@ class KdvKontrolApp:
 
 def main():
     try:
-        # Windows taskbar icin DPI aware
-        try:
-            import ctypes
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            pass
-
         kok = tk.Tk()
 
         # ICO ile pencere iconu (taskbar icin en guvenilir)
