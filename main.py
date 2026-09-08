@@ -1776,7 +1776,6 @@ def main():
         KdvKontrolApp(kok)
         kok.mainloop()
     except Exception:
-        import os
         import traceback
         log_yolu = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hata.log")
         with open(log_yolu, "w", encoding="utf-8") as f:
