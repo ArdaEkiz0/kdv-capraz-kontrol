@@ -51,6 +51,12 @@ except Exception:  # pragma: no cover
     metni_duzelt = lambda x: x  # fallback: olduğu gibi bırak
     gurultu_mu = lambda x: False
 
+try:
+    from muavin_scraper import muavin_html_ayikla, muavin_excel_yaz
+except Exception:  # pragma: no cover
+    muavin_html_ayikla = None
+    muavin_excel_yaz = None
+
 
 def tr_tarih(tarih):
     """Tarihi TR locale (gg.aa.yyyy) formatinda dondurur; babel yoksa fallback."""
@@ -2528,6 +2534,25 @@ def _muavin_indir(cerceve, erp, hesap, hedef, bildir):
             except Exception as hata:
                 bildir(f"UYARI: Döküm kaydedilemedi ({str(hata)[:60]}).")
     _luca_diag_dump(erp, hesap, govde, bildir)
+    # Scraper fallback: export başarısızsa, inner_text'ten Excel üret
+    if govde is not None and muavin_html_ayikla is not None:
+        try:
+            ham_html = govde.evaluate("() => document.documentElement.outerHTML") or ""
+            ham_metin = govde.inner_text("body") or ""
+            kayitlar = muavin_html_ayikla(html=ham_html, hesap=str(hesap))
+            if not kayitlar:
+                kayitlar = muavin_html_ayikla(metin=ham_metin, hesap=str(hesap))
+            if kayitlar:
+                # Hedef dosya yolunu scrap Excel'e çevir
+                scrape_hedef = hedef.replace('.xlsx', '_scrap.xlsx')
+                if scrape_hedef == hedef:
+                    scrape_hedef = hedef + '_scrap'
+                adet = muavin_excel_yaz(kayitlar, scrape_hedef, str(hesap))
+                bildir(f"Scraper ile Excel üretildi: {os.path.basename(scrape_hedef)} "
+                       f"({adet} satır)")
+                return True
+        except Exception as hata:
+            bildir(f"Scraper hatası: {str(hata)[:80]}")
     return False
 
 
@@ -2813,6 +2838,10 @@ def _zip_tikla_indir(frame, sayfa, satir_sirasi, hedef_yol, belge=None,
                 }""", satir_sirasi)
             if fatura_json:
                 fatura = json.loads(html_cevir.unescape(fatura_json))
+                # Düzeltmeler uygula (phobo3s izniyle)
+                for k, v in fatura.items():
+                    if isinstance(v, str) and v:
+                        fatura[k] = metni_duzelt(v)
         except Exception:
             pass
     ettn = fatura.get("ettn")
