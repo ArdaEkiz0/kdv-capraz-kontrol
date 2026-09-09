@@ -36,6 +36,11 @@ from report import rapor_olustur
 from report_pdf import rapor_pdf_olustur
 from surum import SURUM
 from utils import tl_format
+from dark_mode import TemaYoneticisi, ACIK_TEMA, KARANLIK_TEMA
+from drag_drop import DragDropDestesi
+from status_bar import DurumCubugu
+from toast import toast_goster
+from tooltip import Tooltip
 from veri_incele import VeriIncelePenceresi
 
 DESTEKLENEN_DOSYALAR = [("Desteklenen Dosyalar", "*.pdf *.xlsx *.xlsm *.xls *.xml *.zip"),
@@ -136,6 +141,7 @@ class KdvKontrolApp:
         self._iptal = threading.Event()
         self._islem_devam = False
         self.kontrol_sonu_gorevleri = []
+        self.tema_yoneticisi = TemaYoneticisi()
         try:
             self.db = db_al()
         except Exception as hata:
@@ -265,6 +271,9 @@ class KdvKontrolApp:
     def _arayuz_kur(self):
         self._stil_kur()
 
+        # ---- Menü Çubuğu ----
+        self._menu_olustur()
+
         # ---- Üst şerit: uygulama adı + sürüm + kısa kullanım akışı ----
         serit = tk.Frame(self.kok, bg=RENK_PRIMER)
         serit.pack(fill="x")
@@ -296,6 +305,51 @@ class KdvKontrolApp:
 
         serit_butonu("Hakkında", self.hakkinda_pencere_ac)
         self.guncelleme_butonu = serit_butonu("🔄 Güncelleme", self.guncelleme_kontrol_ac)
+
+        # Karanlık mod toggle
+        def tema_degistir():
+            yeni = self.tema_yoneticisi.toggle()
+            self._stil_kur()
+            toast_goster(self.kok, f"{self.tema_yoneticisi.al('ad')} mod aktif", tip="info")
+
+        serit_butonu("🌓 Tema", tema_degistir)
+
+        # Tooltip'ler
+        Tooltip(self.guncelleme_butonu, "Yeni sürümü kontrol et (otomatik)")
+
+        # ---- Durum Çubuğu ----
+        self.durum_cubugu = DurumCubugu(self.kok, side="bottom")
+
+        # ---- Sürükle-Bırak Desteği ----
+        def dosyalar_yukle(dosya_yollari):
+            fatura_uzantilari = (".pdf", ".xlsx", ".xlsm", ".xls", ".xml")
+            cetvel_uzantilari = (".pdf", ".xlsx", ".xlsm", ".xls")
+            yeni_fatura = []
+            yeni_cetvel = []
+            for yol in dosya_yollari:
+                if not os.path.exists(yol):
+                    continue
+                uzanti = os.path.splitext(yol)[1].lower()
+                if uzanti in fatura_uzantilari:
+                    yeni_fatura.append(yol)
+                if uzanti in cetvel_uzantilari:
+                    yeni_cetvel.append(yol)
+            if yeni_fatura:
+                self.fatura_dosyalari.extend(yeni_fatura)
+            if yeni_cetvel:
+                self.cetvel_dosyalari.extend(yeni_cetvel)
+            if yeni_fatura or yeni_cetvel:
+                self._dosya_etiketi_guncelle()
+                self.durum_cubugu.guncelle(
+                    dosya=len(self.fatura_dosyalari),
+                    cetvel=len(self.cetvel_dosyalari))
+                toast_goster(self.kok,
+                    f"{len(yeni_fatura)} fatura, {len(yeni_cetvel)} cetvel eklendi",
+                    tip="basari")
+
+        self.drag_destesi = DragDropDestesi(self.kok, dosyalar_yukle)
+        if self.drag_destesi.aktif_mi:
+            toast_goster(self.kok, "Sürükle-bırak aktif", tip="info", sure=2000)
 
         # ---- Alt bölgeler önce ayrılır (günlük + özet kartları) ----
         log_karti = ttk.Frame(self.kok, style="Kart.TFrame", padding=(10, 6))
@@ -404,6 +458,59 @@ class KdvKontrolApp:
         self.log.insert("end", metin + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
+
+    def _menu_olustur(self):
+        """Menü çubuğunu oluşturur."""
+        menubar = tk.Menu(self.kok)
+        self.kok.configure(menu=menubar)
+
+        # Dosya menüsü
+        dosya = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Dosya", menu=dosya)
+        dosya.add_command(label="Fatura Dosyaları Seç", command=self.fatura_sec,
+                          accelerator="Ctrl+O")
+        dosya.add_command(label="Fatura Klasörü Seç", command=self.fatura_klasoru_sec)
+        dosya.add_command(label="Cetvel Seç", command=self.cetvel_sec)
+        dosya.add_separator()
+        dosya.add_command(label="Excel Raporu Kaydet", command=self.rapor_kaydet,
+                          accelerator="Ctrl+S")
+        dosya.add_command(label="PDF Raporu Kaydet", command=self.rapor_pdf_kaydet)
+        dosya.add_command(label="Muhasebeci Paketi", command=self.muhasebeci_paketi)
+        dosya.add_separator()
+        dosya.add_command(label="Çıkış", command=self.kok.quit)
+
+        # Düzen menüsü
+        duzen = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Düzen", menu=duzen)
+        duzen.add_command(label="Gelişmiş Filtre", command=self.gelismis_filtre_ac,
+                          accelerator="Ctrl+F")
+        duzen.add_command(label="Kurallar", command=self.kurallar_pencere_ac)
+        duzen.add_command(label="Dashboard", command=self.dashboard_goster,
+                          accelerator="Ctrl+D")
+        duzen.add_separator()
+        duzen.add_command(label="Veri İncele", command=self.veri_incele_ac)
+        duzen.add_command(label="Beyanname", command=self.beyanname_ac)
+
+        # Araçlar menüsü
+        arac = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Araçlar", menu=arac)
+        arac.add_command(label="Mükellefler", command=self.mukellefler_ac)
+        arac.add_command(label="Klasör Cetvel", command=self.cetvel_klasor_ac)
+        arac.add_separator()
+        arac.add_command(label="Ba/Bs Formu", command=self.muhtasar_kaydet)
+        arac.add_command(label="Mail Gönder", command=self.mail_gonder_ac)
+
+        # Yardım menüsü
+        yardim = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Yardım", menu=yardim)
+        yardim.add_command(label="Hakkında", command=self.hakkinda_pencere_ac)
+        yardim.add_command(label="Güncelleme", command=self.guncelleme_kontrol_ac)
+
+        # Kısayol tuşları
+        self.kok.bind("<Control-o>", lambda e: self.fatura_sec())
+        self.kok.bind("<Control-s>", lambda e: self.rapor_kaydet())
+        self.kok.bind("<Control-f>", lambda e: self.gelismis_filtre_ac())
+        self.kok.bind("<Control-d>", lambda e: self.dashboard_goster())
 
     # ---------- Güncelleme ----------
     def _otomatik_guncelleme_kontrol(self):
@@ -822,6 +929,11 @@ class KdvKontrolApp:
         f_metin = f"{len(self.fatura_dosyalari)} dosya" if self.fatura_dosyalari else "(seçilmedi)"
         c_metin = f"{len(self.cetvel_dosyalari)} dosya" if self.cetvel_dosyalari else "(seçilmedi)"
         self.dosya_etiketi.configure(text=f"Fatura: {f_metin} | Cetvel: {c_metin}")
+        # Durum çubuğunu güncelle
+        if hasattr(self, 'durum_cubugu'):
+            self.durum_cubugu.guncelle(
+                dosya=len(self.fatura_dosyalari),
+                cetvel=len(self.cetvel_dosyalari))
 
     def kontrol_baslat(self):
         if not self.fatura_dosyalari and not self.cetvel_dosyalari:
@@ -951,6 +1063,20 @@ class KdvKontrolApp:
         self._db_kaydet()
         self._log_yaz(f"Kontrol tamamlandı: {len(self.faturalar)} fatura, {len(self.cetvel_kayitlari)} cetvel satırı, "
                        f"{len(self.sonuc_satirlari)} sonuç satırı.")
+        # Durum çubuğunu güncelle
+        if hasattr(self, 'durum_cubugu'):
+            self.durum_cubugu.guncelle(
+                dosya=len(self.faturalar),
+                cetvel=len(self.cetvel_kayitlari),
+                db_durum=self.db is not None,
+                son_islem=f"Kontrol tamamlandı")
+            # Toast bildirim
+            sorunlu = (self.ozet.get("tutar_farki", 0) + self.ozet.get("vkn_farki", 0)
+                      + self.ozet.get("cetvelde_yok", 0) + self.ozet.get("faturada_yok", 0))
+            if sorunlu > 0:
+                toast_goster(self.kok, f"{sorunlu} sorunlu kayıt bulundu", tip="uyari")
+            else:
+                toast_goster(self.kok, "Tüm faturalar eşleşti!", tip="basari")
         if self.ozet and self.ozet.get("iade_adet", 0):
             self._log_yaz(f"İade faturası: {self.ozet['iade_adet']} adet, toplam KDV: {tl_format(self.ozet.get('iade_kdv_toplam'))} TL")
         if getattr(self, "kontrol_sonu_gorevleri", None):
