@@ -42,7 +42,7 @@ class KpiKarti(ttk.Frame):
 
 
 class DashboardFrame(ttk.Frame):
-    """Ana dashboard: üstte KPI kartları, altta 2 grafik."""
+    """Ana dashboard: üstte KPI kartları, altta grafikler."""
 
     def __init__(self, parent, ozet: Dict, faturalar: List[Dict],
                  cetvel_kayitlari: List[Dict],
