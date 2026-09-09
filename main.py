@@ -201,7 +201,7 @@ class KdvKontrolApp:
             pass
 
     def _stil_kur(self):
-        """Modern mavi/mor tema uygular (mevcut widget yapısını değiştirmez)."""
+        """Temaya göre tüm stilleri uygular."""
         try:
             stil = ttk.Style(self.kok)
             if "clam" in stil.theme_names():
@@ -209,64 +209,97 @@ class KdvKontrolApp:
         except Exception:
             return
 
+        t = self.tema_yoneticisi.renk_paleti()
         try:
-            stil.configure("TFrame", background=RENK_BG)
-            stil.configure("Kart.TFrame", background=RENK_KART, relief="flat")
+            stil.configure("TFrame", background=t["bg"])
+            stil.configure("Kart.TFrame", background=t["kart"], relief="flat")
 
-            stil.configure("TLabel", background=RENK_BG, foreground=RENK_METIN, font=FONT_METIN)
-            stil.configure("Kart.TLabel", background=RENK_KART, foreground=RENK_METIN, font=FONT_METIN)
-            stil.configure("Ikincil.TLabel", background=RENK_BG, foreground=RENK_METIN_IKINCIL, font=FONT_KUCUK)
+            stil.configure("TLabel", background=t["bg"], foreground=t["metin"], font=FONT_METIN)
+            stil.configure("Kart.TLabel", background=t["kart"], foreground=t["metin"], font=FONT_METIN)
+            stil.configure("Ikincil.TLabel", background=t["bg"], foreground=t["metin_ikincil"], font=FONT_KUCUK)
 
-            stil.configure("TButton", background=RENK_PRIMER, foreground=RENK_BUTON_METIN,
+            stil.configure("TButton", background=t["primer"], foreground=t["buton_metin"],
                            font=("Segoe UI", 10), padding=(10, 6), borderwidth=0, focuscolor="none")
             stil.map("TButton",
-                     background=[("active", RENK_PRIMER_KOYU), ("pressed", RENK_PRIMER_KOYU)],
+                     background=[("active", t["primer_koyu"]), ("pressed", t["primer_koyu"])],
                      relief=[("pressed", "sunken")])
 
-            stil.configure("Baslik.TLabel", background=RENK_BASLIK_ALANI, foreground=RENK_PRIMER,
+            stil.configure("Baslik.TLabel", background=t["baslik_alani"], foreground=t["primer"],
                            font=FONT_BASLIK, padding=10)
 
-            stil.configure("TRadiobutton", background=RENK_BG, foreground=RENK_METIN, font=FONT_METIN)
-            stil.configure("TCombobox", fieldbackground=RENK_KART, background=RENK_KART,
-                           foreground=RENK_METIN, arrowcolor=RENK_PRIMER)
-            stil.configure("Treeview", background=RENK_SATIR_BG, fieldbackground=RENK_SATIR_BG,
-                           foreground=RENK_METIN, rowheight=28, font=FONT_METIN, borderwidth=0)
-            stil.configure("Treeview.Heading", background=RENK_BASLIK_ALANI, foreground=RENK_METIN,
+            stil.configure("TRadiobutton", background=t["bg"], foreground=t["metin"], font=FONT_METIN)
+            stil.configure("TCombobox", fieldbackground=t["kart"], background=t["kart"],
+                           foreground=t["metin"], arrowcolor=t["primer"])
+            stil.configure("Treeview", background=t["satir_bg"], fieldbackground=t["satir_bg"],
+                           foreground=t["metin"], rowheight=28, font=FONT_METIN, borderwidth=0)
+            stil.configure("Treeview.Heading", background=t["baslik_alani"], foreground=t["metin"],
                            font=("Segoe UI", 10, "bold"), padding=(8, 7), relief="flat")
             stil.map("Treeview",
-                     background=[("selected", RENK_SECILI)],
-                     foreground=[("selected", RENK_PRIMER_KOYU)])
+                     background=[("selected", t["secili"])],
+                     foreground=[("selected", t["primer_koyu"])])
             stil.map("Treeview.Heading",
-                     background=[("active", "#e2e8f0")])
+                     background=[("active", t["primer_acik"])])
 
-            stil.configure("Altlik.TFrame", background=RENK_KART, relief="flat", borderwidth=1)
+            stil.configure("Altlik.TFrame", background=t["kart"], relief="flat", borderwidth=1)
 
-            stil.configure("Primary.TButton", background=RENK_PRIMER, foreground=RENK_BUTON_METIN,
+            stil.configure("Primary.TButton", background=t["primer"], foreground=t["buton_metin"],
                            font=("Segoe UI", 11, "bold"), padding=(22, 10), borderwidth=0,
                            focuscolor="none")
             stil.map("Primary.TButton",
-                     background=[("active", RENK_PRIMER_KOYU), ("pressed", RENK_PRIMER_KOYU)],
+                     background=[("active", t["primer_koyu"]), ("pressed", t["primer_koyu"])],
                      relief=[("pressed", "sunken")])
 
-            stil.configure("Arac.TButton", background=RENK_KART, foreground=RENK_METIN,
+            stil.configure("Arac.TButton", background=t["kart"], foreground=t["metin"],
                            font=("Segoe UI", 9), padding=(7, 4), borderwidth=1,
-                           bordercolor=RENK_BORDER, focuscolor="none")
+                           bordercolor=t["border"], focuscolor="none")
             stil.map("Arac.TButton",
-                     background=[("active", RENK_PRIMER_ACIK), ("pressed", RENK_PRIMER_ACIK)],
-                     bordercolor=[("active", RENK_PRIMER)])
+                     background=[("active", t["primer_acik"]), ("pressed", t["primer_acik"])],
+                     bordercolor=[("active", t["primer"])])
 
-            stil.configure("KartIkincil.TLabel", background=RENK_KART,
-                           foreground=RENK_METIN_IKINCIL, font=FONT_KUCUK)
-            stil.configure("KartBaslik.TLabel", background=RENK_KART, foreground=RENK_METIN,
+            stil.configure("KartIkincil.TLabel", background=t["kart"],
+                           foreground=t["metin_ikincil"], font=FONT_KUCUK)
+            stil.configure("KartBaslik.TLabel", background=t["kart"], foreground=t["metin"],
                            font=("Segoe UI", 11, "bold"))
-            stil.configure("Kart.TRadiobutton", background=RENK_KART, foreground=RENK_METIN,
+            stil.configure("Kart.TRadiobutton", background=t["kart"], foreground=t["metin"],
                            font=FONT_METIN)
 
             for yon in ("Vertical", "Horizontal"):
-                stil.configure(f"{yon}.TScrollbar", background="#e2e8f0", troughcolor=RENK_BG,
-                               bordercolor=RENK_KART, arrowcolor=RENK_METIN_IKINCIL)
+                stil.configure(f"{yon}.TScrollbar", background=t["border"], troughcolor=t["bg"],
+                               bordercolor=t["kart"], arrowcolor=t["metin_ikincil"])
         except Exception:
             pass
+
+    def _tema_uygula(self):
+        """Tema degisikliginde tum widget renklerini gunceller."""
+        t = self.tema_yoneticisi.renk_paleti()
+        self.kok.configure(bg=t["bg"])
+
+        def gez(widget):
+            try:
+                Tip = type(widget)
+                bg = str(widget.cget("background") if hasattr(widget, 'cget') else "")
+                fg = str(widget.cget("foreground") if hasattr(widget, 'cget') else "")
+
+                if Tip == tk.Frame and bg not in ("", "systemButtonFace"):
+                    widget.configure(bg=t["bg"])
+                elif Tip == tk.Label:
+                    if bg not in ("", "systemButtonFace"):
+                        widget.configure(bg=t["bg"])
+                    if fg not in ("", "systemButtonFace"):
+                        widget.configure(fg=t["metin"])
+                elif Tip == tk.Text:
+                    widget.configure(bg=t["kart"], fg=t["metin"],
+                                     insertbackground=t["primer"])
+                elif Tip == tk.Button:
+                    if "serit" in str(getattr(widget, '_name', '')):
+                        widget.configure(bg=t["primer_koyu"], fg=t["buton_metin"],
+                                         activebackground=t["primer"])
+            except Exception:
+                pass
+            for cocuk in widget.winfo_children():
+                gez(cocuk)
+
+        gez(self.kok)
 
     def _arayuz_kur(self):
         self._stil_kur()
@@ -306,12 +339,30 @@ class KdvKontrolApp:
         serit_butonu("Hakkında", self.hakkinda_pencere_ac)
         self.guncelleme_butonu = serit_butonu("🔄 Güncelleme", self.guncelleme_kontrol_ac)
 
-        # Karanlık mod toggle
+        # Karanlik mod toggle
         def tema_degistir():
-            yeni = self.tema_yoneticisi.toggle()
+            self.tema_yoneticisi.toggle()
+            t = self.tema_yoneticisi.renk_paleti()
             self._stil_kur()
-            self.tema_yoneticisi.tk_renkleri_uygula(self.kok)
-            toast_goster(self.kok, f"{self.tema_yoneticisi.al('ad')} mod aktif", tip="info")
+            self._tema_uygula()
+            # Serit rengini guncelle
+            try:
+                for child in serit_ic.winfo_children():
+                    if isinstance(child, tk.Frame):
+                        child.configure(bg=t["primer"])
+                    elif isinstance(child, tk.Label):
+                        child.configure(bg=t["primer"])
+                    elif isinstance(child, tk.Button):
+                        child.configure(bg=t["primer_koyu"], fg=t["buton_metin"],
+                                        activebackground=t["primer"])
+                serit_ic.configure(bg=t["primer"])
+                serit.configure(bg=t["primer"])
+            except Exception:
+                pass
+            # Durum cubugunu guncelle
+            if hasattr(self, 'durum_cubugu'):
+                self.durum_cubugu.tema_guncelle(t)
+            toast_goster(self.kok, f"Tema: {t['ad']}", tip="info")
 
         serit_butonu("Tema", tema_degistir)
 
