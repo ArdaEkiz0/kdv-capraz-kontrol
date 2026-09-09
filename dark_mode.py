@@ -1,25 +1,17 @@
-"""Karanlık/Aydınlık mod tema desteği.
+"""Karanlık/Aydınlık mod tema desteği."""
 
-Tema değiştirme ve renk paletleri.
 
-Kullanım:
-    from dark_mode import TemaYoneticisi, ACIK_TEMA, KARANLIK_TEMA
-    ty = TemaYoneticisi()
-    ty.uygula("karanlik")
-"""
-
-# Açık Tema (varsayılan)
 ACIK_TEMA = {
-    "ad": "Açık",
+    "ad": "Acik",
     "bg": "#f5f7fb",
     "kart": "#ffffff",
     "border": "#dbe2ef",
     "metin": "#1e293b",
     "metin_ikincil": "#64748b",
     "baslik_alani": "#eef2ff",
-    "priner": "#2563eb",
-    "priner_koyu": "#1d4ed8",
-    "priner_acik": "#dbeafe",
+    "primer": "#2563eb",
+    "primer_koyu": "#1d4ed8",
+    "primer_acik": "#dbeafe",
     "mor": "#7c3aed",
     "basarili": "#10b981",
     "uyari": "#f59e0b",
@@ -32,18 +24,17 @@ ACIK_TEMA = {
     "durum_cubuk": "#1e293b",
 }
 
-# Karanlık Tema
 KARANLIK_TEMA = {
-    "ad": "Karanlık",
+    "ad": "Karanlik",
     "bg": "#0f172a",
     "kart": "#1e293b",
     "border": "#334155",
     "metin": "#e2e8f0",
     "metin_ikincil": "#94a3b8",
     "baslik_alani": "#1e3a5f",
-    "priner": "#3b82f6",
-    "priner_koyu": "#2563eb",
-    "priner_acik": "#1e3a5f",
+    "primer": "#3b82f6",
+    "primer_koyu": "#2563eb",
+    "primer_acik": "#1e3a5f",
     "mor": "#8b5cf6",
     "basarili": "#10b981",
     "uyari": "#f59e0b",
@@ -58,26 +49,18 @@ KARANLIK_TEMA = {
 
 
 class TemaYoneticisi:
-    """Tema yönetim sınıfı."""
-
     def __init__(self):
         self.aktif_tema = "acik"
-        self.tema_verileri = {
-            "acik": ACIK_TEMA,
-            "karanlik": KARANLIK_TEMA,
-        }
+        self.tema_verileri = {"acik": ACIK_TEMA, "karanlik": KARANLIK_TEMA}
 
     def al(self, anahtar):
-        """Aktif temadan değer alır."""
         return self.tema_verileri[self.aktif_tema].get(anahtar)
 
     def uygula(self, tema_adi="acik"):
-        """Tema adını ayarlar."""
         if tema_adi in self.tema_verileri:
             self.aktif_tema = tema_adi
 
     def toggle(self):
-        """Tema arasında geçiş yapar."""
         if self.aktif_tema == "acik":
             self.aktif_tema = "karanlik"
         else:
@@ -85,11 +68,54 @@ class TemaYoneticisi:
         return self.aktif_tema
 
     def renk_paleti(self):
-        """Aktif tema için renk paletini döner."""
         return self.tema_verileri[self.aktif_tema]
 
+    def tk_renkleri_uygula(self, kok_pencere):
+        """Tüm tk widget'larının renklerini günceller."""
+        t = self.tema_verileri[self.aktif_tema]
+
+        def gez(widget):
+            try:
+                bg = str(widget.cget("background") or "")
+                fg = str(widget.cget("foreground") or "")
+
+                # Frame'leri güncelle
+                if isinstance(widget, tk.Frame):
+                    if bg not in ("#ffffff", "#f5f7fb", "#0f172a", "#1e293b", "#1e3a5f"):
+                        pass
+                    else:
+                        widget.configure(bg=t["bg"])
+
+                # Label'ları güncelle
+                elif isinstance(widget, tk.Label):
+                    if bg in ("#ffffff", "#f5f7fb", "#0f172a", "#eef2ff", "#1e3a5f"):
+                        widget.configure(bg=t["bg"])
+                    if fg in ("#1e293b", "#e2e8f0", "#64748b", "#94a3b8"):
+                        widget.configure(fg=t["metin"])
+
+                # Text widget'larını güncelle
+                elif isinstance(widget, tk.Text):
+                    if bg in ("#ffffff", "#f5f7fb", "#0f172a"):
+                        widget.configure(bg=t["kart"], fg=t["metin"])
+
+                # Button'ları güncelle
+                elif isinstance(widget, tk.Button):
+                    if bg in ("#ffffff", "#f5f7fb", "#0f172a"):
+                        widget.configure(bg=t["kart"], fg=t["metin"])
+
+            except Exception:
+                pass
+
+            for cocuk in widget.winfo_children():
+                gez(cocuk)
+
+        try:
+            gez(kok_pencere)
+        except Exception:
+            pass
+
     def tk_stil_uygula(self, stil):
-        """Tema adını ttk.Style'a uygular."""
+        """ttk.Style'a tema uygular."""
         t = self.tema_verileri[self.aktif_tema]
 
         stil.configure("TFrame", background=t["bg"])
@@ -102,22 +128,22 @@ class TemaYoneticisi:
         stil.configure("Ikincil.TLabel", background=t["bg"],
                        foreground=t["metin_ikincil"], font=("Segoe UI", 9))
 
-        stil.configure("TButton", background=t["priner"], foreground=t["buton_metin"],
+        stil.configure("TButton", background=t["primer"], foreground=t["buton_metin"],
                        font=("Segoe UI", 10), padding=(10, 6), borderwidth=0,
                        focuscolor="none")
         stil.map("TButton",
-                 background=[("active", t["priner_koyu"]),
-                             ("pressed", t["priner_koyu"])],
+                 background=[("active", t["primer_koyu"]),
+                             ("pressed", t["primer_koyu"])],
                  relief=[("pressed", "sunken")])
 
         stil.configure("Baslik.TLabel", background=t["baslik_alani"],
-                       foreground=t["priner"], font=("Segoe UI", 16, "bold"),
+                       foreground=t["primer"], font=("Segoe UI", 16, "bold"),
                        padding=10)
 
         stil.configure("TRadiobutton", background=t["bg"], foreground=t["metin"],
                        font=("Segoe UI", 10))
         stil.configure("TCombobox", fieldbackground=t["kart"], background=t["kart"],
-                       foreground=t["metin"], arrowcolor=t["priner"])
+                       foreground=t["metin"], arrowcolor=t["primer"])
 
         stil.configure("Treeview", background=t["satir_bg"],
                        fieldbackground=t["satir_bg"], foreground=t["metin"],
@@ -127,25 +153,23 @@ class TemaYoneticisi:
                        padding=(8, 7), relief="flat")
         stil.map("Treeview",
                  background=[("selected", t["secili"])],
-                 foreground=[("selected", t["priner_koyu"])])
-        stil.map("Treeview.Heading",
-                 background=[("active", "#334155" if self.aktif_tema == "karanlik" else "#e2e8f0")])
+                 foreground=[("selected", t["primer_koyu"])])
 
-        stil.configure("Primary.TButton", background=t["priner"],
+        stil.configure("Primary.TButton", background=t["primer"],
                        foreground=t["buton_metin"], font=("Segoe UI", 11, "bold"),
                        padding=(22, 10), borderwidth=0, focuscolor="none")
         stil.map("Primary.TButton",
-                 background=[("active", t["priner_koyu"]),
-                             ("pressed", t["priner_koyu"])],
+                 background=[("active", t["primer_koyu"]),
+                             ("pressed", t["primer_koyu"])],
                  relief=[("pressed", "sunken")])
 
         stil.configure("Arac.TButton", background=t["kart"], foreground=t["metin"],
                        font=("Segoe UI", 9), padding=(7, 4), borderwidth=1,
                        bordercolor=t["border"], focuscolor="none")
         stil.map("Arac.TButton",
-                 background=[("active", t["priner_acik"]),
-                             ("pressed", t["priner_acik"])],
-                 bordercolor=[("active", t["priner"])])
+                 background=[("active", t["primer_acik"]),
+                             ("pressed", t["primer_acik"])],
+                 bordercolor=[("active", t["primer"])])
 
         stil.configure("KartIkincil.TLabel", background=t["kart"],
                        foreground=t["metin_ikincil"], font=("Segoe UI", 9))

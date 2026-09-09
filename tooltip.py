@@ -1,23 +1,11 @@
-"""Tooltip widget — hover ile açıklama kutusu.
-
-Widget'ın üzerine gelince küçük açıklama kutusu gösterir.
-
-Kullanım:
-    from tooltip import Tooltip
-    Tooltip(buton, "Bu buton kaydeder")
-"""
+"""Tooltip widget."""
+import tkinter as tk
 
 
 class Tooltip:
-    """Widget için tooltip (açıklama kutusu) oluşturur."""
+    """Widget için tooltip oluşturur."""
 
     def __init__(self, widget, metin, gecikme=500):
-        """
-        Args:
-            widget: Tooltip eklenecek widget
-            metin: Gösterilecek açıklama
-            gecikme: Milisaniye cinsinden gecikme
-        """
         self.widget = widget
         self.metin = metin
         self.gecikme = gecikme
@@ -45,8 +33,6 @@ class Tooltip:
         if self._pencere:
             return
         try:
-            import tkinter as tk
-
             x = self.widget.winfo_rootx() + 20
             y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
 
@@ -72,7 +58,3 @@ class Tooltip:
             except Exception:
                 pass
             self._pencere = None
-
-    def guncelle(self, yeni_metin):
-        """Tooltip metnini günceller."""
-        self.metin = yeni_metin

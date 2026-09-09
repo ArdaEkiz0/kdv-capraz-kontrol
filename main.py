@@ -310,15 +310,17 @@ class KdvKontrolApp:
         def tema_degistir():
             yeni = self.tema_yoneticisi.toggle()
             self._stil_kur()
+            self.tema_yoneticisi.tk_renkleri_uygula(self.kok)
             toast_goster(self.kok, f"{self.tema_yoneticisi.al('ad')} mod aktif", tip="info")
 
-        serit_butonu("🌓 Tema", tema_degistir)
+        serit_butonu("Tema", tema_degistir)
 
         # Tooltip'ler
-        Tooltip(self.guncelleme_butonu, "Yeni sürümü kontrol et (otomatik)")
+        Tooltip(self.guncelleme_butonu, "Yeni surumu kontrol et (otomatik)")
 
-        # ---- Durum Çubuğu ----
-        self.durum_cubugu = DurumCubugu(self.kok, side="bottom")
+        # ---- Durum Cubugu ----
+        self.durum_cubugu = DurumCubugu(self.kok)
+        self.durum_cubugu.guncelle(db_durum=self.db is not None)
 
         # ---- Sürükle-Bırak Desteği ----
         def dosyalar_yukle(dosya_yollari):
@@ -374,14 +376,24 @@ class KdvKontrolApp:
         islem.pack(fill="x", padx=10, pady=(10, 4))
         islem_satir = ttk.Frame(islem, style="Kart.TFrame")
         islem_satir.pack(fill="x")
-        ttk.Button(islem_satir, text="📄 Fatura Dosyaları Seç", style="Arac.TButton",
+        ttk.Button(islem_satir, text="Fatura Dosyalari Sec", style="Arac.TButton",
                    command=self.fatura_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(islem_satir, text="📁 Fatura Klasörü Seç", style="Arac.TButton",
+        ttk.Button(islem_satir, text="Fatura Klasoru Sec", style="Arac.TButton",
                    command=self.fatura_klasoru_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(islem_satir, text="📋 Kontrol Cetveli Seç", style="Arac.TButton",
+        ttk.Button(islem_satir, text="Kontrol Cetveli Sec", style="Arac.TButton",
                    command=self.cetvel_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(islem_satir, text="⚡  KONTROLÜ BAŞLAT", style="Primary.TButton",
-                   command=self.kontrol_baslat).pack(side="right")
+        btn_kontrol = ttk.Button(islem_satir, text="KONTROLU BASLAT", style="Primary.TButton",
+                   command=self.kontrol_baslat)
+        btn_kontrol.pack(side="right")
+
+        # Tooltip'ler
+        for btn, metin in [
+            (btn_kontrol, "Fatura ve cetvel dosyalarini karsilastir"),
+        ]:
+            try:
+                Tooltip(btn, metin)
+            except Exception:
+                pass
         self.dosya_etiketi = ttk.Label(islem, text="Fatura: (seçilmedi)  |  Cetvel: (seçilmedi)",
                                        style="KartIkincil.TLabel")
         self.dosya_etiketi.pack(fill="x", pady=(8, 0))
@@ -879,12 +891,13 @@ class KdvKontrolApp:
 
     def fatura_sec(self):
         dosyalar = filedialog.askopenfilenames(
-            title="Fatura Dosyalarını Seçin (XML, PDF veya Excel)", filetypes=DESTEKLENEN_DOSYALAR)
+            title="Fatura Dosyalarini Secin (XML, PDF veya Excel)", filetypes=DESTEKLENEN_DOSYALAR)
         if dosyalar:
             self.fatura_dosyalari = list(dosyalar)
             if self.ayarlar:
                 self.ayarlar.toplu_kaydet(son_faturalar=self.fatura_dosyalari)
             self._dosya_etiketi_guncelle()
+            toast_goster(self.kok, f"{len(dosyalar)} fatura dosyasi secildi", tip="basari")
 
     def fatura_klasoru_sec(self):
         klasor = filedialog.askdirectory(title="Faturaların Bulunduğu Klasörü Seçin")
@@ -906,12 +919,13 @@ class KdvKontrolApp:
 
     def cetvel_sec(self):
         dosyalar = filedialog.askopenfilenames(
-            title="KDV Kontrol Cetveli Dosyalarını Seçin (PDF veya Excel)", filetypes=DESTEKLENEN_DOSYALAR)
+            title="KDV Kontrol Cetveli Dosyalarini Secin (PDF veya Excel)", filetypes=DESTEKLENEN_DOSYALAR)
         if dosyalar:
             self.cetvel_dosyalari = list(dosyalar)
             if self.ayarlar:
                 self.ayarlar.toplu_kaydet(son_cetveller=self.cetvel_dosyalari)
             self._dosya_etiketi_guncelle()
+            toast_goster(self.kok, f"{len(dosyalar)} cetvel dosyasi secildi", tip="basari")
 
     def cetvel_klasor_ac(self):
         dosyalar = cetvel_klasor_dialog(self.kok)
@@ -1565,8 +1579,9 @@ class KdvKontrolApp:
                               self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
             finally:
                 self.kok.configure(cursor="")
-            messagebox.showinfo("Başarılı", f"Rapor kaydedildi:\n{hedef}")
+            messagebox.showinfo("Basarili", f"Rapor kaydedildi:\n{hedef}")
             self._log_yaz(f"Excel raporu kaydedildi: {hedef}")
+            toast_goster(self.kok, "Excel raporu kaydedildi", tip="basari")
         except Exception as hata:
             messagebox.showerror("Hata", f"Rapor kaydedilemedi:\n{hata}")
 
@@ -1591,8 +1606,9 @@ class KdvKontrolApp:
                                   self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
             finally:
                 self.kok.configure(cursor="")
-            messagebox.showinfo("Başarılı", f"PDF raporu kaydedildi:\n{hedef}")
+            messagebox.showinfo("Basarili", f"PDF raporu kaydedildi:\n{hedef}")
             self._log_yaz(f"PDF raporu kaydedildi: {hedef}")
+            toast_goster(self.kok, "PDF raporu kaydedildi", tip="basari")
             if messagebox.askyesno("Aç", "PDF dosyası şimdi açılsın mı?"):
                 os.startfile(hedef)
         except Exception as hata:
