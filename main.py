@@ -562,6 +562,9 @@ class KdvKontrolApp:
         arac.add_separator()
         arac.add_command(label="Ba/Bs Formu", command=self.muhtasar_kaydet)
         arac.add_command(label="Mail Gönder", command=self.mail_gonder_ac)
+        arac.add_separator()
+        arac.add_command(label="OCR - Görüntüden Metin Oku", command=self.ocr_gorsel_oku)
+        arac.add_command(label="OCR - Fatura Oku", command=self.ocr_fatura_oku)
 
         # Yardım menüsü
         yardim = tk.Menu(menubar, tearoff=0)
@@ -1527,6 +1530,142 @@ class KdvKontrolApp:
                 self._log_yaz(f"Mail gönderildi: {alici}")
             else:
                 messagebox.showerror("Hata", f"Mail gönderilemedi: {mesaj}")
+
+    # ---------- OCR ----------
+    def ocr_gorsel_oku(self):
+        """Görüntü dosyasından metin okur."""
+        dosya_yolu = filedialog.askopenfilename(
+            title="Görüntü Seç",
+            filetypes=[
+                ("Görüntü Dosyaları", "*.png *.jpg *.jpeg *.bmp *.tiff *.webp"),
+                ("Tüm Dosyalar", "*.*"),
+            ],
+        )
+        if not dosya_yolu:
+            return
+
+        self.status_bar.guncelle("OCR okunuyor...")
+        self.guncelle_durum_cubugu("OCR okunuyor...")
+
+        try:
+            from ocr_modulu import metin_oku
+            sonuclar = metin_oku(dosya_yolu, esik=0.3)
+
+            if not sonuclar:
+                messagebox.showinfo("OCR", "Metin bulunamadı.")
+                return
+
+            # Sonuç penceresi
+            pencere = tk.Toplevel(self.kok)
+            pencere.title("OCR Sonucu")
+            pencere.geometry("700x500")
+
+            txt = tk.Text(pencere, wrap="word", font=("Consolas", 11))
+            txt.pack(fill="both", expand=True, padx=8, pady=8)
+
+            for s in sonuclar:
+                guven_yuzde = int(s["confidence"] * 100)
+                txt.insert("end", f"[{guven_yuzde}%] {s['text']}\n")
+
+            # Kopyala butonu
+            def kopyala():
+                self.kok.clipboard_clear()
+                self.kok.clipboard_append(txt.get("1.0", "end"))
+                self._log_yaz("OCR metni panoya kopyalandı.")
+
+            btn = tk.Frame(pencere)
+            btn.pack(fill="x", padx=8, pady=(0, 8))
+            tk.Button(btn, text="Panoya Kopyala", command=kopyala).pack(side="left")
+            tk.Button(btn, text="Kapat", command=pencere.destroy).pack(side="right")
+
+            self._log_yaz(f"OCR tamamlandı: {len(sonuclar)} satır metin bulundu.")
+            self.status_bar.guncelle("OCR tamamlandı.")
+            self.guncelle_durum_cubugu("OCR tamamlandı.")
+        except Exception as e:
+            messagebox.showerror("OCR Hatası", str(e))
+            self._log_yaz(f"OCR hatası: {e}")
+
+    def ocr_fatura_oku(self):
+        """Fatura görüntüsünden yapılandırılmış veri çıkarır."""
+        dosya_yolu = filedialog.askopenfilename(
+            title="Fatura Görüntüsü Seç",
+            filetypes=[
+                ("Görüntü Dosyaları", "*.png *.jpg *.jpeg *.bmp *.tiff"),
+                ("PDF Dosyaları", "*.pdf"),
+                ("Tüm Dosyalar", "*.*"),
+            ],
+        )
+        if not dosya_yolu:
+            return
+
+        self.status_bar.guncelle("Fatura okunuyor...")
+        self.guncelle_durum_cubugu("Fatura okunuyor...")
+
+        try:
+            from ocr_modulu import fatura_oku, pdf_oku
+            import re
+
+            if dosya_yolu.lower().endswith(".pdf"):
+                ham = pdf_oku(dosya_yolu)
+                # Basit fatura parse
+                fatura = {
+                    "ham_metin": ham,
+                    "tarih": None, "seri": None, "numara": None,
+                    "vkn_tckn": None, "toplam": None, "kdv": None,
+                }
+                tarih_m = re.search(r"(\d{1,2}[./]\d{1,2}[./]\d{4})", ham)
+                if tarih_m:
+                    fatura["tarih"] = tarih_m.group(1)
+                vkn_m = re.search(r"\b(\d{10,11})\b", ham)
+                if vkn_m:
+                    fatura["vkn_tckn"] = vkn_m.group(1)
+            else:
+                fatura = fatura_oku(dosya_yolu)
+
+            # Sonuç penceresi
+            pencere = tk.Toplevel(self.kok)
+            pencere.title("Fatura OCR Sonucu")
+            pencere.geometry("600x450")
+
+            alanlar = [
+                ("Tarih", fatura.get("tarih")),
+                ("Seri", fatura.get("seri")),
+                ("Numara", fatura.get("numara")),
+                ("VKN/TCKN", fatura.get("vkn_tckn")),
+                ("Toplam", fatura.get("toplam")),
+                ("KDV", fatura.get("kdv")),
+            ]
+
+            for i, (etiket, deger) in enumerate(alanlar):
+                tk.Label(pencere, text=etiket + ":", font=("Segoe UI", 10, "bold")).grid(
+                    row=i, column=0, sticky="w", padx=(16, 4), pady=3
+                )
+                tk.Label(pencere, text=deger or "—", font=("Segoe UI", 10)).grid(
+                    row=i, column=1, sticky="w", padx=(4, 16), pady=3
+                )
+
+            # Ham metin
+            tk.Label(pencere, text="Ham Metin:", font=("Segoe UI", 10, "bold")).grid(
+                row=len(alanlar), column=0, sticky="nw", padx=(16, 4), pady=(10, 2)
+            )
+            ham_txt = tk.Text(pencere, wrap="word", font=("Consolas", 9), height=12)
+            ham_txt.grid(row=len(alanlar), column=1, sticky="nsew", padx=(4, 16), pady=(10, 8))
+            ham_txt.insert("1.0", fatura.get("ham_metin", ""))
+            ham_txt.config(state="disabled")
+
+            pencere.columnconfigure(1, weight=1)
+            pencere.rowconfigure(len(alanlar), weight=1)
+
+            tk.Button(pencere, text="Kapat", command=pencere.destroy).grid(
+                row=len(alanlar) + 1, column=1, sticky="e", padx=(4, 16), pady=(0, 8)
+            )
+
+            self._log_yaz(f"Fatura OCR tamamlandı: {dosya_yolu}")
+            self.status_bar.guncelle("Fatura OCR tamamlandı.")
+            self.guncelle_durum_cubugu("Fatura OCR tamamlandı.")
+        except Exception as e:
+            messagebox.showerror("OCR Hatası", str(e))
+            self._log_yaz(f"Fatura OCR hatası: {e}")
 
     def hakkinda_pencere_ac(self):
         """Hakkında penceresi — sosyal medya bağlantılarıyla."""
