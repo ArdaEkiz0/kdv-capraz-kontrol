@@ -24,7 +24,7 @@ def kontrol(ad, kosul, detay=""):
 def test_rapidocr_yukleme():
     print("\n== 1) RAPIDOCR YUKLEME ==")
     try:
-        from rapidocr_onnxruntime import RapidOCR
+        from rapidocr import RapidOCR
         ocr = RapidOCR()
         kontrol("RapidOCR import", True)
         kontrol("OCR nesnesi olustu", ocr is not None)

@@ -22,10 +22,10 @@ def _get_ocr():
     global _ocr
     if _ocr is None:
         try:
-            from rapidocr_onnxruntime import RapidOCR
+            from rapidocr import RapidOCR
             _ocr = RapidOCR()
         except ImportError:
-            logger.error("rapidocr-onnxruntime kurulu değil: pip install rapidocr-onnxruntime")
+            logger.error("rapidocr kurulu değil: pip install rapidocr")
             return None
     return _ocr
 
@@ -64,21 +64,17 @@ def metin_oku(
     if buyutme > 1:
         img = cv2.resize(img, None, fx=buyutme, fy=buyutme, interpolation=cv2.INTER_CUBIC)
 
-    sonuc, _ = ocr(img)
-    if sonuc is None:
+    cikti = ocr(img)
+    if cikti is None or not hasattr(cikti, "txts") or cikti.txts is None:
         return []
 
     satirlar = []
-    for satir in sonuc:
-        # v1.4 format: [box, text, confidence]
-        box = satir[0]
-        metin = satir[1]
-        guven = float(satir[2])
-        if guven >= esik:
+    for box, metin, guven in zip(cikti.boxes, cikti.txts, cikti.scores):
+        if float(guven) >= esik:
             satirlar.append({
                 "text": metin,
-                "confidence": guven,
-                "box": box,
+                "confidence": float(guven),
+                "box": box.tolist() if hasattr(box, "tolist") else box,
             })
     return satirlar
 
@@ -117,16 +113,16 @@ def captcha_coz(
     # 3x büyütme
     ikili_buyuk = cv2.resize(ikili, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
 
-    sonuc, _ = ocr(ikili_buyuk)
-    if sonuc is None:
+    cikti = ocr(ikili_buyuk)
+    if cikti is None or not hasattr(cikti, "txts") or cikti.txts is None:
         return ""
 
     # En yüksek güvenli sonucu al
     en_iyi = ""
     max_guven = 0.0
-    for satir in sonuc:
-        metin = satir[1].strip()
-        guven = float(satir[2])
+    for metin, guven in zip(cikti.txts, cikti.scores):
+        metin = metin.strip()
+        guven = float(guven)
         if guven > max_guven and metin:
             max_guven = guven
             en_iyi = metin
