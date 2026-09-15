@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Şule Çatal faturalarını Luca'dan çeker (captcha kullanıcı tarafından girilir)."""
+""" faturalarını Luca'dan çeker (captcha kullanıcı tarafından girilir)."""
 import os
 import sys
 import traceback
@@ -11,7 +11,7 @@ import mukellefler
 import luca_cekme
 from datetime import date
 
-LOG = os.path.join(os.environ.get("TEMP", "."), "sule_cekme.log")
+LOG = os.path.join(os.environ.get("TEMP", "."), ".log")
 
 
 def logla(metin):
@@ -28,11 +28,11 @@ def main():
             kayit = mukellefler.coz_ve_getir(m)
             break
     if kayit is None:
-        logla("HATA: Şule ÇATAL kaydı bulunamadı")
+        logla("HATA:  kaydı bulunamadı")
         return 1
 
-    logla(f"ŞULE ÇATAL çekimi başlıyor... (üye {kayit.get('luca_uye')})")
-    kimlik = kayit.get("vkn") or kayit.get("gib_tc") or "sule_catal"
+    logla(f" çekimi başlıyor... (üye {kayit.get('luca_uye')})")
+    kimlik = kayit.get("vkn") or kayit.get("gib_tc") or ""
     hedef = mukellefler.coz_klasor(kimlik, 2026, 8)
     os.makedirs(hedef, exist_ok=True)
     logla(f"Hedef klasör: {hedef}")
@@ -68,7 +68,7 @@ def main():
         logla(f"e-Belge hatası: {h}")
         return 1
 
-    logla("TAMAM: ŞULE ÇATAL Ağustos 2026 çekimi bitti.")
+    logla("TAMAM:  Ağustos 2026 çekimi bitti.")
     return 0
 
 
