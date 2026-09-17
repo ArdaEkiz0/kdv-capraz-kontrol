@@ -9,12 +9,12 @@ echo          KDV CAPRAZ KONTROL - BASLATICI
 echo ============================================================
 echo.
 
-REM --- Python bulucu: once python (3.12), sonra py launcher ---
+REM --- Python bulucu: py launcher veya python ---
 set "PY="
 set "PY_ARG="
-python --version >nul 2>nul
+py -3 --version >nul 2>nul
 if errorlevel 1 (
-    py -3 --version >nul 2>nul
+    python --version >nul 2>nul
     if errorlevel 1 (
         set "PY="
         set "PY_ARG="
@@ -49,12 +49,12 @@ if errorlevel 1 (
         echo Python kurulumu basarili!
         echo.
     ) else (
-        set "PY=py"
-        set "PY_ARG=-3"
+        set "PY=python"
+        set "PY_ARG="
     )
 ) else (
-    set "PY=python"
-    set "PY_ARG="
+    set "PY=py"
+    set "PY_ARG=-3"
 )
 
 %PY% %PY_ARG% --version
@@ -90,7 +90,25 @@ REM --- Eski hata logunu temizle ---
 if exist "hata.log" del "hata.log" >nul 2>nul
 
 echo Uygulama baslatiliyor (ilk acilis 1-2 dakika surebilir)...
-start "" %PY% %PY_ARG% main.py
+REM pythonw ile baslatarak CMD penceresi gosterme
+set "PYW="
+where pythonw >nul 2>nul
+if not errorlevel 1 (
+    set "PYW=pythonw"
+) else (
+    REM pythonw PATH'te yoksa python'in bulundugu dizinde ara
+    for /f "delims=" %%i in ('where %PY%') do (
+        set "PYDIR=%%~dpi"
+    )
+    if exist "%PYDIR%pythonw.exe" (
+        set "PYW=%PYDIR%pythonw.exe"
+    )
+)
+if defined PYW (
+    start "" "%PYW%" %PY_ARG% main.py
+) else (
+    start "" %PY% %PY_ARG% main.py
+)
 
 REM --- Bekle ve hata kontrolu ---
 set /a BEKLEME=0

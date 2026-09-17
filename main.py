@@ -36,6 +36,11 @@ from report import rapor_olustur
 from report_pdf import rapor_pdf_olustur
 from surum import SURUM
 from utils import tl_format
+from dark_mode import TemaYoneticisi, ACIK_TEMA, KARANLIK_TEMA
+from drag_drop import DragDropDestesi
+from status_bar import DurumCubugu
+from toast import toast_goster
+from tooltip import Tooltip
 from veri_incele import VeriIncelePenceresi
 
 DESTEKLENEN_DOSYALAR = [("Desteklenen Dosyalar", "*.pdf *.xlsx *.xlsm *.xls *.xml *.zip"),
@@ -65,20 +70,6 @@ RENK_BUTON_KAYDIR = "#eff2f7"
 RENK_SATIR_BG = "#ffffff"
 RENK_SATIR_ALT = "#f8fafc"
 RENK_SECILI = "#dbeafe"
-
-# Koyu mod renk paleti
-DARK_RENK_BG = "#0f172a"
-DARK_RENK_KART = "#1e293b"
-DARK_RENK_BORDER = "#334155"
-DARK_RENK_METIN = "#e2e8f0"
-DARK_RENK_METIN_IKINCIL = "#94a3b8"
-DARK_RENK_BASLIK_ALANI = "#1e293b"
-DARK_RENK_PRIMER_ACIK = "#1e3a5f"
-DARK_RENK_SATIR_BG = "#1e293b"
-DARK_RENK_SATIR_ALT = "#0f172a"
-DARK_RENK_SECILI = "#1e3a5f"
-DARK_RENK_HATA_BG = "#450a0a"
-DARK_RENK_BUTON_KAYDIR = "#334155"
 # Özet kartı renkleri: (zemin, yazı)
 RENK_CHIP_YESIL = ("#D1FAE5", "#065F46")
 RENK_CHIP_KIRMIZI = ("#FEE2E2", "#991B1B")
@@ -112,51 +103,6 @@ BASLIKLAR = {
 }
 
 
-class SpinnerWidget(tk.Canvas):
-    """Dönen yükleme spinner'ı widget'ı."""
-
-    def __init__(self, parent, boyut=30, renk="#2563eb", **kwargs):
-        super().__init__(parent, width=boyut, height=boyut,
-                         highlightthickness=0, **kwargs)
-        self.renk = renk
-        self.boyut = boyut
-        self._acim = 0
-        self._aktif = False
-        self._merkez = boyut // 2
-        self._yaricap = boyut // 2 - 3
-
-    def baslat(self, metin=""):
-        """Spinner'ı başlatır."""
-        self._aktif = True
-        self.pack(side="left", padx=(8, 0))
-        self._ciz()
-
-    def durdur(self):
-        """Spinner'ı durdurur ve gizler."""
-        self._aktif = False
-        self.pack_forget()
-        self.delete("all")
-
-    def _ciz(self):
-        if not self._aktif:
-            return
-        self.delete("all")
-        # 8 segmentli çember
-        for i in range(8):
-            aci = self._acim + i * 45
-            import math
-            x1 = self._merkez + self._yaricap * math.cos(math.radians(aci))
-            y1 = self._merkez + self._yaricap * math.sin(math.radians(aci))
-            x2 = self._merkez + self._yaricap * math.cos(math.radians(aci + 30))
-            y2 = self._merkez + self._yaricap * math.sin(math.radians(aci + 30))
-            # Opaklık azalır
-            opaklik = max(30, 255 - i * 30)
-            self.create_line(x1, y1, x2, y2, width=3, fill=self.renk,
-                             capstyle="round")
-        self._acim = (self._acim - 45) % 360
-        self.after(100, self._ciz)
-
-
 class KdvKontrolApp:
     def __init__(self, kok):
         self.kok = kok
@@ -164,73 +110,38 @@ class KdvKontrolApp:
         kok.geometry("1280x780")
         kok.minsize(1000, 600)
         kok.configure(bg=RENK_BG)
-
-        self.fatura_dosyalari = []
-        self.cetvel_dosyalari = []
-        self.sonuc_satirlari = []
-        self.ozet = None
-        self.faturalar = []
-        self.cetvel_kayitlari = []
-        self.fis_hesap_kayitlari = []
-        self.muavin_hesap_kayitlari = []
-        self.kurallar = kurallari_oku()
-        self.elle_eklenen_cetvel = []
-        self.filtre = "Tumu"
-        self.aktif_filtre = None
-        self.gecmis_bilgi = None
-        self._iptal = threading.Event()
-        self._islem_devam = False
-        self.kontrol_sonu_gorevleri = []
-        self.koyu_mod = False
-        try:
-            self.db = db_al()
-        except Exception as hata:
-            self.db = None
-            print(f"DB bağlanamadı: {hata}")
-        try:
-            from db import gunluk_yedek
-            self._db_yedek_durumu = gunluk_yedek()
-        except Exception as hata:
-            self._db_yedek_durumu = False
-            print(f"Günlük yedek alınamadı: {hata}")
-
-        try:
-            self.ayarlar = ayarlar_al()
-            boyut = self.ayarlar.al("pencere_boyut", "1280x780")
-            kok.geometry(boyut)
-            self.son_faturalar = self.ayarlar.al("son_faturalar", [])
-            self.son_cetveller = self.ayarlar.al("son_cetveller", [])
-        except Exception as hata:
-            self.ayarlar = None
-            print(f"Ayarlar yüklenemedi: {hata}")
-
-        self._son_dosyalari_geri_yukle()
-        self._arayuz_kur()
-        self._kisayol_sagla()
-
-    def _ikon_yukle(self, kok):
-        """Windows taskbar ve pencere icin icon yukler."""
         ico_yolu = os.path.join(PROJE_YOLU, "logo.ico")
-        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
-
-        # 1) ICO dosyasi ile pencere + taskbar iconu (Windows icin en guvenilir yontem)
         if os.path.exists(ico_yolu):
             try:
                 kok.iconbitmap(ico_yolu)
             except Exception:
                 pass
-
-        # 2) PNG ile taskbar iconunu zorla (iconphoto)
-        if os.path.exists(png_yolu):
+            # Taskbar icin WM_SETICON gonder
             try:
-                from PIL import Image, ImageTk
-                img = Image.open(png_yolu)
-                # Taskbar icin buyuk boyut gerekli
-                img_256 = img.resize((256, 256), Image.LANCZOS)
-                self._ikon_gorsel = ImageTk.PhotoImage(img_256)
-                kok.iconphoto(True, self._ikon_gorsel)
+                import ctypes
+                user32 = ctypes.windll.user32
+                HWND = user32.GetParent(int(kok.winfo_id()))
+                if HWND:
+                    IMAGE_ICON = 1
+                    LR_LOADFROMFILE = 0x0010
+                    hIcon = user32.LoadImageW(0, ico_yolu, IMAGE_ICON, 256, 256, LR_LOADFROMFILE)
+                    if hIcon:
+                        WM_SETICON = 0x0080
+                        ICON_SMALL = 0
+                        ICON_BIG = 1
+                        user32.SendMessageW(HWND, WM_SETICON, ICON_BIG, hIcon)
+                        user32.SendMessageW(HWND, WM_SETICON, ICON_SMALL, hIcon)
+                        user32.DestroyIcon(hIcon)
             except Exception:
                 pass
+        try:
+            png_yolu = os.path.join(PROJE_YOLU, "logo.png")
+            if os.path.exists(png_yolu):
+                from PIL import Image, ImageTk
+                self._ikon_gorsel = ImageTk.PhotoImage(Image.open(png_yolu))
+                kok.iconphoto(True, self._ikon_gorsel)
+        except Exception:
+            pass
 
         self.fatura_dosyalari = []
         self.cetvel_dosyalari = []
@@ -248,7 +159,7 @@ class KdvKontrolApp:
         self._iptal = threading.Event()
         self._islem_devam = False
         self.kontrol_sonu_gorevleri = []
-        self.koyu_mod = False  # Koyu mod durumu
+        self.tema_yoneticisi = TemaYoneticisi()
         try:
             self.db = db_al()
         except Exception as hata:
@@ -283,13 +194,18 @@ class KdvKontrolApp:
         def guvenli(yol):
             return yol.replace("'", "''")
 
+        # VBS baslatici varsa onu kullan (CMD gostermez)
+        baslatici = "calistir.bat"
+        if os.path.exists(os.path.join(PROJE_YOLU, "baslat.vbs")):
+            baslatici = "baslat.vbs"
+
         kod = (
             "$ws = New-Object -ComObject WScript.Shell;"
             "$m = [Environment]::GetFolderPath('Desktop');"
             "$p = Join-Path $m 'KDV Capraz Kontrol.lnk';"
             "if (-not (Test-Path $p)) {"
             "$l = $ws.CreateShortcut($p);"
-            f"$l.TargetPath = Join-Path '{guvenli(PROJE_YOLU)}' 'calistir.bat';"
+            f"$l.TargetPath = Join-Path '{guvenli(PROJE_YOLU)}' '{baslatici}';"
             f"$l.WorkingDirectory = '{guvenli(PROJE_YOLU)}';"
             f"$l.IconLocation = Join-Path '{guvenli(PROJE_YOLU)}' 'logo.ico';"
             "$l.Description = 'KDV Capraz Kontrol';"
@@ -307,28 +223,8 @@ class KdvKontrolApp:
         except Exception:
             pass
 
-    def _renkleri_hesapla(self):
-        """Mevcut moda göre renkleri hesaplar."""
-        if self.koyu_mod:
-            return {
-                "bg": DARK_RENK_BG, "kart": DARK_RENK_KART, "border": DARK_RENK_BORDER,
-                "metin": DARK_RENK_METIN, "metin_ikincil": DARK_RENK_METIN_IKINCIL,
-                "baslik_alani": DARK_RENK_BASLIK_ALANI, "primer_acik": DARK_RENK_PRIMER_ACIK,
-                "satir_bg": DARK_RENK_SATIR_BG, "satir_alt": DARK_RENK_SATIR_ALT,
-                "secili": DARK_RENK_SECILI, "buton_kaydir": DARK_RENK_BUTON_KAYDIR,
-                "scrollbar_bg": "#475569", "scrollbar_arrow": "#94a3b8",
-            }
-        return {
-            "bg": RENK_BG, "kart": RENK_KART, "border": RENK_BORDER,
-            "metin": RENK_METIN, "metin_ikincil": RENK_METIN_IKINCIL,
-            "baslik_alani": RENK_BASLIK_ALANI, "primer_acik": RENK_PRIMER_ACIK,
-            "satir_bg": RENK_SATIR_BG, "satir_alt": RENK_SATIR_ALT,
-            "secili": RENK_SECILI, "buton_kaydir": RENK_BUTON_KAYDIR,
-            "scrollbar_bg": "#e2e8f0", "scrollbar_arrow": RENK_METIN_IKINCIL,
-        }
-
     def _stil_kur(self):
-        """Modern mavi/mor tema uygular (koyu/aydınlık mod destekli)."""
+        """Temaya göre tüm stilleri uygular."""
         try:
             stil = ttk.Style(self.kok)
             if "clam" in stil.theme_names():
@@ -336,116 +232,133 @@ class KdvKontrolApp:
         except Exception:
             return
 
-        r = self._renkleri_hesapla()
-
+        t = self.tema_yoneticisi.renk_paleti()
         try:
-            stil.configure("TFrame", background=r["bg"])
-            stil.configure("Kart.TFrame", background=r["kart"], relief="flat")
+            stil.configure("TFrame", background=t["bg"])
+            stil.configure("Kart.TFrame", background=t["kart"], relief="flat")
 
-            stil.configure("TLabel", background=r["bg"], foreground=r["metin"], font=FONT_METIN)
-            stil.configure("Kart.TLabel", background=r["kart"], foreground=r["metin"], font=FONT_METIN)
-            stil.configure("Ikincil.TLabel", background=r["bg"], foreground=r["metin_ikincil"], font=FONT_KUCUK)
+            stil.configure("TLabel", background=t["bg"], foreground=t["metin"], font=FONT_METIN)
+            stil.configure("Kart.TLabel", background=t["kart"], foreground=t["metin"], font=FONT_METIN)
+            stil.configure("Ikincil.TLabel", background=t["bg"], foreground=t["metin_ikincil"], font=FONT_KUCUK)
 
-            stil.configure("TButton", background=RENK_PRIMER, foreground=RENK_BUTON_METIN,
+            stil.configure("TButton", background=t["primer"], foreground=t["buton_metin"],
                            font=("Segoe UI", 10), padding=(10, 6), borderwidth=0, focuscolor="none")
             stil.map("TButton",
-                     background=[("active", RENK_PRIMER_KOYU), ("pressed", RENK_PRIMER_KOYU)],
+                     background=[("active", t["primer_koyu"]), ("pressed", t["primer_koyu"])],
                      relief=[("pressed", "sunken")])
 
-            stil.configure("Baslik.TLabel", background=r["baslik_alani"], foreground=RENK_PRIMER,
+            stil.configure("Baslik.TLabel", background=t["baslik_alani"], foreground=t["primer"],
                            font=FONT_BASLIK, padding=10)
 
-            stil.configure("TRadiobutton", background=r["bg"], foreground=r["metin"], font=FONT_METIN)
-            stil.configure("TCombobox", fieldbackground=r["kart"], background=r["kart"],
-                           foreground=r["metin"], arrowcolor=RENK_PRIMER)
-            stil.configure("Treeview", background=r["satir_bg"], fieldbackground=r["satir_bg"],
-                           foreground=r["metin"], rowheight=28, font=FONT_METIN, borderwidth=0)
-            stil.configure("Treeview.Heading", background=r["baslik_alani"], foreground=r["metin"],
+            stil.configure("TRadiobutton", background=t["bg"], foreground=t["metin"], font=FONT_METIN)
+            stil.configure("TCombobox", fieldbackground=t["kart"], background=t["kart"],
+                           foreground=t["metin"], arrowcolor=t["primer"])
+            stil.configure("Treeview", background=t["satir_bg"], fieldbackground=t["satir_bg"],
+                           foreground=t["metin"], rowheight=28, font=FONT_METIN, borderwidth=0)
+            stil.configure("Treeview.Heading", background=t["baslik_alani"], foreground=t["metin"],
                            font=("Segoe UI", 10, "bold"), padding=(8, 7), relief="flat")
             stil.map("Treeview",
-                     background=[("selected", r["secili"])],
-                     foreground=[("selected", RENK_PRIMER_KOYU)])
+                     background=[("selected", t["secili"])],
+                     foreground=[("selected", t["primer_koyu"])])
             stil.map("Treeview.Heading",
-                     background=[("active", r["primer_acik"])])
+                     background=[("active", t["primer_acik"])])
 
-            stil.configure("Altlik.TFrame", background=r["kart"], relief="flat", borderwidth=1)
+            stil.configure("Altlik.TFrame", background=t["kart"], relief="flat", borderwidth=1)
 
-            stil.configure("Primary.TButton", background=RENK_PRIMER, foreground=RENK_BUTON_METIN,
+            stil.configure("Primary.TButton", background=t["primer"], foreground=t["buton_metin"],
                            font=("Segoe UI", 11, "bold"), padding=(22, 10), borderwidth=0,
                            focuscolor="none")
             stil.map("Primary.TButton",
-                     background=[("active", RENK_PRIMER_KOYU), ("pressed", RENK_PRIMER_KOYU)],
+                     background=[("active", t["primer_koyu"]), ("pressed", t["primer_koyu"])],
                      relief=[("pressed", "sunken")])
 
-            stil.configure("Arac.TButton", background=r["kart"], foreground=r["metin"],
+            stil.configure("Arac.TButton", background=t["kart"], foreground=t["metin"],
                            font=("Segoe UI", 9), padding=(7, 4), borderwidth=1,
-                           bordercolor=r["border"], focuscolor="none")
+                           bordercolor=t["border"], focuscolor="none")
             stil.map("Arac.TButton",
-                     background=[("active", r["primer_acik"]), ("pressed", r["primer_acik"])],
-                     bordercolor=[("active", RENK_PRIMER)])
+                     background=[("active", t["primer_acik"]), ("pressed", t["primer_acik"])],
+                     bordercolor=[("active", t["primer"])])
 
-            stil.configure("KartIkincil.TLabel", background=r["kart"],
-                           foreground=r["metin_ikincil"], font=FONT_KUCUK)
-            stil.configure("KartBaslik.TLabel", background=r["kart"], foreground=r["metin"],
+            stil.configure("KartIkincil.TLabel", background=t["kart"],
+                           foreground=t["metin_ikincil"], font=FONT_KUCUK)
+            stil.configure("KartBaslik.TLabel", background=t["kart"], foreground=t["metin"],
                            font=("Segoe UI", 11, "bold"))
-            stil.configure("Kart.TRadiobutton", background=r["kart"], foreground=r["metin"],
+            stil.configure("Kart.TRadiobutton", background=t["kart"], foreground=t["metin"],
                            font=FONT_METIN)
 
             for yon in ("Vertical", "Horizontal"):
-                stil.configure(f"{yon}.TScrollbar", background=r["scrollbar_bg"],
-                               troughcolor=r["bg"], bordercolor=r["kart"],
-                               arrowcolor=r["scrollbar_arrow"])
+                stil.configure(f"{yon}.TScrollbar", background=t["border"], troughcolor=t["bg"],
+                               bordercolor=t["kart"], arrowcolor=t["metin_ikincil"])
         except Exception:
             pass
 
-    def _koyu_mod_toggle(self):
-        """Koyu/aydınlık mod arasında geçiş yapar."""
-        self.koyu_mod = not self.koyu_mod
-        self._stil_kur()
-        self._tum_widget_renklerini_guncelle()
-        # Toggle butonu metnini güncelle
-        if hasattr(self, "koyu_mod_butonu"):
-            metin = "☀️ Aydınlık" if self.koyu_mod else "🌙 Koyu"
-            self.koyu_mod_butonu.configure(text=metin)
+    def _tema_uygula(self):
+        """Tema degisikliginde tum tk widget renklerini gunceller."""
+        t = self.tema_yoneticisi.renk_paleti()
+        self.kok.configure(bg=t["bg"])
 
-    def _tum_widget_renklerini_guncelle(self):
-        """Tüm arayüz widget'larının renklerini koyu/aydınlık moda göre günceller."""
-        r = self._renkleri_hesapla()
+        def _eslesme(var, kume):
+            """var'in degeri kume icindeyse True dondurur."""
+            return str(var) in kume
 
-        # Ana pencere
-        try:
-            self.kok.configure(bg=r["bg"])
-        except Exception:
-            pass
+        def gez(widget):
+            try:
+                tip = type(widget)
+                try:
+                    bg = str(widget.cget("background"))
+                except Exception:
+                    bg = ""
+                try:
+                    fg = str(widget.cget("foreground"))
+                except Exception:
+                    fg = ""
 
-        # ttk stil bazlı widget'lar (stil sistemi tarafından otomatik güncellenir)
-        # Treeview zebra renklerini güncelle
-        if hasattr(self, "tablo"):
-            self.tablo.tag_configure("cift_satir", background=r["satir_alt"])
-            self.tablo.tag_configure("tek_satir", background=r["satir_bg"])
-            for durum, renk in DURUM_RENKLER.items():
-                self.tablo.tag_configure(durum, background=renk)
+                if tip == tk.Frame:
+                    if bg:
+                        widget.configure(bg=t["bg"])
+                elif tip == tk.Label:
+                    # Banner, ozet kartlari ve diger ozel arka planli label'lar icin
+                    eski_bg = bg
+                    if eski_bg in (RENK_PRIMER, RENK_MOR, RENK_PRIMER_KOYU):
+                        widget.configure(bg=t["primer"], fg="#ffffff")
+                    elif eski_bg == RENK_BASLIK_ALANI:
+                        widget.configure(bg=t["baslik_alani"], fg=t["primer"])
+                    else:
+                        if eski_bg:
+                            widget.configure(bg=t["bg"], fg=t["metin"])
+                elif tip == tk.Text:
+                    widget.configure(bg=t["kart"], fg=t["metin"],
+                                     insertbackground=t["primer"],
+                                     highlightbackground=t["border"])
+                elif tip == tk.Button:
+                    # Serit butonlari (update, tema, hakkinda vs.)
+                    widget.configure(bg=t["primer_koyu"], fg=t["buton_metin"],
+                                     activebackground=t["primer"],
+                                     activeforeground=t["buton_metin"])
+                elif tip == tk.Radiobutton:
+                    widget.configure(bg=t["kart"], fg=t["metin"],
+                                     selectcolor=t["kart"],
+                                     activebackground=t["kart"],
+                                     activeforeground=t["metin"])
+                elif tip == tk.Canvas:
+                    if bg:
+                        widget.configure(bg=t["bg"])
+            except Exception:
+                pass
+            for cocuk in widget.winfo_children():
+                gez(cocuk)
 
-        # Log alanı (tk.Text - manuel güncelle)
-        if hasattr(self, "log"):
-            self.log.configure(bg=r["kart"], fg=r["metin"], insertbackground=RENK_PRIMER)
+        gez(self.kok)
 
-        # Özet alanı
-        if hasattr(self, "ozet_alani"):
-            self.ozet_alani.configure(bg=r["bg"])
-            if self.ozet:
-                self._ozet_guncelle()
-            else:
-                self._ozet_bos_yaz()
-
-        # Tum ttk widget'larini zorla guncelle
-        try:
-            self.kok.update_idletasks()
-        except Exception:
-            pass
+        # Ozet alani ve icindeki kartlari da guncelle
+        if hasattr(self, 'ozet_alani'):
+            self.ozet_alani.configure(bg=t["bg"])
 
     def _arayuz_kur(self):
         self._stil_kur()
+
+        # ---- Menü Çubuğu ----
+        self._menu_olustur()
 
         # ---- Üst şerit: uygulama adı + sürüm + kısa kullanım akışı ----
         serit = tk.Frame(self.kok, bg=RENK_PRIMER)
@@ -473,20 +386,83 @@ class KdvKontrolApp:
                           bg=RENK_PRIMER_KOYU, fg="#ffffff", relief="flat", bd=0,
                           activebackground="#3b82f6", activeforeground="#ffffff",
                           padx=10, pady=3, cursor="hand2")
-
-            def hover_gir(e):
-                b.configure(bg="#3b82f6")
-            def hover_cik(e):
-                b.configure(bg=RENK_PRIMER_KOYU)
-
-            b.bind("<Enter>", hover_gir)
-            b.bind("<Leave>", hover_cik)
             b.pack(side="right", padx=(6, 0))
             return b
 
         serit_butonu("Hakkında", self.hakkinda_pencere_ac)
         self.guncelleme_butonu = serit_butonu("🔄 Güncelleme", self.guncelleme_kontrol_ac)
-        self.koyu_mod_butonu = serit_butonu("🌙 Koyu", self._koyu_mod_toggle)
+
+        # Karanlik mod toggle
+        def tema_degistir():
+            self.tema_yoneticisi.toggle()
+            t = self.tema_yoneticisi.renk_paleti()
+            self._stil_kur()
+            self._tema_uygula()
+            # Serit (banner) rengini guncelle
+            try:
+                for child in serit_ic.winfo_children():
+                    if isinstance(child, tk.Frame):
+                        child.configure(bg=t["primer"])
+                    elif isinstance(child, tk.Label):
+                        child.configure(bg=t["primer"])
+                    elif isinstance(child, tk.Button):
+                        child.configure(bg=t["primer_koyu"], fg=t["buton_metin"],
+                                        activebackground=t["primer"])
+                serit_ic.configure(bg=t["primer"])
+                serit.configure(bg=t["primer"])
+            except Exception:
+                pass
+            # Durum cubugunu guncelle
+            if hasattr(self, 'durum_cubugu'):
+                self.durum_cubugu.tema_guncelle(t)
+            # Treeview satir renklerini yenile
+            try:
+                for durum, renk in DURUM_RENKLER.items():
+                    self.tablo.tag_configure(durum, background=renk)
+            except Exception:
+                pass
+            self.kok.update_idletasks()
+            toast_goster(self.kok, f"Tema: {t['ad']}", tip="info")
+
+        serit_butonu("Tema", tema_degistir)
+
+        # Tooltip'ler
+        Tooltip(self.guncelleme_butonu, "Yeni surumu kontrol et (otomatik)")
+
+        # ---- Durum Cubugu ----
+        self.durum_cubugu = DurumCubugu(self.kok)
+        self.durum_cubugu.guncelle(db_durum=self.db is not None)
+
+        # ---- Sürükle-Bırak Desteği ----
+        def dosyalar_yukle(dosya_yollari):
+            fatura_uzantilari = (".pdf", ".xlsx", ".xlsm", ".xls", ".xml")
+            cetvel_uzantilari = (".pdf", ".xlsx", ".xlsm", ".xls")
+            yeni_fatura = []
+            yeni_cetvel = []
+            for yol in dosya_yollari:
+                if not os.path.exists(yol):
+                    continue
+                uzanti = os.path.splitext(yol)[1].lower()
+                if uzanti in fatura_uzantilari:
+                    yeni_fatura.append(yol)
+                if uzanti in cetvel_uzantilari:
+                    yeni_cetvel.append(yol)
+            if yeni_fatura:
+                self.fatura_dosyalari.extend(yeni_fatura)
+            if yeni_cetvel:
+                self.cetvel_dosyalari.extend(yeni_cetvel)
+            if yeni_fatura or yeni_cetvel:
+                self._dosya_etiketi_guncelle()
+                self.durum_cubugu.guncelle(
+                    dosya=len(self.fatura_dosyalari),
+                    cetvel=len(self.cetvel_dosyalari))
+                toast_goster(self.kok,
+                    f"{len(yeni_fatura)} fatura, {len(yeni_cetvel)} cetvel eklendi",
+                    tip="basari")
+
+        self.drag_destesi = DragDropDestesi(self.kok, dosyalar_yukle)
+        if self.drag_destesi.aktif_mi:
+            toast_goster(self.kok, "Sürükle-bırak aktif", tip="info", sure=2000)
 
         # ---- Alt bölgeler önce ayrılır (günlük + özet kartları) ----
         log_karti = ttk.Frame(self.kok, style="Kart.TFrame", padding=(10, 6))
@@ -511,16 +487,24 @@ class KdvKontrolApp:
         islem.pack(fill="x", padx=10, pady=(10, 4))
         islem_satir = ttk.Frame(islem, style="Kart.TFrame")
         islem_satir.pack(fill="x")
-        ttk.Button(islem_satir, text="📄 Fatura Dosyaları Seç", style="Arac.TButton",
+        ttk.Button(islem_satir, text="Fatura Dosyalari Sec", style="Arac.TButton",
                    command=self.fatura_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(islem_satir, text="📁 Fatura Klasörü Seç", style="Arac.TButton",
+        ttk.Button(islem_satir, text="Fatura Klasoru Sec", style="Arac.TButton",
                    command=self.fatura_klasoru_sec).pack(side="left", padx=(0, 6))
-        ttk.Button(islem_satir, text="📋 Kontrol Cetveli Seç", style="Arac.TButton",
+        ttk.Button(islem_satir, text="Kontrol Cetveli Sec", style="Arac.TButton",
                    command=self.cetvel_sec).pack(side="left", padx=(0, 6))
-        # Spinner (işlem sırasında gösterilir)
-        self.spinner = SpinnerWidget(islem_satir, boyut=24, renk=RENK_PRIMER)
-        ttk.Button(islem_satir, text="⚡  KONTROLÜ BAŞLAT", style="Primary.TButton",
-                   command=self.kontrol_baslat).pack(side="right")
+        btn_kontrol = ttk.Button(islem_satir, text="KONTROLU BASLAT", style="Primary.TButton",
+                   command=self.kontrol_baslat)
+        btn_kontrol.pack(side="right")
+
+        # Tooltip'ler
+        for btn, metin in [
+            (btn_kontrol, "Fatura ve cetvel dosyalarini karsilastir"),
+        ]:
+            try:
+                Tooltip(btn, metin)
+            except Exception:
+                pass
         self.dosya_etiketi = ttk.Label(islem, text="Fatura: (seçilmedi)  |  Cetvel: (seçilmedi)",
                                        style="KartIkincil.TLabel")
         self.dosya_etiketi.pack(fill="x", pady=(8, 0))
@@ -541,12 +525,8 @@ class KdvKontrolApp:
             if i:
                 ttk.Separator(araclar, orient="vertical").pack(side="left", fill="y", padx=5, pady=2)
             for metin, komut in grup:
-                btn = ttk.Button(araclar, text=metin, style="Arac.TButton", command=komut)
-                btn.pack(side="left", padx=(0, 6))
-                try:
-                    btn.configure(cursor="hand2")
-                except Exception:
-                    pass
+                ttk.Button(araclar, text=metin, style="Arac.TButton", command=komut
+                           ).pack(side="left", padx=(0, 6))
 
         # ---- Sonuç kartı: filtreler + tablo ----
         tablo_karti = ttk.Frame(self.kok, style="Kart.TFrame", padding=(10, 8))
@@ -592,11 +572,6 @@ class KdvKontrolApp:
         tablo_alan.rowconfigure(0, weight=1)
         tablo_alan.columnconfigure(0, weight=1)
 
-        # Alternatif satır renkleri (zebra deseni)
-        r = self._renkleri_hesapla()
-        self.tablo.tag_configure("cift_satir", background=r["satir_alt"])
-        self.tablo.tag_configure("tek_satir", background=r["satir_bg"])
-
         self.guncelleme_bilgisi = None
         self.kok.after(1000, self._aylik_rutin_oner)
         self.kok.after(1500, self._otomatik_guncelleme_kontrol)
@@ -606,6 +581,62 @@ class KdvKontrolApp:
         self.log.insert("end", metin + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
+
+    def _menu_olustur(self):
+        """Menü çubuğunu oluşturur."""
+        menubar = tk.Menu(self.kok)
+        self.kok.configure(menu=menubar)
+
+        # Dosya menüsü
+        dosya = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Dosya", menu=dosya)
+        dosya.add_command(label="Fatura Dosyaları Seç", command=self.fatura_sec,
+                          accelerator="Ctrl+O")
+        dosya.add_command(label="Fatura Klasörü Seç", command=self.fatura_klasoru_sec)
+        dosya.add_command(label="Cetvel Seç", command=self.cetvel_sec)
+        dosya.add_separator()
+        dosya.add_command(label="Excel Raporu Kaydet", command=self.rapor_kaydet,
+                          accelerator="Ctrl+S")
+        dosya.add_command(label="PDF Raporu Kaydet", command=self.rapor_pdf_kaydet)
+        dosya.add_command(label="Muhasebeci Paketi", command=self.muhasebeci_paketi)
+        dosya.add_separator()
+        dosya.add_command(label="Çıkış", command=self.kok.quit)
+
+        # Düzen menüsü
+        duzen = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Düzen", menu=duzen)
+        duzen.add_command(label="Gelişmiş Filtre", command=self.gelismis_filtre_ac,
+                          accelerator="Ctrl+F")
+        duzen.add_command(label="Kurallar", command=self.kurallar_pencere_ac)
+        duzen.add_command(label="Dashboard", command=self.dashboard_goster,
+                          accelerator="Ctrl+D")
+        duzen.add_separator()
+        duzen.add_command(label="Veri İncele", command=self.veri_incele_ac)
+        duzen.add_command(label="Beyanname", command=self.beyanname_ac)
+
+        # Araçlar menüsü
+        arac = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Araçlar", menu=arac)
+        arac.add_command(label="Mükellefler", command=self.mukellefler_ac)
+        arac.add_command(label="Klasör Cetvel", command=self.cetvel_klasor_ac)
+        arac.add_separator()
+        arac.add_command(label="Ba/Bs Formu", command=self.muhtasar_kaydet)
+        arac.add_command(label="Mail Gönder", command=self.mail_gonder_ac)
+        arac.add_separator()
+        arac.add_command(label="OCR - Görüntüden Metin Oku", command=self.ocr_gorsel_oku)
+        arac.add_command(label="OCR - Fatura Oku", command=self.ocr_fatura_oku)
+
+        # Yardım menüsü
+        yardim = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Yardım", menu=yardim)
+        yardim.add_command(label="Hakkında", command=self.hakkinda_pencere_ac)
+        yardim.add_command(label="Güncelleme", command=self.guncelleme_kontrol_ac)
+
+        # Kısayol tuşları
+        self.kok.bind("<Control-o>", lambda e: self.fatura_sec())
+        self.kok.bind("<Control-s>", lambda e: self.rapor_kaydet())
+        self.kok.bind("<Control-f>", lambda e: self.gelismis_filtre_ac())
+        self.kok.bind("<Control-d>", lambda e: self.dashboard_goster())
 
     # ---------- Güncelleme ----------
     def _otomatik_guncelleme_kontrol(self):
@@ -974,12 +1005,13 @@ class KdvKontrolApp:
 
     def fatura_sec(self):
         dosyalar = filedialog.askopenfilenames(
-            title="Fatura Dosyalarını Seçin (XML, PDF veya Excel)", filetypes=DESTEKLENEN_DOSYALAR)
+            title="Fatura Dosyalarini Secin (XML, PDF veya Excel)", filetypes=DESTEKLENEN_DOSYALAR)
         if dosyalar:
             self.fatura_dosyalari = list(dosyalar)
             if self.ayarlar:
                 self.ayarlar.toplu_kaydet(son_faturalar=self.fatura_dosyalari)
             self._dosya_etiketi_guncelle()
+            toast_goster(self.kok, f"{len(dosyalar)} fatura dosyasi secildi", tip="basari")
 
     def fatura_klasoru_sec(self):
         klasor = filedialog.askdirectory(title="Faturaların Bulunduğu Klasörü Seçin")
@@ -1001,12 +1033,13 @@ class KdvKontrolApp:
 
     def cetvel_sec(self):
         dosyalar = filedialog.askopenfilenames(
-            title="KDV Kontrol Cetveli Dosyalarını Seçin (PDF veya Excel)", filetypes=DESTEKLENEN_DOSYALAR)
+            title="KDV Kontrol Cetveli Dosyalarini Secin (PDF veya Excel)", filetypes=DESTEKLENEN_DOSYALAR)
         if dosyalar:
             self.cetvel_dosyalari = list(dosyalar)
             if self.ayarlar:
                 self.ayarlar.toplu_kaydet(son_cetveller=self.cetvel_dosyalari)
             self._dosya_etiketi_guncelle()
+            toast_goster(self.kok, f"{len(dosyalar)} cetvel dosyasi secildi", tip="basari")
 
     def cetvel_klasor_ac(self):
         dosyalar = cetvel_klasor_dialog(self.kok)
@@ -1024,6 +1057,11 @@ class KdvKontrolApp:
         f_metin = f"{len(self.fatura_dosyalari)} dosya" if self.fatura_dosyalari else "(seçilmedi)"
         c_metin = f"{len(self.cetvel_dosyalari)} dosya" if self.cetvel_dosyalari else "(seçilmedi)"
         self.dosya_etiketi.configure(text=f"Fatura: {f_metin} | Cetvel: {c_metin}")
+        # Durum çubuğunu güncelle
+        if hasattr(self, 'durum_cubugu'):
+            self.durum_cubugu.guncelle(
+                dosya=len(self.fatura_dosyalari),
+                cetvel=len(self.cetvel_dosyalari))
 
     def kontrol_baslat(self):
         if not self.fatura_dosyalari and not self.cetvel_dosyalari:
@@ -1036,7 +1074,6 @@ class KdvKontrolApp:
         self._islem_devam = True
         self._butonlari_aktif_fiyatla(False)
         self.kok.configure(cursor="watch")
-        self.spinner.baslat()
         self._log_yaz("Kontrol başlatılıyor... (Arka planda çalışıyor)")
 
         t = threading.Thread(target=self._kontrol_arka_planda, daemon=True)
@@ -1154,6 +1191,20 @@ class KdvKontrolApp:
         self._db_kaydet()
         self._log_yaz(f"Kontrol tamamlandı: {len(self.faturalar)} fatura, {len(self.cetvel_kayitlari)} cetvel satırı, "
                        f"{len(self.sonuc_satirlari)} sonuç satırı.")
+        # Durum çubuğunu güncelle
+        if hasattr(self, 'durum_cubugu'):
+            self.durum_cubugu.guncelle(
+                dosya=len(self.faturalar),
+                cetvel=len(self.cetvel_kayitlari),
+                db_durum=self.db is not None,
+                son_islem=f"Kontrol tamamlandı")
+            # Toast bildirim
+            sorunlu = (self.ozet.get("tutar_farki", 0) + self.ozet.get("vkn_farki", 0)
+                      + self.ozet.get("cetvelde_yok", 0) + self.ozet.get("faturada_yok", 0))
+            if sorunlu > 0:
+                toast_goster(self.kok, f"{sorunlu} sorunlu kayıt bulundu", tip="uyari")
+            else:
+                toast_goster(self.kok, "Tüm faturalar eşleşti!", tip="basari")
         if self.ozet and self.ozet.get("iade_adet", 0):
             self._log_yaz(f"İade faturası: {self.ozet['iade_adet']} adet, toplam KDV: {tl_format(self.ozet.get('iade_kdv_toplam'))} TL")
         if getattr(self, "kontrol_sonu_gorevleri", None):
@@ -1168,7 +1219,6 @@ class KdvKontrolApp:
     def _kontrol_bitiyoruz(self):
         self._islem_devam = False
         self.kok.configure(cursor="")
-        self.spinner.durdur()
         self._butonlari_aktif_fiyatla(True)
 
     def _donem_listesini_doldur(self):
@@ -1353,20 +1403,20 @@ class KdvKontrolApp:
             self._ozet_karti(baslik, deger, arka, yazi)
 
     def _ozet_karti(self, baslik, deger, arka, yazi):
-        kutu = tk.Frame(self.ozet_alani, bg=arka, padx=1, pady=1)
-        kutu.pack(side="left", padx=(0, 6), pady=3)
+        kutu = tk.Frame(self.ozet_alani, bg=arka)
+        kutu.pack(side="left", padx=(0, 8), pady=2)
         ic = tk.Frame(kutu, bg=arka)
-        ic.pack(padx=14, pady=6)
-        tk.Label(ic, text=str(deger), font=("Segoe UI", 14, "bold"),
+        ic.pack(padx=12, pady=5)
+        tk.Label(ic, text=str(deger), font=("Segoe UI", 13, "bold"),
                  bg=arka, fg=yazi).pack()
         tk.Label(ic, text=baslik, font=("Segoe UI", 8),
                  bg=arka, fg=yazi).pack()
 
     def _ozet_bos_yaz(self):
-        r = self._renkleri_hesapla()
+        t = self.tema_yoneticisi.renk_paleti()
         tk.Label(self.ozet_alani,
                  text="Henüz kontrol yapılmadı — fatura ve cetvel dosyalarını seçtikten sonra 'Kontrolü Başlat'a basın.",
-                 font=FONT_KUCUK, bg=r["bg"], fg=r["metin_ikincil"]).pack(side="left")
+                 font=FONT_KUCUK, bg=t["bg"], fg=t["metin_ikincil"]).pack(side="left")
 
     def _filtre_uygula(self):
         secim = self.filtre_degisken.get()
@@ -1383,10 +1433,9 @@ class KdvKontrolApp:
         if self.aktif_filtre:
             satirlar = filtre_uygula(satirlar, self.aktif_filtre)
 
-        for idx, satir in enumerate(satirlar):
+        for satir in satirlar:
             tag = satir["durum"]
-            zebra = "cift_satir" if idx % 2 == 0 else "tek_satir"
-            self.tablo.insert("", "end", tags=(tag, zebra), values=(
+            self.tablo.insert("", "end", tags=(tag,), values=(
                 satir["durum"],
                 satir["belge_no"] or "",
                 satir["vkn"] or "",
@@ -1543,6 +1592,142 @@ class KdvKontrolApp:
             else:
                 messagebox.showerror("Hata", f"Mail gönderilemedi: {mesaj}")
 
+    # ---------- OCR ----------
+    def ocr_gorsel_oku(self):
+        """Görüntü dosyasından metin okur."""
+        dosya_yolu = filedialog.askopenfilename(
+            title="Görüntü Seç",
+            filetypes=[
+                ("Görüntü Dosyaları", "*.png *.jpg *.jpeg *.bmp *.tiff *.webp"),
+                ("Tüm Dosyalar", "*.*"),
+            ],
+        )
+        if not dosya_yolu:
+            return
+
+        if hasattr(self, 'durum_cubugu'):
+            self.durum_cubugu.guncelle(son_islem="OCR okunuyor...")
+
+        try:
+            from ocr_modulu import metin_oku
+            sonuclar = metin_oku(dosya_yolu, esik=0.3)
+
+            if not sonuclar:
+                messagebox.showinfo("OCR", "Metin bulunamadı.")
+                return
+
+            # Sonuç penceresi
+            pencere = tk.Toplevel(self.kok)
+            pencere.title("OCR Sonucu")
+            pencere.geometry("700x500")
+
+            txt = tk.Text(pencere, wrap="word", font=("Consolas", 11))
+            txt.pack(fill="both", expand=True, padx=8, pady=8)
+
+            for s in sonuclar:
+                guven_yuzde = int(s["confidence"] * 100)
+                txt.insert("end", f"[{guven_yuzde}%] {s['text']}\n")
+
+            # Kopyala butonu
+            def kopyala():
+                self.kok.clipboard_clear()
+                self.kok.clipboard_append(txt.get("1.0", "end"))
+                self._log_yaz("OCR metni panoya kopyalandı.")
+
+            btn = tk.Frame(pencere)
+            btn.pack(fill="x", padx=8, pady=(0, 8))
+            tk.Button(btn, text="Panoya Kopyala", command=kopyala).pack(side="left")
+            tk.Button(btn, text="Kapat", command=pencere.destroy).pack(side="right")
+
+            self._log_yaz(f"OCR tamamlandı: {len(sonuclar)} satır metin bulundu.")
+            if hasattr(self, 'durum_cubugu'):
+                self.durum_cubugu.guncelle(son_islem="OCR tamamlandı.")
+        except Exception as e:
+            messagebox.showerror("OCR Hatası", str(e))
+            self._log_yaz(f"OCR hatası: {e}")
+
+    def ocr_fatura_oku(self):
+        """Fatura görüntüsünden yapılandırılmış veri çıkarır."""
+        dosya_yolu = filedialog.askopenfilename(
+            title="Fatura Görüntüsü Seç",
+            filetypes=[
+                ("Görüntü Dosyaları", "*.png *.jpg *.jpeg *.bmp *.tiff"),
+                ("PDF Dosyaları", "*.pdf"),
+                ("Tüm Dosyalar", "*.*"),
+            ],
+        )
+        if not dosya_yolu:
+            return
+
+        if hasattr(self, 'durum_cubugu'):
+            self.durum_cubugu.guncelle(son_islem="Fatura okunuyor...")
+
+        try:
+            from ocr_modulu import fatura_oku, pdf_oku
+            import re
+
+            if dosya_yolu.lower().endswith(".pdf"):
+                ham = pdf_oku(dosya_yolu)
+                # Basit fatura parse
+                fatura = {
+                    "ham_metin": ham,
+                    "tarih": None, "seri": None, "numara": None,
+                    "vkn_tckn": None, "toplam": None, "kdv": None,
+                }
+                tarih_m = re.search(r"(\d{1,2}[./]\d{1,2}[./]\d{4})", ham)
+                if tarih_m:
+                    fatura["tarih"] = tarih_m.group(1)
+                vkn_m = re.search(r"\b(\d{10,11})\b", ham)
+                if vkn_m:
+                    fatura["vkn_tckn"] = vkn_m.group(1)
+            else:
+                fatura = fatura_oku(dosya_yolu)
+
+            # Sonuç penceresi
+            pencere = tk.Toplevel(self.kok)
+            pencere.title("Fatura OCR Sonucu")
+            pencere.geometry("600x450")
+
+            alanlar = [
+                ("Tarih", fatura.get("tarih")),
+                ("Seri", fatura.get("seri")),
+                ("Numara", fatura.get("numara")),
+                ("VKN/TCKN", fatura.get("vkn_tckn")),
+                ("Toplam", fatura.get("toplam")),
+                ("KDV", fatura.get("kdv")),
+            ]
+
+            for i, (etiket, deger) in enumerate(alanlar):
+                tk.Label(pencere, text=etiket + ":", font=("Segoe UI", 10, "bold")).grid(
+                    row=i, column=0, sticky="w", padx=(16, 4), pady=3
+                )
+                tk.Label(pencere, text=deger or "—", font=("Segoe UI", 10)).grid(
+                    row=i, column=1, sticky="w", padx=(4, 16), pady=3
+                )
+
+            # Ham metin
+            tk.Label(pencere, text="Ham Metin:", font=("Segoe UI", 10, "bold")).grid(
+                row=len(alanlar), column=0, sticky="nw", padx=(16, 4), pady=(10, 2)
+            )
+            ham_txt = tk.Text(pencere, wrap="word", font=("Consolas", 9), height=12)
+            ham_txt.grid(row=len(alanlar), column=1, sticky="nsew", padx=(4, 16), pady=(10, 8))
+            ham_txt.insert("1.0", fatura.get("ham_metin", ""))
+            ham_txt.config(state="disabled")
+
+            pencere.columnconfigure(1, weight=1)
+            pencere.rowconfigure(len(alanlar), weight=1)
+
+            tk.Button(pencere, text="Kapat", command=pencere.destroy).grid(
+                row=len(alanlar) + 1, column=1, sticky="e", padx=(4, 16), pady=(0, 8)
+            )
+
+            self._log_yaz(f"Fatura OCR tamamlandı: {dosya_yolu}")
+            if hasattr(self, 'durum_cubugu'):
+                self.durum_cubugu.guncelle(son_islem="Fatura OCR tamamlandı.")
+        except Exception as e:
+            messagebox.showerror("OCR Hatası", str(e))
+            self._log_yaz(f"Fatura OCR hatası: {e}")
+
     def hakkinda_pencere_ac(self):
         """Hakkında penceresi — sosyal medya bağlantılarıyla."""
         import webbrowser
@@ -1645,8 +1830,9 @@ class KdvKontrolApp:
                               self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
             finally:
                 self.kok.configure(cursor="")
-            messagebox.showinfo("Başarılı", f"Rapor kaydedildi:\n{hedef}")
+            messagebox.showinfo("Basarili", f"Rapor kaydedildi:\n{hedef}")
             self._log_yaz(f"Excel raporu kaydedildi: {hedef}")
+            toast_goster(self.kok, "Excel raporu kaydedildi", tip="basari")
         except Exception as hata:
             messagebox.showerror("Hata", f"Rapor kaydedilemedi:\n{hata}")
 
@@ -1671,8 +1857,9 @@ class KdvKontrolApp:
                                   self.cetvel_kayitlari, hedef, gecmis_bilgi=self.gecmis_bilgi)
             finally:
                 self.kok.configure(cursor="")
-            messagebox.showinfo("Başarılı", f"PDF raporu kaydedildi:\n{hedef}")
+            messagebox.showinfo("Basarili", f"PDF raporu kaydedildi:\n{hedef}")
             self._log_yaz(f"PDF raporu kaydedildi: {hedef}")
+            toast_goster(self.kok, "PDF raporu kaydedildi", tip="basari")
             if messagebox.askyesno("Aç", "PDF dosyası şimdi açılsın mı?"):
                 os.startfile(hedef)
         except Exception as hata:
@@ -1803,30 +1990,10 @@ class KdvKontrolApp:
 def main():
     try:
         kok = tk.Tk()
-
-        # ICO ile pencere + taskbar iconu
-        ico_yolu = os.path.join(PROJE_YOLU, "logo.ico")
-        if os.path.exists(ico_yolu):
-            try:
-                abs_ico = os.path.abspath(ico_yolu)
-                kok.iconbitmap(abs_ico)
-            except Exception as e:
-                print(f"iconbitmap hatasi: {e}")
-
-        # PNG ile taskbar iconu (ek guvence)
-        png_yolu = os.path.join(PROJE_YOLU, "logo.png")
-        if os.path.exists(png_yolu):
-            try:
-                from PIL import Image, ImageTk
-                img = Image.open(png_yolu).resize((256, 256), Image.LANCZOS)
-                kok._ikon_photo = ImageTk.PhotoImage(img)
-                kok.iconphoto(True, kok._ikon_photo)
-            except Exception:
-                pass
-
         KdvKontrolApp(kok)
         kok.mainloop()
     except Exception:
+        import os
         import traceback
         log_yolu = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hata.log")
         with open(log_yolu, "w", encoding="utf-8") as f:
