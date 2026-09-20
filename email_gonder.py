@@ -9,24 +9,35 @@ from email.encoders import encode_base64
 from typing import List, Optional, Tuple
 
 
+def _ps_escape(s: str) -> str:
+    """PowerShell betiğindeki string için güvenli kaçırtma."""
+    s = s.replace("`", "``")
+    s = s.replace('"', '`"')
+    s = s.replace("$", "`$")
+    s = s.replace("(", "`(")
+    s = s.replace(")", "`)")
+    s = s.replace("[", "`[")
+    s = s.replace("]", "`]")
+    return s
+
+
 def outlook_ile_gonder(ek_dosyalar: List[str], konu: str, govde: str, alici: str) -> bool:
     """Windows'ta Outlook'u açıp hazır mail penceresi oluşturur."""
     try:
-        ekler_str = ", ".join(f'"{f}"' for f in ek_dosyalar)
-        govde_temiz = govde.replace('"', "'").replace("\n", " ")
         script = (
-            f'$outlook = New-Object -ComObject Outlook.Application;'
-            f'$mail = $outlook.CreateItem(0);'
-            f'$mail.To = "{alici}";'
-            f'$mail.Subject = "{konu}";'
-            f'$mail.Body = "{govde_temiz}";'
+            "$outlook = New-Object -ComObject Outlook.Application;"
+            "$mail = $outlook.CreateItem(0);"
+            f'$mail.To = "{_ps_escape(alici)}";'
+            f'$mail.Subject = "{_ps_escape(konu)}";'
+            f'$mail.Body = "{_ps_escape(govde.replace(chr(10), " "))}";'
         )
         for ek in ek_dosyalar:
-            script += f'$mail.Attachments.Add("{ek}");'
-        script += '$mail.Display();'
+            script += f'$mail.Attachments.Add("{_ps_escape(ek)}");'
+        script += "$mail.Display();"
 
+        encoded = __import__("base64").b64encode(script.encode("utf-16-le")).decode()
         subprocess.run(
-            ["powershell", "-NoProfile", "-Command", script],
+            ["powershell", "-NoProfile", "-EncodedCommand", encoded],
             check=True,
             timeout=10,
         )

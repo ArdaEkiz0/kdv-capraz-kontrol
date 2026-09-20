@@ -174,7 +174,14 @@ class KdvKontrolApp:
             return
 
         def guvenli(yol):
-            return yol.replace("'", "''")
+            yol = yol.replace("`", "``")
+            yol = yol.replace('"', '`"')
+            yol = yol.replace("$", "`$")
+            yol = yol.replace("(", "`(")
+            yol = yol.replace(")", "`)")
+            yol = yol.replace("[", "`[")
+            yol = yol.replace("]", "`]")
+            return yol
 
         kod = (
             "$ws = New-Object -ComObject WScript.Shell;"

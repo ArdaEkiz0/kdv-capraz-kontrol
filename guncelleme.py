@@ -125,6 +125,10 @@ def guncellemeyi_kur(indirme_url, hedef_yol, ilerleme_callback=None):
     cikti = os.path.join(gecici, "icerik")
     os.makedirs(cikti, exist_ok=True)
     with zipfile.ZipFile(zip_yolu) as z:
+        for member in z.namelist():
+            target_path = os.path.realpath(os.path.join(cikti, member))
+            if not target_path.startswith(os.path.realpath(cikti)):
+                raise ValueError(f"Zip Slip: {member} hedef dizin dışına çıkıyor")
         z.extractall(cikti)
 
     # GitHub archive zip'i tek bir kök klasör içerir; onu bul
