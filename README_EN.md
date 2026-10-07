@@ -9,6 +9,7 @@ Find differences, missing entries and errors in seconds.
 
 [![Version](https://img.shields.io/github/v/release/ArdaEkiz0/kdv-capraz-kontrol?style=for-the-badge&label=version&color=7C3AED)](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/ArdaEkiz0/kdv-capraz-kontrol/total?style=for-the-badge&label=downloads&color=2563EB)](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/releases)
+[![CI](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/actions/workflows/ci.yml/badge.svg)](https://github.com/ArdaEkiz0/kdv-capraz-kontrol/actions)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![Windows](https://img.shields.io/badge/Platform-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://microsoft.com)
 [![License](https://img.shields.io/badge/License-MIT-16A34A?style=for-the-badge)](LICENSE)
